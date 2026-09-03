@@ -541,6 +541,19 @@ class Reports extends Controller
 		if ($endDate)   { $paySql .= " AND pay.payment_date <= ?"; $payParams[] = $endDate; }
 		$cashReceived = (float) $db->query($paySql, $payParams)->getRow()->t;
 
+		// Release 4.5 (Phase 9): Project Cash Receipt — a separate, independent
+		// ledger (own table, no sale_id) added into Cash Received alongside
+		// invoice payments above. Same project/date filters, applied to
+		// receipt_date (its own business date), mirroring the payments query.
+		$cashReceiptParams = [];
+		$cashReceiptSql    = "SELECT COALESCE(SUM(amount),0) AS t FROM project_cash_receipts WHERE 1=1";
+		if ($projectId) { $cashReceiptSql .= " AND project_id = ?"; $cashReceiptParams[] = $projectId; }
+		if ($startDate) { $cashReceiptSql .= " AND receipt_date >= ?"; $cashReceiptParams[] = $startDate; }
+		if ($endDate)   { $cashReceiptSql .= " AND receipt_date <= ?"; $cashReceiptParams[] = $endDate; }
+		$projectCashReceived = (float) $db->query($cashReceiptSql, $cashReceiptParams)->getRow()->t;
+
+		$cashReceived = round($cashReceived + $projectCashReceived, 2);
+
 		// Accounts Receivable: SUM(sales.balance_amount) — the exact figure
 		// already used as "Outstanding Collection" on the Dashboard.
 		$arParams = [];
@@ -550,7 +563,15 @@ class Reports extends Controller
 		if ($endDate)   { $arSql .= " AND s.sale_date <= ?"; $arParams[] = $endDate; }
 		$salesRow           = $db->query($arSql, $arParams)->getRow();
 		$totalRevenue        = (float) $salesRow->rev;
-		$accountsReceivable  = (float) $salesRow->bal;
+		$accountsReceivableRaw = (float) $salesRow->bal;
+
+		// Release 4.5 (Phase 9): Accounts Receivable is reduced by available
+		// Project Cash (within the same filters); any cash left over after
+		// covering the receivable becomes Customer Advance Credit (below),
+		// not a negative receivable.
+		$cashAppliedToReceivable = min($accountsReceivableRaw, $projectCashReceived);
+		$accountsReceivable      = round($accountsReceivableRaw - $cashAppliedToReceivable, 2);
+		$excessProjectCash       = round($projectCashReceived - $cashAppliedToReceivable, 2);
 
 		// Inventory Value: current on-hand quantity per product (stock_ledger
 		// IN minus OUT — the same ledger Reports::stock() already reads),
@@ -613,7 +634,13 @@ class Reports extends Controller
 			$fs = $projectModel->getFinancialSummary((int) $p['id']);
 			$advanceLiability += $fs['unused_advance'] ?? 0.0;
 		}
-		$advanceLiability = round($advanceLiability, 2);
+		// Release 4.5 (Phase 9): Customer Advance Credit — unused project
+		// advance (existing) plus any Project Cash Receipt not consumed by
+		// Accounts Receivable above (excessProjectCash). Field name is kept
+		// as advance_liability for backward compatibility with existing
+		// consumers of this array; the view label is updated to "Customer
+		// Advance Credit" to reflect the combined figure.
+		$advanceLiability = round($advanceLiability + $excessProjectCash, 2);
 
 		// Supplier Outstanding: no supplier-payment tracking exists anywhere
 		// in this schema (purchases has no paid_amount/balance_amount/status
@@ -755,14 +782,14 @@ class Reports extends Controller
 		};
 
 		$writeSection('ASSETS', [
-			['Cash Received From Customers', $data['cash_received'], 'payments.amount'],
-			['Accounts Receivable', $data['accounts_receivable'], 'sales.balance_amount'],
+			['Cash Received From Customers', $data['cash_received'], 'payments.amount + project_cash_receipts.amount'],
+			['Accounts Receivable', $data['accounts_receivable'], 'sales.balance_amount (net of Project Cash)'],
 			['Inventory Value', $data['inventory_value'], 'stock_ledger + purchase_items (avg cost)'],
 			['TOTAL ASSETS', $data['total_assets'], ''],
 		]);
 
 		$writeSection('LIABILITIES', [
-			['Customer Advance Liability', $data['advance_liability'], 'projects (unused advance)'],
+			['Customer Advance Credit', $data['advance_liability'], 'projects (unused advance + cash)'],
 			['Supplier Outstanding', $data['supplier_outstanding'], $data['supplier_outstanding_available'] ? 'purchases' : 'Not tracked (unavailable)'],
 			['Other Liabilities', $data['other_liabilities'], $data['other_liabilities_available'] ? '' : 'Not tracked (unavailable)'],
 			['TOTAL LIABILITIES', $data['total_liabilities'], ''],
@@ -847,14 +874,14 @@ class Reports extends Controller
 				<tr><th>Item</th><th>Amount</th><th>Source</th></tr>
 				<tr class="section-title"><td colspan="3">ASSETS</td></tr>'
 				. $rowsHtml([
-					['Cash Received From Customers', $data['cash_received'], 'payments.amount'],
-					['Accounts Receivable', $data['accounts_receivable'], 'sales.balance_amount'],
+					['Cash Received From Customers', $data['cash_received'], 'payments.amount + project_cash_receipts.amount'],
+					['Accounts Receivable', $data['accounts_receivable'], 'sales.balance_amount (net of Project Cash)'],
 					['Inventory Value', $data['inventory_value'], 'stock_ledger + purchase_items (avg cost)'],
 				])
 				. '<tr class="total-row"><td>TOTAL ASSETS</td><td class="right">' . number_format($data['total_assets'], 2) . '</td><td></td></tr>
 				<tr class="section-title"><td colspan="3">LIABILITIES</td></tr>'
 				. $rowsHtml([
-					['Customer Advance Liability', $data['advance_liability'], 'projects (unused advance)'],
+					['Customer Advance Credit', $data['advance_liability'], 'projects (unused advance + cash)'],
 					['Supplier Outstanding', $data['supplier_outstanding'], $data['supplier_outstanding_available'] ? 'purchases' : 'Not tracked (unavailable)'],
 					['Other Liabilities', $data['other_liabilities'], $data['other_liabilities_available'] ? '' : 'Not tracked (unavailable)'],
 				])

@@ -197,7 +197,7 @@
 <div class="row g-2 mb-2 bs-kpi-row">
 	<div class="col-6 col-md-3">
 		<div class="kpi-card kpi-red"><div class="kpi-icon"><i class="bi bi-arrow-down-circle"></i></div>
-			<div><div class="kpi-value"><?= number_format($advance_liability, 2) ?></div><div class="kpi-label">Customer Advance Liability</div></div>
+			<div><div class="kpi-value"><?= number_format($advance_liability, 2) ?></div><div class="kpi-label">Customer Advance Credit</div></div>
 		</div>
 	</div>
 	<div class="col-6 col-md-3">
@@ -279,8 +279,8 @@
 				<table class="table-custom bs-table">
 					<thead><tr><th>Asset</th><th style="text-align:right;">Amount</th><th>Source</th></tr></thead>
 					<tbody>
-						<tr><td>Cash Received From Customers</td><td style="text-align:right;"><?= number_format($cash_received, 2) ?></td><td>payments.amount</td></tr>
-						<tr><td>Accounts Receivable</td><td style="text-align:right;"><?= number_format($accounts_receivable, 2) ?></td><td>sales.balance_amount</td></tr>
+						<tr><td>Cash Received From Customers</td><td style="text-align:right;"><?= number_format($cash_received, 2) ?></td><td>payments.amount + project_cash_receipts.amount</td></tr>
+						<tr><td>Accounts Receivable</td><td style="text-align:right;"><?= number_format($accounts_receivable, 2) ?></td><td>sales.balance_amount (net of Project Cash)</td></tr>
 						<tr><td>Inventory Value</td><td style="text-align:right;"><?= number_format($inventory_value, 2) ?></td><td>stock_ledger + purchase_items</td></tr>
 					</tbody>
 					<tfoot><tr><td>TOTAL</td><td style="text-align:right;"><?= number_format($total_assets, 2) ?></td><td></td></tr></tfoot>
@@ -295,7 +295,7 @@
 				<table class="table-custom bs-table">
 					<thead><tr><th>Liability</th><th style="text-align:right;">Amount</th><th>Source</th></tr></thead>
 					<tbody>
-						<tr><td>Customer Advance Liability</td><td style="text-align:right;"><?= number_format($advance_liability, 2) ?></td><td>projects (unused advance)</td></tr>
+						<tr><td>Customer Advance Credit</td><td style="text-align:right;"><?= number_format($advance_liability, 2) ?></td><td>projects (unused advance + cash)</td></tr>
 						<tr><td>Supplier Outstanding</td><td style="text-align:right;"><?= number_format($supplier_outstanding, 2) ?></td><td><?= $supplier_outstanding_available ? 'purchases' : 'Not tracked' ?></td></tr>
 						<tr><td>Other Liabilities</td><td style="text-align:right;"><?= number_format($other_liabilities, 2) ?></td><td><?= $other_liabilities_available ? '' : 'Not tracked' ?></td></tr>
 					</tbody>

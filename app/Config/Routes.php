@@ -93,6 +93,14 @@ $routes->get('payments/edit/(:num)', 'Payments::edit/$1', ['filter' => 'auth']);
 $routes->post('payments/update/(:num)', 'Payments::update/$1', ['filter' => 'auth']);
 $routes->get('payments/delete/(:num)', 'Payments::delete/$1', ['filter' => 'auth']);
 
+// Release 4.5: Project Cash Receipts — separate module, independent of Payments
+$routes->get('project-cash-receipts', 'ProjectCashReceipts::index', ['filter' => 'auth']);
+$routes->get('project-cash-receipts/create', 'ProjectCashReceipts::create', ['filter' => 'auth']);
+$routes->post('project-cash-receipts/store', 'ProjectCashReceipts::store', ['filter' => 'auth']);
+$routes->get('project-cash-receipts/edit/(:num)', 'ProjectCashReceipts::edit/$1', ['filter' => 'auth']);
+$routes->post('project-cash-receipts/update/(:num)', 'ProjectCashReceipts::update/$1', ['filter' => 'auth']);
+$routes->get('project-cash-receipts/delete/(:num)', 'ProjectCashReceipts::delete/$1', ['filter' => 'auth']);
+
 // Expense Categories (Masters)
 $routes->get('expense-categories', 'ExpenseCategories::index', ['filter' => 'auth']);
 $routes->get('expense-categories/create', 'ExpenseCategories::create', ['filter' => 'auth']);

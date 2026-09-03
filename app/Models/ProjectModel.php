@@ -101,6 +101,24 @@ class ProjectModel extends Model
             $outstandingCollectionBalance = 0;
         }
 
+        // Release 4.5 (Phase 5): Project Cash Receipt — a separate, independent
+        // ledger from both invoice payments (total_paid, above) and
+        // projects.advance_amount. No allocation table exists, so
+        // total_cash_available is simply the receipt total, not netted
+        // against any specific invoice here. total_billed/total_paid/
+        // total_advance_applied/outstanding_collection_balance/
+        // remaining_billable_value above are all unchanged.
+        $totalCashReceived = (new ProjectCashReceiptModel())->totalForProject($projectId);
+        $totalInvoicePayments = $totalPaid;
+        $totalCashAvailable   = $totalCashReceived;
+
+        // net_outstanding_collection_balance: presentation-only figure combining
+        // outstanding_collection_balance (invoice pending, net of advance) with
+        // available project cash. Same sign convention as
+        // outstanding_collection_balance: positive = still owed after cash,
+        // negative = credit on account (unused advance + unused cash combined).
+        $netOutstandingCollectionBalance = round($outstandingCollectionBalance - $totalCashAvailable, 2);
+
         return [
             'total_project_value'            => $totalProjectValue,
             'advance_amount'                 => $advanceAmount,
@@ -116,6 +134,10 @@ class ProjectModel extends Model
             'billing_progress_percent'       => $totalProjectValue > 0
                 ? ($totalBilled / $totalProjectValue) * 100
                 : 0,
+            'total_cash_received'              => $totalCashReceived,
+            'total_invoice_payments'           => $totalInvoicePayments,
+            'total_cash_available'             => $totalCashAvailable,
+            'net_outstanding_collection_balance' => $netOutstandingCollectionBalance,
         ];
     }
 
@@ -296,6 +318,25 @@ class ProjectModel extends Model
                 'reference'   => $p['reference'] ?: ('PMT-' . $p['id']),
                 'description' => 'Payment against ' . $against . ($p['method'] ? ' via ' . $p['method'] : ''),
                 'amount'      => (float) $p['amount'],
+                'category'    => 'Payment',
+            ];
+        }
+
+        // Release 4.5 (Phase 7): Project Cash Received — independent of both
+        // Project Advance and Invoice Payment above (its own table, no
+        // sale_id). Category 'Payment' so it reduces the running collection
+        // balance exactly like an advance/invoice payment does.
+        $cashReceipts = $db->query("
+            SELECT id, receipt_no, receipt_date, amount, payment_method, reference
+            FROM project_cash_receipts WHERE project_id = ?
+        ", [$projectId])->getResultArray();
+        foreach ($cashReceipts as $cr) {
+            $events[] = [
+                'date'        => $cr['receipt_date'],
+                'type'        => 'Project Cash Received',
+                'reference'   => $cr['reference'] ?: $cr['receipt_no'],
+                'description' => 'Cash received (' . $cr['receipt_no'] . ')' . ($cr['payment_method'] ? ' via ' . $cr['payment_method'] : ''),
+                'amount'      => (float) $cr['amount'],
                 'category'    => 'Payment',
             ];
         }

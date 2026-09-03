@@ -29,6 +29,12 @@
 
     $projectCostTillDate = $total_purchases + $total_expenses;
     $customerPaid        = (float) ($financial_summary['total_paid'] ?? 0);
+
+    // Release 4.5 (Phase 6): Project Cash Receipt figures — independent of
+    // Customer Payments Received (invoice payments) above. No allocation
+    // logic here, just the receipt-table total for this project.
+    $projectCashReceived = (float) ($financial_summary['total_cash_received'] ?? 0);
+    $totalCashReceived   = $customerPaid + $projectCashReceived;
 ?>
 
 <!-- Release 2.2C (Task 1): Project Header — one compact single-line summary
@@ -118,6 +124,16 @@
             </div>
         </div>
     </div>
+    <!-- Release 4.5 (Phase 6): new KPI, existing 6 cards above unchanged. -->
+    <div class="col-md-4 col-6">
+        <div class="kpi-card kpi-green">
+            <div class="kpi-icon"><i class="bi bi-piggy-bank"></i></div>
+            <div>
+                <div class="kpi-value"><?= number_format($projectCashReceived, 2) ?></div>
+                <div class="kpi-label">Cash Received</div>
+            </div>
+        </div>
+    </div>
 </div>
 
 <!-- Release 2.2B (Section 3): Billing Overview — one progress bar only, plus
@@ -159,6 +175,27 @@
                     <div>
                         <div class="billing-mini-value"><?= number_format($csRemaining, 2) ?></div>
                         <div class="billing-mini-label">Remaining Balance</div>
+                    </div>
+                </div>
+            </div>
+            <!-- Release 4.5 (Phase 6): Project Cash Received + Total Cash
+                 Received, added alongside the two existing cards above
+                 (unchanged/unrenamed). -->
+            <div class="col-md-6">
+                <div class="billing-mini-card billing-mini-green">
+                    <div class="billing-mini-icon"><i class="bi bi-piggy-bank"></i></div>
+                    <div>
+                        <div class="billing-mini-value"><?= number_format($projectCashReceived, 2) ?></div>
+                        <div class="billing-mini-label">Project Cash Received</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="billing-mini-card billing-mini-green">
+                    <div class="billing-mini-icon"><i class="bi bi-cash-coin"></i></div>
+                    <div>
+                        <div class="billing-mini-value"><?= number_format($totalCashReceived, 2) ?></div>
+                        <div class="billing-mini-label">Total Cash Received</div>
                     </div>
                 </div>
             </div>

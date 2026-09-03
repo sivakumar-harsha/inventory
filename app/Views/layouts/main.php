@@ -59,6 +59,10 @@
         <a href="<?= base_url('expenses') ?>" class="nav-link <?= (strpos(current_url(), '/expenses') !== false) ? 'active' : '' ?>">
             <i class="bi bi-credit-card"></i> Expenses
         </a>
+        <div class="nav-section">FINANCE</div>
+        <a href="<?= base_url('project-cash-receipts') ?>" class="nav-link <?= (strpos(current_url(), '/project-cash-receipts') !== false) ? 'active' : '' ?>">
+            <i class="bi bi-piggy-bank"></i> Project Cash Receipts
+        </a>
         <div class="nav-section">REPORTS</div>
         <a href="<?= base_url('reports') ?>" class="nav-link <?= (strpos(current_url(), '/reports') !== false) ? 'active' : '' ?>">
             <i class="bi bi-bar-chart-line"></i> Reports

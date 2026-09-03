@@ -175,6 +175,11 @@
             <div>
                 <div class="kpi-value"><?= number_format($total_outstanding, 2) ?></div>
                 <div class="kpi-label">Outstanding Collection</div>
+                <?php if ($total_advance_credit > 0.004): ?>
+                <div class="kpi-sublabel" style="font-size:11px;color:#16a34a;margin-top:2px;">
+                    <i class="bi bi-arrow-up-circle"></i> Advance Credit: <?= number_format($total_advance_credit, 2) ?>
+                </div>
+                <?php endif; ?>
             </div>
         </div>
     </div>
@@ -202,6 +207,16 @@
             <div>
                 <div class="kpi-value"><?= $completed_projects ?></div>
                 <div class="kpi-label">Completed Projects</div>
+            </div>
+        </div>
+    </div>
+    <!-- Release 4.5 (Phase 8): Cash Received = Invoice Payments + Project Cash Receipts. -->
+    <div class="col-md-3 col-6">
+        <div class="kpi-card kpi-green">
+            <div class="kpi-icon"><i class="bi bi-piggy-bank"></i></div>
+            <div>
+                <div class="kpi-value"><?= number_format($total_cash_received, 2) ?></div>
+                <div class="kpi-label">Cash Received</div>
             </div>
         </div>
     </div>

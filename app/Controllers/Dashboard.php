@@ -35,6 +35,12 @@ class Dashboard extends Controller
         $data['total_payments']   = $db->query("SELECT COALESCE(SUM(amount),0) AS t FROM payments")->getRow()->t;
         $data['total_outstanding']= $db->query("SELECT COALESCE(SUM(balance_amount),0) AS t FROM sales")->getRow()->t;
 
+        // Release 4.5 (Phase 8): Project Cash Receipts — independent ledger,
+        // does not touch sales.balance_amount/payments. Cash Received KPI is
+        // simply Invoice Payments + Project Cash Receipts (no netting).
+        $data['total_project_cash_received'] = (float) $db->query("SELECT COALESCE(SUM(amount),0) AS t FROM project_cash_receipts")->getRow()->t;
+        $data['total_cash_received'] = (float) $data['total_payments'] + $data['total_project_cash_received'];
+
         // Release 4.3.2: overall Net Profit KPI for the redesigned dashboard,
         // derived from the totals already fetched above (no new query).
         $data['total_net_profit'] = $data['total_sales'] - $data['total_purchases'] - $data['total_expenses'];
@@ -124,6 +130,20 @@ class Dashboard extends Controller
         }
         usort($topPending, fn($a, $b) => $b['outstanding_collection'] <=> $a['outstanding_collection']);
         $data['top_pending_projects'] = array_slice($topPending, 0, 5);
+
+        // Release 4.5 (Phase 8): Outstanding Collection KPI = Invoice
+        // Outstanding (unchanged raw figure, sales.balance_amount) minus
+        // Available Project Cash, never negative; any cash left over after
+        // covering the invoice outstanding is shown as Advance Credit.
+        $rawOutstanding = (float) $data['total_outstanding'];
+        $cashAvailable  = (float) $data['total_project_cash_received'];
+        if ($cashAvailable >= $rawOutstanding) {
+            $data['total_outstanding']    = 0.0;
+            $data['total_advance_credit'] = round($cashAvailable - $rawOutstanding, 2);
+        } else {
+            $data['total_outstanding']    = round($rawOutstanding - $cashAvailable, 2);
+            $data['total_advance_credit'] = 0.0;
+        }
 
         return view('dashboard/index', $data);
     }
