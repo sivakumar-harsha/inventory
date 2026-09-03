@@ -1,0 +1,629 @@
+/* =============================================
+   ERP SYSTEM - GLOBAL STYLESHEET
+   All styling controlled from this single file
+   No inline styles. No page-specific CSS.
+   ============================================= */
+
+/* =============================================
+   1. BASE & VARIABLES
+   ============================================= */
+:root {
+    --primary:      #2563eb;
+    --primary-dark: #1d4ed8;
+    --sidebar-bg:   #1e293b;
+    --sidebar-text: #94a3b8;
+    --sidebar-hover:#334155;
+    --topbar-bg:    #ffffff;
+    --body-bg:      #f1f5f9;
+    --white:        #ffffff;
+    --border-color: #e2e8f0;
+    --text-dark:    #1e293b;
+    --text-muted:   #64748b;
+    --success:      #16a34a;
+    --danger:       #dc2626;
+    --warning:      #d97706;
+    --info:         #0891b2;
+    --sidebar-width: 240px;
+    --topbar-height: 56px;
+    --font-size-sm: 0.8125rem;
+    --font-size-base: 0.875rem;
+    --border-radius: 6px;
+    --input-height: 36px;
+    --btn-height: 36px;
+}
+
+*, *::before, *::after {
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    font-size: var(--font-size-base);
+    background: var(--body-bg);
+    color: var(--text-dark);
+    margin: 0;
+    padding: 0;
+}
+
+/* =============================================
+   2. LAYOUT - SIDEBAR + MAIN
+   ============================================= */
+.sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: var(--sidebar-width);
+    height: 100vh;
+    background: var(--sidebar-bg);
+    overflow-y: auto;
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+}
+
+.sidebar-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 16px 20px;
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--white);
+    border-bottom: 1px solid #334155;
+    background: #111827;
+}
+
+.sidebar-brand i {
+    font-size: 1.3rem;
+    color: #60a5fa;
+}
+
+.sidebar-nav {
+    padding: 12px 0;
+    flex: 1;
+}
+
+.nav-section {
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #475569;
+    padding: 14px 20px 4px;
+}
+
+.sidebar-nav .nav-link {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 20px;
+    color: var(--sidebar-text);
+    text-decoration: none;
+    font-size: var(--font-size-sm);
+    border-left: 3px solid transparent;
+    transition: all 0.15s ease;
+}
+
+.sidebar-nav .nav-link:hover {
+    background: var(--sidebar-hover);
+    color: var(--white);
+}
+
+.sidebar-nav .nav-link.active {
+    background: var(--sidebar-hover);
+    color: var(--white);
+    border-left-color: #60a5fa;
+}
+
+.sidebar-nav .nav-link i {
+    font-size: 1rem;
+    width: 18px;
+    text-align: center;
+}
+
+.main-content {
+    margin-left: var(--sidebar-width);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+/* =============================================
+   3. TOPBAR
+   ============================================= */
+.topbar {
+    height: var(--topbar-height);
+    background: var(--topbar-bg);
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 24px;
+    position: sticky;
+    top: 0;
+    z-index: 90;
+}
+
+.topbar-title {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: var(--text-dark);
+}
+
+.topbar-right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.topbar-user {
+    font-size: var(--font-size-sm);
+    color: var(--text-muted);
+}
+
+.btn-logout {
+    font-size: var(--font-size-sm);
+    color: var(--danger);
+    text-decoration: none;
+    padding: 5px 12px;
+    border: 1px solid var(--danger);
+    border-radius: var(--border-radius);
+    transition: all 0.15s ease;
+}
+
+.btn-logout:hover {
+    background: var(--danger);
+    color: var(--white);
+}
+
+/* =============================================
+   4. PAGE CONTENT
+   ============================================= */
+.page-content {
+    padding: 24px;
+    flex: 1;
+}
+
+.page-title {
+    font-size: 1.125rem;
+    font-weight: 700;
+    color: var(--text-dark);
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+/* =============================================
+   5. CARDS
+   ============================================= */
+.card-custom {
+    background: var(--white);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    overflow: hidden;
+    margin-bottom: 20px;
+}
+
+.card-custom-header {
+    padding: 12px 16px;
+    background: #f8fafc;
+    border-bottom: 1px solid var(--border-color);
+    font-weight: 600;
+    font-size: var(--font-size-sm);
+    color: var(--text-dark);
+}
+
+.card-custom-body {
+    padding: 16px;
+}
+
+/* =============================================
+   6. TABLES (.table-custom)
+   ============================================= */
+.table-custom {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--font-size-sm);
+}
+
+.table-custom thead tr {
+    background: #f8fafc;
+}
+
+.table-custom thead th {
+    padding: 9px 12px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border-color);
+    white-space: nowrap;
+}
+
+.table-custom tbody tr {
+    border-bottom: 1px solid var(--border-color);
+    transition: background 0.1s ease;
+}
+
+.table-custom tbody tr:last-child {
+    border-bottom: none;
+}
+
+.table-custom tbody tr:nth-child(even) {
+    background: #fafafa;
+}
+
+.table-custom tbody tr:hover {
+    background: #f0f9ff;
+}
+
+.table-custom td {
+    padding: 8px 12px;
+    vertical-align: middle;
+    color: var(--text-dark);
+}
+
+/* =============================================
+   7. FORMS (.form-control, .form-label, .form-section)
+   ============================================= */
+.form-label {
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    color: var(--text-dark);
+    margin-bottom: 4px;
+    display: block;
+}
+
+.form-control {
+    height: var(--input-height);
+    font-size: var(--font-size-sm);
+    border: 1px solid #d1d5db;
+    border-radius: var(--border-radius);
+    padding: 0 10px;
+    width: 100%;
+    color: var(--text-dark);
+    background: var(--white);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.form-control:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+select.form-control {
+    cursor: pointer;
+}
+
+textarea.form-control {
+    height: auto;
+    min-height: 80px;
+    padding: 8px 10px;
+    resize: vertical;
+}
+
+.form-section {
+    margin-bottom: 14px;
+}
+
+/* =============================================
+   8. BUTTONS
+   ============================================= */
+.btn-save,
+.btn-edit,
+.btn-delete,
+.btn-cancel,
+.btn-view,
+.btn-pay {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: var(--btn-height);
+    padding: 0 14px;
+    font-size: var(--font-size-sm);
+    font-weight: 500;
+    border-radius: var(--border-radius);
+    border: none;
+    cursor: pointer;
+    text-decoration: none;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+}
+
+.btn-save {
+    background: var(--primary);
+    color: var(--white);
+}
+
+.btn-save:hover {
+    background: var(--primary-dark);
+    color: var(--white);
+}
+
+.btn-edit {
+    background: #0891b2;
+    color: var(--white);
+}
+
+.btn-edit:hover {
+    background: #0e7490;
+    color: var(--white);
+}
+
+.btn-delete {
+    background: var(--danger);
+    color: var(--white);
+}
+
+.btn-delete:hover {
+    background: #b91c1c;
+    color: var(--white);
+}
+
+.btn-cancel {
+    background: #e2e8f0;
+    color: var(--text-dark);
+}
+
+.btn-cancel:hover {
+    background: #cbd5e1;
+    color: var(--text-dark);
+}
+
+.btn-view {
+    background: #7c3aed;
+    color: var(--white);
+}
+
+.btn-view:hover {
+    background: #6d28d9;
+    color: var(--white);
+}
+
+.btn-pay {
+    background: var(--success);
+    color: var(--white);
+}
+
+.btn-pay:hover {
+    background: #15803d;
+    color: var(--white);
+}
+
+/* =============================================
+   9. BADGES & STATUS
+   ============================================= */
+.badge-status {
+    display: inline-block;
+    padding: 2px 9px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    border-radius: 20px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.badge-paid    { background: #dcfce7; color: #15803d; }
+.badge-partial { background: #fef3c7; color: #92400e; }
+.badge-unpaid  { background: #fee2e2; color: #b91c1c; }
+.badge-pending { background: #f3f4f6; color: #374151; }
+.badge-active  { background: #dbeafe; color: #1d4ed8; }
+.badge-completed { background: #dcfce7; color: #15803d; }
+.badge-on_hold { background: #f3f4f6; color: #374151; }
+
+.badge-source {
+    display: inline-block;
+    padding: 2px 9px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    border-radius: 20px;
+    text-transform: uppercase;
+    background: #e0f2fe;
+    color: #0369a1;
+}
+
+.badge-in  { background: #dcfce7; color: #15803d; }
+.badge-out { background: #fee2e2; color: #b91c1c; }
+
+/* =============================================
+   10. KPI CARDS (Dashboard)
+   ============================================= */
+.kpi-card {
+    background: var(--white);
+    border-radius: 8px;
+    padding: 18px;
+    border-left: 4px solid transparent;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    border: 1px solid var(--border-color);
+}
+
+.kpi-blue  { border-left-color: #2563eb; }
+.kpi-green { border-left-color: #16a34a; }
+.kpi-orange{ border-left-color: #d97706; }
+.kpi-red   { border-left-color: #dc2626; }
+
+.kpi-icon {
+    font-size: 1.75rem;
+    opacity: 0.7;
+}
+
+.kpi-blue .kpi-icon  { color: #2563eb; }
+.kpi-green .kpi-icon { color: #16a34a; }
+.kpi-orange .kpi-icon{ color: #d97706; }
+.kpi-red .kpi-icon   { color: #dc2626; }
+
+.kpi-value {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--text-dark);
+}
+
+.kpi-label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+
+.stat-card {
+    background: var(--white);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 14px 18px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+}
+
+.stat-number {
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: var(--primary);
+}
+
+.stat-label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+
+/* =============================================
+   11. LOGIN PAGE
+   ============================================= */
+.login-body {
+    background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.login-wrapper {
+    width: 100%;
+    max-width: 400px;
+    padding: 20px;
+}
+
+.login-card {
+    background: var(--white);
+    border-radius: 12px;
+    padding: 36px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+}
+
+.login-logo {
+    text-align: center;
+    font-size: 2.5rem;
+    color: var(--primary);
+    margin-bottom: 8px;
+}
+
+.login-title {
+    text-align: center;
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--text-dark);
+    margin: 0 0 4px;
+}
+
+.login-subtitle {
+    text-align: center;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    margin-bottom: 24px;
+}
+
+.login-hint {
+    text-align: center;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-top: 16px;
+}
+
+/* =============================================
+   12. ALERT OVERRIDE
+   ============================================= */
+.alert {
+    font-size: var(--font-size-sm);
+    border-radius: var(--border-radius);
+    padding: 10px 16px;
+    margin-bottom: 16px;
+}
+
+/* =============================================
+   13. ITEM ROW (Purchase / Sale create)
+   ============================================= */
+.item-row {
+    background: #f8fafc;
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    padding: 12px;
+    margin-bottom: 10px;
+    position: relative;
+}
+
+.item-row .row-num {
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+}
+
+.remove-item {
+    position: absolute;
+    top: 8px;
+    right: 10px;
+    background: none;
+    border: none;
+    color: var(--danger);
+    cursor: pointer;
+    font-size: 1rem;
+    padding: 0;
+}
+
+.remove-item:hover {
+    color: #7f1d1d;
+}
+
+/* =============================================
+   14. TOTAL ROW
+   ============================================= */
+.total-row {
+    background: #f8fafc;
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    padding: 12px 16px;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 16px;
+    font-weight: 600;
+}
+
+.total-label { color: var(--text-muted); font-size: var(--font-size-sm); }
+.total-value { font-size: 1.1rem; color: var(--primary); font-weight: 700; }
+
+/* =============================================
+   15. PRINT STYLES
+   ============================================= */
+@media print {
+    .sidebar, .topbar, .btn-save, .btn-edit, .btn-delete, .btn-cancel, .btn-view { display: none !important; }
+    .main-content { margin-left: 0; }
+    .page-content { padding: 0; }
+}
+
+/* =============================================
+   16. UTILITIES
+   ============================================= */
+.text-right { text-align: right; }
+.mt-0 { margin-top: 0; }
+.fw-bold { font-weight: 700; }
+.text-danger { color: var(--danger) !important; }
+.text-success { color: var(--success) !important; }
+.divider { border: none; border-top: 1px solid var(--border-color); margin: 16px 0; }
