@@ -197,7 +197,8 @@
                     <th>Project Name</th>
                     <th>Customer</th>
                     <th style="text-align:right">Contract Value</th>
-                    <th style="text-align:right">Remaining Balance</th>
+                    <!-- <th style="text-align:right">Remaining Balance</th> -->
+                    <th style="text-align:right">Outstanding </th>
                     <th>Work Status</th>
                     <th>Billing Status</th>
                     <th style="text-align:center; width: 132.75px;">Actions</th>
@@ -210,8 +211,23 @@
                     <td><strong><?= esc($p['name']) ?></strong></td>
                     <td><?= esc($p['customer_name']) ?></td>
                     <td style="text-align:right"><?= number_format($p['contract_value'], 2) ?></td>
-                    <td class="text-end fw-bold text-primary">
+                    <!-- <td class="text-end fw-bold text-primary">
                         &#8377;<?= number_format((float) $p['remaining_balance'], 2) ?>
+                    </td> -->
+                    <td class="text-end">
+                        <?php
+                        // Release 4.5.2: net_outstanding_collection_balance —
+                        // positive = still owed, zero = Settled, negative =
+                        // Advance Credit (Project Cash covers/exceeds it).
+                        $netOutstanding = (float) ($p['customer_pending'] ?? 0);
+                        if ($netOutstanding > 0.004) {
+                            echo '<span class="badge-status badge-unpaid">&#8377;' . number_format($netOutstanding, 2) . '</span>';
+                        } elseif ($netOutstanding < -0.004) {
+                            echo '<span class="badge-status badge-paid">Advance Credit &#8377;' . number_format(abs($netOutstanding), 2) . '</span>';
+                        } else {
+                            echo '<span class="badge-status badge-paid">Settled</span>';
+                        }
+                        ?>
                     </td>
                     <td>
                         <?php if ($tab === 'completed'): ?>

@@ -15,7 +15,7 @@ class ProjectCashReceiptModel extends Model
     protected $primaryKey = 'id';
     protected $allowedFields = [
         'project_id', 'customer_id', 'receipt_no', 'amount',
-        'receipt_date', 'payment_method', 'reference', 'notes',
+        'receipt_date', 'payment_method', 'receipt_type', 'reference', 'notes',
     ];
     protected $useTimestamps = true;
     protected $createdField  = 'created_at';
@@ -36,9 +36,9 @@ class ProjectCashReceiptModel extends Model
 
     /**
      * Total project cash received for one project, optionally within a date
-     * range. Simple SUM — no allocation math.
+     * range and/or filtered by receipt_type. Simple SUM — no allocation math.
      */
-    public function totalForProject(int $projectId, ?string $startDate = null, ?string $endDate = null): float
+    public function totalForProject(int $projectId, ?string $startDate = null, ?string $endDate = null, ?string $receiptType = null): float
     {
         $builder = $this->where('project_id', $projectId);
         if ($startDate) {
@@ -46,6 +46,9 @@ class ProjectCashReceiptModel extends Model
         }
         if ($endDate) {
             $builder->where('receipt_date <=', $endDate);
+        }
+        if ($receiptType) {
+            $builder->where('receipt_type', $receiptType);
         }
         return (float) ($builder->selectSum('amount')->first()['amount'] ?? 0);
     }

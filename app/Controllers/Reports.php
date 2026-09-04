@@ -48,9 +48,19 @@ class Reports extends Controller
         $projWhere  = "WHERE 1=1";
         if ($projectId) { $projWhere .= " AND pr.id = ?"; $projParams[] = $projectId; }
 
+        // Release 4.6.5 (Direct Project Income): revenue also includes
+        // DIRECT_INCOME-type Project Cash Receipts, filtered on receipt_date
+        // the same way sales revenue is filtered on sale_date. ADVANCE-type
+        // receipts never enter this subquery — they aren't revenue until (if
+        // ever) invoiced, at which point the invoice itself is the revenue.
+        $diParams = [];
+        $diWhere  = "WHERE receipt_type = 'DIRECT_INCOME'";
+        if ($startDate) { $diWhere .= " AND receipt_date >= ?"; $diParams[] = $startDate; }
+        if ($endDate)   { $diWhere .= " AND receipt_date <= ?"; $diParams[] = $endDate; }
+
         $sql = "
             SELECT pr.id, pr.name AS project_name,
-                COALESCE(rev.revenue, 0)  AS revenue,
+                COALESCE(rev.revenue, 0) + COALESCE(di.direct_income, 0) AS revenue,
                 COALESCE(exp.expenses, 0) AS expenses
             FROM projects pr
             LEFT JOIN (
@@ -65,11 +75,17 @@ class Reports extends Controller
                 $expWhere
                 GROUP BY e.project_id
             ) exp ON exp.project_id = pr.id
+            LEFT JOIN (
+                SELECT project_id, SUM(amount) AS direct_income
+                FROM project_cash_receipts
+                $diWhere
+                GROUP BY project_id
+            ) di ON di.project_id = pr.id
             $projWhere
             ORDER BY revenue DESC
         ";
 
-        $rows = $db->query($sql, array_merge($salesParams, $expParams, $projParams))->getResultArray();
+        $rows = $db->query($sql, array_merge($salesParams, $expParams, $diParams, $projParams))->getResultArray();
 
         // Release 1.6B (Approved Design Decision 5): COGS stays allocation-
         // aware — untouched, same ProjectModel method as before, already
@@ -105,7 +121,19 @@ class Reports extends Controller
         if ($projectId) { $revSql .= " AND s.project_id = ?"; $revParams[] = $projectId; }
         if ($startDate) { $revSql .= " AND s.sale_date >= ?"; $revParams[] = $startDate; }
         if ($endDate)   { $revSql .= " AND s.sale_date <= ?"; $revParams[] = $endDate; }
-        $data['total_revenue'] = (float) $db->query($revSql, $revParams)->getRow()->t;
+        $data['total_sales_revenue'] = (float) $db->query($revSql, $revParams)->getRow()->t;
+
+        // Release 4.6.5 (Direct Project Income): Revenue = Sales Invoice +
+        // Direct Project Income. ADVANCE-type receipts never enter revenue —
+        // they're cash held against a future invoice, not earned yet.
+        $diParams = [];
+        $diSql    = "SELECT COALESCE(SUM(amount),0) AS t FROM project_cash_receipts WHERE receipt_type = 'DIRECT_INCOME'";
+        if ($projectId) { $diSql .= " AND project_id = ?"; $diParams[] = $projectId; }
+        if ($startDate) { $diSql .= " AND receipt_date >= ?"; $diParams[] = $startDate; }
+        if ($endDate)   { $diSql .= " AND receipt_date <= ?"; $diParams[] = $endDate; }
+        $data['total_direct_income'] = (float) $db->query($diSql, $diParams)->getRow()->t;
+
+        $data['total_revenue'] = $data['total_sales_revenue'] + $data['total_direct_income'];
 
         $data['total_cogs'] = array_sum($projectModel->getAllocatedPurchaseCostByProject($projectId, $startDate, $endDate));
 
@@ -541,16 +569,30 @@ class Reports extends Controller
 		if ($endDate)   { $paySql .= " AND pay.payment_date <= ?"; $payParams[] = $endDate; }
 		$cashReceived = (float) $db->query($paySql, $payParams)->getRow()->t;
 
-		// Release 4.5 (Phase 9): Project Cash Receipt — a separate, independent
-		// ledger (own table, no sale_id) added into Cash Received alongside
-		// invoice payments above. Same project/date filters, applied to
-		// receipt_date (its own business date), mirroring the payments query.
+		// Release 4.5 (Phase 9) / Release 4.6.5: Project Cash Receipt — a
+		// separate, independent ledger (own table, no sale_id) added into
+		// Cash Received alongside invoice payments above, both ADVANCE and
+		// DIRECT_INCOME types (cash is cash on the Asset side regardless of
+		// type). Same project/date filters, applied to receipt_date.
 		$cashReceiptParams = [];
 		$cashReceiptSql    = "SELECT COALESCE(SUM(amount),0) AS t FROM project_cash_receipts WHERE 1=1";
 		if ($projectId) { $cashReceiptSql .= " AND project_id = ?"; $cashReceiptParams[] = $projectId; }
 		if ($startDate) { $cashReceiptSql .= " AND receipt_date >= ?"; $cashReceiptParams[] = $startDate; }
 		if ($endDate)   { $cashReceiptSql .= " AND receipt_date <= ?"; $cashReceiptParams[] = $endDate; }
 		$projectCashReceived = (float) $db->query($cashReceiptSql, $cashReceiptParams)->getRow()->t;
+
+		// Release 4.6.5: only ADVANCE-type receipts are a liability candidate
+		// (held against a future invoice) — used below for advance_liability,
+		// not for reducing Accounts Receivable (that netting is removed).
+		$advReceiptParams = $cashReceiptParams;
+		$advReceiptSql    = str_replace('WHERE 1=1', "WHERE receipt_type = 'ADVANCE'", $cashReceiptSql);
+		$totalAdvanceReceipts = (float) $db->query($advReceiptSql, $advReceiptParams)->getRow()->t;
+
+		// Release 4.6.5: Direct Project Income, same filters — enters Revenue/
+		// Net Profit below, never Accounts Receivable or Liabilities.
+		$diReceiptParams = $cashReceiptParams;
+		$diReceiptSql    = str_replace('WHERE 1=1', "WHERE receipt_type = 'DIRECT_INCOME'", $cashReceiptSql);
+		$totalDirectIncome = (float) $db->query($diReceiptSql, $diReceiptParams)->getRow()->t;
 
 		$cashReceived = round($cashReceived + $projectCashReceived, 2);
 
@@ -561,17 +603,19 @@ class Reports extends Controller
 		if ($projectId) { $arSql .= " AND s.project_id = ?"; $arParams[] = $projectId; }
 		if ($startDate) { $arSql .= " AND s.sale_date >= ?"; $arParams[] = $startDate; }
 		if ($endDate)   { $arSql .= " AND s.sale_date <= ?"; $arParams[] = $endDate; }
-		$salesRow           = $db->query($arSql, $arParams)->getRow();
-		$totalRevenue        = (float) $salesRow->rev;
+		$salesRow            = $db->query($arSql, $arParams)->getRow();
+		$totalSalesRevenue     = (float) $salesRow->rev;
 		$accountsReceivableRaw = (float) $salesRow->bal;
 
-		// Release 4.5 (Phase 9): Accounts Receivable is reduced by available
-		// Project Cash (within the same filters); any cash left over after
-		// covering the receivable becomes Customer Advance Credit (below),
-		// not a negative receivable.
-		$cashAppliedToReceivable = min($accountsReceivableRaw, $projectCashReceived);
-		$accountsReceivable      = round($accountsReceivableRaw - $cashAppliedToReceivable, 2);
-		$excessProjectCash       = round($projectCashReceived - $cashAppliedToReceivable, 2);
+		// Release 4.6.5: Accounts Receivable is no longer netted against
+		// Project Cash Receipts of either type — Outstanding Collection must
+		// stay invoice-only everywhere (Project View/Statement/Dashboard
+		// already follow this rule; the Balance Sheet now matches them).
+		// Project Cash sits on the Asset side purely as Cash (above); the
+		// ADVANCE portion of it becomes a Liability below instead of being
+		// used to shrink this Asset.
+		$accountsReceivable = round($accountsReceivableRaw, 2);
+		$totalRevenue        = $totalSalesRevenue + $totalDirectIncome;
 
 		// Inventory Value: current on-hand quantity per product (stock_ledger
 		// IN minus OUT — the same ledger Reports::stock() already reads),
@@ -634,13 +678,17 @@ class Reports extends Controller
 			$fs = $projectModel->getFinancialSummary((int) $p['id']);
 			$advanceLiability += $fs['unused_advance'] ?? 0.0;
 		}
-		// Release 4.5 (Phase 9): Customer Advance Credit — unused project
-		// advance (existing) plus any Project Cash Receipt not consumed by
-		// Accounts Receivable above (excessProjectCash). Field name is kept
-		// as advance_liability for backward compatibility with existing
-		// consumers of this array; the view label is updated to "Customer
-		// Advance Credit" to reflect the combined figure.
-		$advanceLiability = round($advanceLiability + $excessProjectCash, 2);
+		// Release 4.6.5: Customer Advance Credit — unused project advance
+		// (existing) plus the FULL total of ADVANCE-type Project Cash
+		// Receipts (there's no allocation table linking a receipt to an
+		// invoice, so every ADVANCE receipt is treated as still outstanding
+		// liability in this simple model — never reduced by Accounts
+		// Receivable, which is now always the raw, un-netted invoice figure).
+		// DIRECT_INCOME never contributes here — it's revenue/equity, not a
+		// liability. Field name kept as advance_liability for backward
+		// compatibility with existing consumers of this array; the view
+		// label is "Customer Advance Credit".
+		$advanceLiability = round($advanceLiability + $totalAdvanceReceipts, 2);
 
 		// Supplier Outstanding: no supplier-payment tracking exists anywhere
 		// in this schema (purchases has no paid_amount/balance_amount/status

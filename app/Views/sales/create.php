@@ -95,6 +95,15 @@
             <i class="bi bi-info-circle-fill me-2"></i>
             <span id="stockNoticeText"></span>
         </div>
+
+        <!-- Release 4.6.5: informational only — never blocks invoice creation.
+             Shown when the selected project already has Direct Project Income
+             recorded, so the double-counting risk (raising an invoice for
+             cash already recognized as revenue) is visible up front. -->
+        <div id="directIncomeNotice" style="display:none" class="alert alert-warning">
+            <i class="bi bi-exclamation-triangle-fill me-2"></i>
+            <span id="directIncomeNoticeText"></span>
+        </div>
     </div>
 </div>
 

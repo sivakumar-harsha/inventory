@@ -1,0 +1,11 @@
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /aandainventory/
+
+    # Allow direct access to existing files/folders
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+
+    # Redirect all to index.php
+    RewriteRule ^(.*)$ index.php/$1 [L]
+</IfModule>

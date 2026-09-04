@@ -6,6 +6,29 @@
     <a href="<?= base_url('payments') ?>" class="btn-cancel"><i class="bi bi-arrow-left"></i> Back</a>
 </div>
 
+<!-- Release 4.5.4 (Phase B): Payment Type selector — Invoice Payment (existing
+     workflow, unchanged) vs Project Cash Receipt (simplified form, Phase D).
+     Default = Invoice Payment. Segmented buttons, same visual language as the
+     app's existing status-toggle pills. -->
+<div class="card-custom mb-2">
+    <div class="card-custom-body">
+        <label class="form-label d-block mb-1">Payment Type</label>
+        <div class="payment-type-toggle" id="paymentTypeToggle" role="group" aria-label="Payment Type">
+            <button type="button" class="ptype-btn active" data-type="invoice" aria-pressed="true">
+                <i class="bi bi-receipt"></i> Invoice Payment
+            </button>
+            <button type="button" class="ptype-btn" data-type="cash" aria-pressed="false">
+                <i class="bi bi-piggy-bank"></i> Project Cash Receipt
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Release 4.5.4 (Phase C): Invoice Payment mode — exactly the pre-4.5.4
+     workflow (Steps 1-3), just wrapped in a container the Payment Type
+     toggle can show/hide. Nothing inside changed. -->
+<div id="invoicePaymentMode">
+
 <!-- Release 2.1E: Step 1 — Select Project. Filters the invoice table rows
      below client-side; all invoices were already loaded in one pass, no new
      route/query. -->
@@ -96,7 +119,8 @@
                     data-total="<?= $s['total_amount'] ?>"
                     data-advance="<?= $s['advance_applied'] ?>"
                     data-paid="<?= $s['paid_amount'] ?>"
-                    data-pending="<?= $s['balance_amount'] ?>">
+                    data-pending="<?= $s['balance_amount'] ?>"
+                    data-project-id="<?= (int) ($s['project_id'] ?? 0) ?>">
                     <?= esc($s['invoice_no'] ?: 'Sale #' . $s['id']) ?> — <?= esc($s['project_name']) ?> — Invoice Pending: <?= number_format($s['balance_amount'], 2) ?>
                 </option>
                 <?php endforeach; ?>
@@ -118,6 +142,14 @@
                 <div class="pay-chip">
                     <span class="pay-chip-label">Invoice Pending</span>
                     <span class="pay-chip-value text-pending" id="detPending">0.00</span>
+                </div>
+                <div class="pay-chip">
+                    <span class="pay-chip-label">Project Cash Received</span>
+                    <span class="pay-chip-value text-cash" id="detCashReceived">0.00</span>
+                </div>
+                <div class="pay-chip">
+                    <span class="pay-chip-label">Net Outstanding After Cash</span>
+                    <span class="pay-chip-value" id="detNetOutstanding">0.00</span>
                 </div>
             </div>
 
@@ -168,6 +200,119 @@
     </div>
 </div>
 
+</div>
+<!-- /#invoicePaymentMode -->
+
+<!-- Release 4.5.4/4.5.5 (Phase D/E): Project Cash Receipt mode — simplified
+     form, no invoice selection, no advance allocation. This is now the only
+     entry point into Project Cash Receipt — submits straight to
+     ProjectCashReceipts::store(), so saving only ever writes to
+     project_cash_receipts, never to payments. -->
+<div id="cashReceiptMode" class="pcr-hidden">
+    <div class="card-custom mb-2">
+        <div class="card-custom-header">Project Cash Receipt</div>
+        <div class="card-custom-body">
+            <form action="<?= base_url('project-cash-receipts/store') ?>" method="POST">
+                <div class="form-section">
+                    <label class="form-label">Project <span class="text-danger">*</span></label>
+                    <select name="project_id" id="cashProjectSelect" class="form-control" required>
+                        <option value=""></option>
+                        <?php foreach ($projects as $p): ?>
+                        <option value="<?= $p['id'] ?>" data-customer-name="<?= esc($p['customer_name'] ?? '') ?: 'No Customer' ?>">
+                            <?= esc($p['name']) ?>
+                        </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="form-section">
+                    <label class="form-label">Customer</label>
+                    <input type="text" id="cashCustomerDisplay" class="form-control" value="" readonly placeholder="Auto-filled from Project">
+                </div>
+
+                <!-- Release 4.6.5: Receipt Type — Advance (held against a future
+                     invoice, excluded from revenue until invoiced) vs Direct
+                     Income (no invoice will ever be raised, recognized as
+                     revenue immediately). Defaults to Advance to match the
+                     column's DB default and preserve pre-4.6.5 behavior unless
+                     explicitly chosen otherwise. -->
+                <div class="form-section">
+                    <label class="form-label">Receipt Type <span class="text-danger">*</span></label>
+                    <div class="payment-type-toggle" role="group" aria-label="Receipt Type">
+                        <button type="button" class="ptype-btn rtype-btn" data-rtype="ADVANCE" aria-pressed="false">
+                            <i class="bi bi-piggy-bank"></i> Advance
+                        </button>
+                        <button type="button" class="ptype-btn rtype-btn active" data-rtype="DIRECT_INCOME" aria-pressed="true">
+                            <i class="bi bi-cash-coin"></i> Direct Income
+                        </button>
+                    </div>
+                    <input type="hidden" name="receipt_type" id="cashReceiptType" value="DIRECT_INCOME">
+                    <div class="pf-chip-sub-info" style="display:block;margin-top:4px;color:#64748b;font-weight:400">
+                        Advance: held against a future invoice, not yet revenue. Direct Income: no invoice will ever be raised for this — recognized as revenue immediately.
+                    </div>
+                </div>
+
+                <div id="cashSummary" class="pay-summary-row">
+                    <div class="pay-chip">
+                        <span class="pay-chip-label">Project Cash Received</span>
+                        <span class="pay-chip-value text-cash" id="cashReceivedTotal">0.00</span>
+                    </div>
+                    <div class="pay-chip">
+                        <span class="pay-chip-label">Remaining Balance After Receipt</span>
+                        <span class="pay-chip-value" id="cashRemainingAfter">0.00</span>
+                    </div>
+                    <div class="pay-chip">
+                        <span class="pay-chip-label">Customer Paid Total After Receipt</span>
+                        <span class="pay-chip-value text-paid" id="cashCustomerPaidAfter">0.00</span>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="form-section">
+                            <label class="form-label">Amount <span class="text-danger">*</span></label>
+                            <input type="number" name="amount" id="cashAmountInput" class="form-control" step="0.01" min="0.01" required>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="form-section">
+                            <label class="form-label">Cash Receipt Date <span class="text-danger">*</span></label>
+                            <input type="date" name="receipt_date" class="form-control" value="<?= date('Y-m-d') ?>" required>
+                        </div>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="form-section">
+                            <label class="form-label">Payment Method <span class="text-danger">*</span></label>
+                            <select name="payment_method" class="form-control" required>
+                                <option value="CASH">Cash</option>
+                                <option value="BANK_TRANSFER">Bank Transfer</option>
+                                <option value="CHECK">Check</option>
+                                <option value="OTHER">Other</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="form-section">
+                            <label class="form-label">Reference Number</label>
+                            <input type="text" name="reference" class="form-control">
+                        </div>
+                    </div>
+                </div>
+                <div class="form-section">
+                    <label class="form-label">Notes</label>
+                    <textarea name="notes" class="form-control pay-notes"></textarea>
+                </div>
+
+                <div class="mt-2 text-end">
+                    <button type="submit" class="btn-save"><i class="bi bi-save"></i> Save Receipt</button>
+                    <a href="<?= base_url('payments') ?>" class="btn-cancel ms-2"><i class="bi bi-x"></i> Cancel</a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 <style>
 .invoice-table th, .invoice-table td { vertical-align: middle; font-size: 0.78rem; padding: 6px 10px; }
 .invoice-row-sub { font-size: 0.7rem; color: #64748b; }
@@ -180,6 +325,9 @@
 .text-advance { color: #2563eb; }
 .text-paid { color: #16a34a; }
 .text-pending { color: #ea580c; font-weight: 600; }
+.text-cash { color: #16a34a; }
+.text-net-pending { color: #ea580c; font-weight: 600; }
+.text-net-settled { color: #16a34a; font-weight: 600; }
 .badge-status { padding: 2px 8px; font-size: 0.68rem; border-radius: 10px; }
 .invoice-table .btn-sm { padding: 3px 10px; font-size: 0.72rem; }
 .step3-invoice-label { float: right; font-weight: 500; font-size: 0.78rem; color: #2563eb; }
@@ -188,6 +336,17 @@
 .pay-chip-label { display: block; font-size: 0.65rem; text-transform: uppercase; letter-spacing: .03em; color: #64748b; }
 .pay-chip-value { display: block; font-size: 0.95rem; font-weight: 700; color: #1e293b; }
 .pay-notes { min-height: 38px !important; }
+
+/* Release 4.5.4 (Phase B): Payment Type segmented control. */
+.payment-type-toggle { display: inline-flex; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; }
+.ptype-btn { border: none; background: #f8fafc; color: #475569; padding: 8px 18px; font-size: 0.82rem; font-weight: 600; cursor: pointer; transition: 0.15s; }
+.ptype-btn + .ptype-btn { border-left: 1px solid #e2e8f0; }
+.ptype-btn.active { background: #2F7E8A; color: #fff; }
+.ptype-btn:hover:not(.active) { background: #eef2f5; }
+
+/* Release 4.5.7: !important guards the Invoice Payment / Cash Receipt mode
+   toggle against any other rule's display value ever winning by specificity. */
+.pcr-hidden { display: none !important; }
 </style>
 
 <?= $this->section('scripts') ?>
@@ -198,12 +357,43 @@
      "$ is not defined" and silently aborted the whole block, so project
      select, invoice filtering and Step 3 never worked no matter how the
      logic itself was written. -->
+
+<script>
+// Release 4.5.3/4.5.4: { project_id: { cash_received, net_outstanding } } —
+// built server-side from ProjectModel::getFinancialSummary()
+// (Payments::buildProjectFinancialsMap()), so both the Invoice Payment mode's
+// Step 3 cards and the Project Cash Receipt mode's summary cards read the
+// same figures as Dashboard/Statement/Balance Sheet.
+var PROJECT_FINANCIALS_MAP = <?= json_encode($project_financials) ?>;
+</script>
 <script src="<?= base_url('assets/js/payments-workflow.js') ?>"></script>
 <script>
 $(document).ready(function() {
     // Release 2.1F (Phase 4): Create and Edit now share one implementation
     // (assets/js/payments-workflow.js) instead of two near-duplicate blocks.
     initPaymentsWorkflow();
+    // Release 4.5.4 (Phase B/D): Payment Type toggle + Cash Receipt mode
+    // preview — no-ops on payments/edit.php, which has neither element.
+    initPaymentTypeToggle();
+
+    // Release 4.6.5: Receipt Type toggle (Advance / Direct Income) for the
+    // Project Cash Receipt form — mirrors the Payment Type toggle's own
+    // active/hidden-input pattern, kept separate since it posts a different
+    // field (receipt_type) to a different endpoint.
+    $('.rtype-btn').on('click', function () {
+        $('.rtype-btn').removeClass('active').attr('aria-pressed', 'false');
+        $(this).addClass('active').attr('aria-pressed', 'true');
+        $('#cashReceiptType').val($(this).data('rtype'));
+    });
+
+    // Release 4.6.5.4: explicit initial state on page load, matching the
+    // view's own default active button/hidden input value — Direct Income,
+    // not Advance. Idempotent against the HTML default above; kept here so
+    // the default is asserted in one place rather than relying solely on
+    // markup.
+    $('.rtype-btn').removeClass('active').attr('aria-pressed', 'false');
+    $('.rtype-btn[data-rtype="DIRECT_INCOME"]').addClass('active').attr('aria-pressed', 'true');
+    $('#cashReceiptType').val('DIRECT_INCOME');
 });
 </script>
 <?= $this->endSection() ?>

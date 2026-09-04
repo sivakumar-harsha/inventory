@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script  id="debugbar_loader" data-time="1787833393.502139" src="http://localhost/aandainventory/?debugbar"></script><script  id="debugbar_dynamic_script"></script><style  id="debugbar_dynamic_style"></style><script class="kint-rich-script">"use strict";(()=>{function m(n){if(!(n instanceof Element))throw new Error("Invalid argument to dedupeElement()");let t=n.ownerDocument,e=E(n);for(let s of t.querySelectorAll(e))n!==s&&s.parentNode.removeChild(s)}function d(n){return n instanceof Element?n.ownerDocument.contains(n):!1}function E(n){if(!(n instanceof Element))throw new Error("Invalid argument to buildClassSelector()");return[n.nodeName,...n.classList].join(".")}function f(n){if(!(n instanceof Element))throw new Error("Invalid argument to selectText()");let t=n.ownerDocument,e=t.getSelection(),s=t.createRange();s.selectNodeContents(n),e.removeAllRanges(),e.addRange(s)}function I(n,t){let e;return function(...s){clearTimeout(e),e=setTimeout(function(){n(...s)},t)}}function x(n){if(!(n instanceof Element))throw new Error("Invalid argument to offsetTop()");return n.offsetTop+(n.offsetParent?x(n.offsetParent):0)}var u=class n{static#e=new Set;static toggleSearchBox(t,e){let s=t.querySelector(".kint-search"),i=t.parentNode;if(s)if(s.classList.toggle("kint-show",e)){if(s.focus(),s.select(),!n.#e.has(s)){let r=i.querySelectorAll("dl").length,o=200;r>1e4&&(o=700),s.addEventListener("keyup",I(n.#t.bind(null,s),o)),n.#e.add(s)}n.#t(s)}else i.classList.remove("kint-search-root")}static#t(t){let e=t.closest(".kint-parent")?.parentNode;if(e)if(t.classList.contains("kint-show")&&t.value.length){let s=e.dataset.lastSearch;if(e.classList.add("kint-search-root"),s!==t.value){e.dataset.lastSearch=t.value,e.classList.remove("kint-search-match");for(let i of e.querySelectorAll(".kint-search-match"))i.classList.remove("kint-search-match");n.#s(e,t.value.toUpperCase())}}else e.classList.remove("kint-search-root")}static#s(t,e){let s=t.cloneNode(!0);for(let c of s.querySelectorAll(".access-path"))c.remove();if(!s.textContent.toUpperCase().includes(e))return;t.classList.add("kint-search-match");let i=t.firstElementChild;for(;i&&i.tagName!=="DT";)i=i.nextElementSibling;if(!i)return;let r=a.getChildContainer(i);if(!r)return;let o,l;for(let c of r.children)c.tagName==="DL"?n.#s(c,e):c.tagName==="UL"&&(c.classList.contains("kint-tabs")?o=c.children:c.classList.contains("kint-tab-contents")&&(l=c.children));if(!(!o||o.length!==l?.length))for(let c=o.length;c--;){let k=!1,F=!1;o[c].textContent.toUpperCase().includes(e)&&(k=!0);let O=l[c].cloneNode(!0);for(let v of O.querySelectorAll(".access-path"))v.remove();if(O.textContent.toUpperCase().includes(e)&&(k=!0,F=!0),k&&o[c].classList.add("kint-search-match"),F)for(let v of l[c].children)v.tagName==="DL"&&n.#s(v,e)}}};var g=class{static sort(t,e){let s=t.dataset.kintTableSort,i=parseInt(s)===e?-1:1,r=t.tBodies[0];[...r.rows].sort(function(o,l){o=o.cells[e].textContent.trim().toLocaleLowerCase(),l=l.cells[e].textContent.trim().toLocaleLowerCase();let c=0;return!isNaN(o)&&!isNaN(l)?(o=parseFloat(o),l=parseFloat(l),c=o-l):isNaN(o)&&!isNaN(l)?c=1:isNaN(l)&&!isNaN(o)?c=-1:c=(""+o).localeCompare(""+l),c*i}).forEach(o=>r.appendChild(o)),i<0?t.dataset.kintTableSort=null:t.dataset.kintTableSort=e}};var a=class n{#e;#t;#s;constructor(t){if(!(t instanceof h))throw new Error("Invalid argument to Rich.constructor()");this.#e=t,this.#e.runOnInit(this.#i.bind(this));let e=new q(this,t);new b(this,t.window,e)}#i(){let t=this.#e.window.document;if(d(this.#t)||(this.#t=t.querySelector("style.kint-rich-style")),this.#t&&m(this.#t),t.querySelector(".kint-rich.kint-file")){this.setupFolder(t);let e=this.#s.querySelector("dd.kint-foldout"),s=Array.from(t.querySelectorAll(".kint-rich.kint-file"));for(let i of s)i.parentNode!==e&&e.appendChild(i);this.#s.classList.add("kint-show")}}addToFolder(t){let e=t.closest(".kint-rich");if(!e)throw new Error("Bad addToFolder");let s=this.#e.window.document;if(this.setupFolder(s),this.folder.contains(t))throw new Error("Bad addToFolder");let i=this.#s.querySelector("dd.kint-foldout"),r=t.closest(".kint-parent, .kint-rich"),o=Array.from(e.querySelectorAll(".kint-folder-trigger"));if(e===r||e.querySelectorAll(".kint-rich > dl").length===1){for(let l of o)l.remove();e.classList.add("kint-file"),i.insertBefore(e,i.firstChild)}else{let l=s.createElement("div");l.classList.add("kint-rich"),l.classList.add("kint-file"),l.appendChild(r.closest(".kint-rich > dl"));let c=e.lastElementChild;c.matches(".kint-rich > footer")&&l.appendChild(c.cloneNode(!0));for(let k of o)k.remove();i.insertBefore(l,i.firstChild)}n.toggle(this.#s.querySelector(".kint-parent"),!0)}setupFolder(t){if(this.#s)d(this.#s)||(this.#s=t.querySelector(".kint-rich.kint-folder"));else{let e=t.createElement("template");e.innerHTML='<div class="kint-rich kint-folder"><dl><dt class="kint-parent"><nav></nav>Kint</dt><dd class="kint-foldout"></dd></dl></div>',this.#s=e.content.firstChild,t.body.appendChild(this.#s)}}get folder(){return d(this.#s)||(this.#s=this.#e.window.document.querySelector(".kint-rich.kint-folder")),this.#s&&m(this.#s),this.#s}isFolderOpen(){let t=this.#s?.querySelector("dd.kint-foldout");if(t)return t.previousSibling.classList.contains("kint-show")}static getChildContainer(t){let e=t.nextElementSibling;for(;e&&!e.matches("dd");)e=e.nextElementSibling;return e}static toggle(t,e){let s=n.getChildContainer(t);s&&(e=t.classList.toggle("kint-show",e),n.#n(s,e))}static switchTab(t){t.parentNode.getElementsByClassName("kint-active-tab")[0].classList.remove("kint-active-tab"),t.classList.add("kint-active-tab");let e=t,s=0;for(;e=e.previousElementSibling;)s++;let i=t.parentNode.nextSibling.children;for(let r=i.length;r--;)r===s?(i[r].classList.add("kint-show"),n.#n(i[r],!0)):i[r].classList.remove("kint-show")}static toggleChildren(t,e){let s=n.getChildContainer(t);if(!s)return;e===void 0&&(e=t.classList.contains("kint-show"));let i=Array.from(s.getElementsByClassName("kint-parent"));for(let r of i)r.classList.toggle("kint-show",e)}static toggleAccessPath(t,e){let s=t.querySelector(".access-path");s?.classList.toggle("kint-show",e)&&f(s)}static#n(t,e){if(t.children.length===2&&t.lastElementChild.matches("ul.kint-tab-contents"))for(let s of t.lastElementChild.children)s.matches("li.kint-show")&&(t=s);if(t.children.length===1&&t.firstElementChild.matches("dl")){let s=t.firstElementChild.firstElementChild;s?.classList?.contains("kint-parent")&&n.toggle(s,e)}}},b=class{#e;#t;#s;#i=null;#n=null;#o=0;constructor(t,e,s){this.#e=t,this.#t=s,this.#s=e,this.#s.addEventListener("click",this.#a.bind(this),!0)}#r(){clearTimeout(this.#i),this.#i=setTimeout(this.#l.bind(this),250)}#l(){clearTimeout(this.#i),this.#i=null,this.#n=null,this.#o=0}#c(){let t=this.#n;if(!t.matches(".kint-parent > nav"))return;let e=t.parentNode;if(this.#o===1)a.toggleChildren(e),this.#t.onTreeChanged(),this.#r(),this.#o=2;else if(this.#o===2){this.#l();let s=e.classList.contains("kint-show"),i=this.#e.folder?.querySelector(".kint-parent"),r=Array.from(this.#s.document.getElementsByClassName("kint-parent"));for(let o of r)o!==i&&o.classList.toggle("kint-show",s);this.#t.onTreeChanged(),this.#t.scrollToFocus()}}#a(t){if(this.#o){this.#c();return}let e=t.target;if(!e.closest(".kint-rich"))return;if(e.tagName==="DFN"&&f(e),e.tagName==="TH"){t.ctrlKey||g.sort(e.closest("table"),e.cellIndex);return}if(e.tagName==="LI"&&e.parentNode.className==="kint-tabs"){if(e.className!=="kint-active-tab"){let i=e.closest("dl")?.querySelector(".kint-parent > nav")??e;a.switchTab(e),this.#t.onTreeChanged(),this.#t.setCursor(i)}return}let s=e.closest("dt");if(e.tagName==="NAV")e.parentNode.tagName==="FOOTER"?(this.#t.setCursor(e),e.parentNode.classList.toggle("kint-show")):s?.classList.contains("kint-parent")&&(a.toggle(s),this.#t.onTreeChanged(),this.#t.setCursor(e),this.#r(),this.#o=1,this.#n=e);else if(e.classList.contains("kint-access-path-trigger"))s&&a.toggleAccessPath(s);else if(e.classList.contains("kint-search-trigger"))s?.matches(".kint-rich > dl > dt.kint-parent")&&u.toggleSearchBox(s);else if(e.classList.contains("kint-folder-trigger")){if(s?.matches(".kint-rich > dl > dt.kint-parent"))this.#e.addToFolder(e),this.#t.onTreeChanged(),this.#t.setCursor(s.querySelector("nav")),this.#t.scrollToFocus();else if(e.parentNode.tagName==="FOOTER"){let i=e.closest(".kint-rich").querySelector(".kint-parent > nav, .kint-rich > footer > nav");this.#e.addToFolder(e),this.#t.onTreeChanged(),this.#t.setCursor(i),this.#t.scrollToFocus()}}else e.classList.contains("kint-search")||(e.tagName==="PRE"&&t.detail===3?f(e):e.closest(".kint-source")&&t.detail===3?f(e.closest(".kint-source")):e.classList.contains("access-path")?f(e):e.tagName!=="A"&&s?.classList.contains("kint-parent")&&(a.toggle(s),this.#t.onTreeChanged(),this.#t.setCursor(s.querySelector("nav"))))}},j=65,G=68,A=70,S=72,K=74,D=75,p=76,V=83,P=9,T=13,B=27,L=32,N=37,R=38,C=39,H=40,M=".kint-rich .kint-parent > nav, .kint-rich > footer > nav, .kint-rich .kint-tabs > li:not(.kint-active-tab)",q=class{#e=[];#t=0;#s=!1;#i;#n;constructor(t,e){this.#i=t,this.#n=e.window,this.#n.addEventListener("keydown",this.#c.bind(this),!0),e.runOnInit(this.onTreeChanged.bind(this))}scrollToFocus(){let t=this.#e[this.#t];if(!t)return;let e=this.#i.folder;if(t===e?.querySelector(".kint-parent > nav"))return;let s=x(t);if(this.#i.isFolderOpen()){let i=e.querySelector("dd.kint-foldout");i.scrollTo(0,s-i.clientHeight/2)}else this.#n.scrollTo(0,s-this.#n.innerHeight/2)}onTreeChanged(){let t=this.#e[this.#t];this.#e=[];let e=this.#i.folder,s=e?.querySelector(".kint-parent > nav"),i=this.#n.document;this.#i.isFolderOpen()&&(i=e,this.#e.push(s));let r=Array.from(i.querySelectorAll(M));for(let o of r)o.offsetParent!==null&&o!==s&&this.#e.push(o);if(s&&!this.#i.isFolderOpen()&&this.#e.push(s),this.#e.length===0){this.#s=!1,this.#r();return}t&&this.#e.indexOf(t)!==-1?this.#t=this.#e.indexOf(t):this.#r()}setCursor(t){if(this.#i.isFolderOpen()&&!this.#i.folder.contains(t)||!t.matches(M))return!1;let e=this.#e.indexOf(t);if(e===-1&&(this.onTreeChanged(),e=this.#e.indexOf(t)),e!==-1){if(e!==this.#t)return this.#t=e,this.#r(),!0;this.#e[e]?.classList.remove("kint-weak-focus")}else console.error("setCursor failed to find target in list",t),console.info("Please report this as a bug in Kint at https://github.com/kint-php/kint");return!1}#o(t){if(this.#e.length===0)return this.#t=0,null;for(this.#t+=t;this.#t<0;)this.#t+=this.#e.length;for(;this.#t>=this.#e.length;)this.#t-=this.#e.length;return this.#r(),this.#t}#r(){let t=this.#n.document.querySelector(".kint-focused");t&&(t.classList.remove("kint-focused"),t.classList.remove("kint-weak-focus")),this.#s&&this.#e[this.#t]?.classList.add("kint-focused")}#l(t){let e=t.closest(".kint-rich .kint-parent ~ dd")?.parentNode.querySelector(".kint-parent > nav");e&&(this.setCursor(e),this.scrollToFocus())}#c(t){if(t.keyCode===B&&t.target.matches(".kint-search")){t.target.blur(),this.#s&&this.#r();return}if(t.target!==this.#n.document.body||t.altKey||t.ctrlKey)return;if(t.keyCode===G){if(this.#s)this.#s=!1;else{if(this.#s=!0,this.onTreeChanged(),this.#e.length===0){this.#s=!1;return}this.scrollToFocus()}this.#r(),t.preventDefault();return}else if(t.keyCode===B){this.#s&&(this.#s=!1,this.#r(),t.preventDefault());return}else if(!this.#s)return;t.preventDefault(),d(this.#e[this.#t])||this.onTreeChanged();let e=this.#e[this.#t];if([P,R,D,H,K].includes(t.keyCode)){t.keyCode===P?this.#o(t.shiftKey?-1:1):t.keyCode===R||t.keyCode===D?this.#o(-1):(t.keyCode===H||t.keyCode===K)&&this.#o(1),this.scrollToFocus();return}if(e.tagName==="LI"&&[L,T,C,p,N,S].includes(t.keyCode)){t.keyCode===L||t.keyCode===T?(a.switchTab(e),this.onTreeChanged()):t.keyCode===C||t.keyCode===p?this.#o(1):(t.keyCode===N||t.keyCode===S)&&this.#o(-1),this.scrollToFocus();return}if(e.parentNode.tagName==="FOOTER"&&e.closest(".kint-rich")){if(t.keyCode===L||t.keyCode===T)e.parentNode.classList.toggle("kint-show");else if(t.keyCode===N||t.keyCode===S)if(e.parentNode.classList.contains("kint-show"))e.parentNode.classList.remove("kint-show");else{this.#l(e.closest(".kint-rich"));return}else if(t.keyCode===C||t.keyCode===p)e.parentNode.classList.add("kint-show");else if(t.keyCode===A&&!this.#i.isFolderOpen()&&e.matches(".kint-rich > footer > nav")){let i=e.closest(".kint-rich").querySelector(".kint-parent > nav, .kint-rich > footer > nav");this.#i.addToFolder(e),this.onTreeChanged(),this.setCursor(i),this.scrollToFocus()}return}let s=e.closest(".kint-parent");if(s){if(t.keyCode===j){a.toggleAccessPath(s);return}if(t.keyCode===A){!this.#i.isFolderOpen()&&s.matches(".kint-rich:not(.kint-folder) > dl > .kint-parent")&&(this.#i.addToFolder(e),this.onTreeChanged(),this.setCursor(e),this.scrollToFocus());return}if(t.keyCode===V){let i=s.closest(".kint-rich > dl")?.querySelector(".kint-search")?.closest(".kint-parent");if(i){e.classList.add("kint-weak-focus"),u.toggleSearchBox(i,!0);return}}if(t.keyCode===L||t.keyCode===T){a.toggle(s),this.onTreeChanged();return}if([C,p,N,S].includes(t.keyCode)){let i=s.classList.contains("kint-show");if(t.keyCode===C||t.keyCode===p){i&&a.toggleChildren(s,!0),a.toggle(s,!0),this.onTreeChanged();return}else if(i){a.toggleChildren(s,!1),a.toggle(s,!1),this.onTreeChanged();return}else{this.#l(s);return}}}}};var y=class{#e;#t;constructor(t){if(!(t instanceof h))throw new Error("Invalid argument to Plain.constructor()");this.#e=t.window,t.runOnInit(this.#s.bind(this))}#s(){d(this.#t)||(this.#t=this.#e.document.querySelector("style.kint-plain-style")),this.#t&&m(this.#t)}};var w=class{#e;constructor(t){if(!(t instanceof h))throw new Error("Invalid argument to Microtime.constructor()");this.#e=t.window,t.runOnInit(this.#t.bind(this))}#t(){let t={},e=this.#e.document.querySelectorAll("[data-kint-microtime-group]");for(let s of e){let i=s.querySelector(".kint-microtime-lap");if(!i)continue;let r=s.dataset.kintMicrotimeGroup,o=parseFloat(i.textContent),l=parseFloat(s.querySelector(".kint-microtime-avg").textContent);t[r]??={min:o,max:o,avg:l},t[r].min>o&&(t[r].min=o),t[r].max<o&&(t[r].max=o),t[r].avg=l}for(let s of e){let i=s.querySelector(".kint-microtime-lap");if(!i)continue;let r=parseFloat(i.textContent),o=t[s.dataset.kintMicrotimeGroup];if(s.querySelector(".kint-microtime-avg").textContent=o.avg,!(r===o.min&&r===o.max))if(s.classList.add("kint-microtime-js"),r>o.avg){let l=(r-o.avg)/(o.max-o.avg);i.style.background="hsl("+(40-40*l)+", 100%, 65%)"}else{let l=0;o.avg!==o.min&&(l=(o.avg-r)/(o.avg-o.min)),i.style.background="hsl("+(40+80*l)+", 100%, 65%)"}}}};var U=Symbol(),h=class n{static#e=null;#t;#s=[];#i=new Set;static init(t){return n.#e??=new n(t,U),n.#e.#n(),n.#e.runOnLoad(n.#r),n.#e}get window(){return this.#t}constructor(t,e){if(U!==e)throw new Error("Kint constructor is private. Use Kint.init()");if(!(t instanceof Window))throw new Error("Invalid argument to Kint.init()");this.#t=t,this.runOnInit(this.#o.bind(this)),new y(this),new a(this),new w(this)}runOnLoad(t){if(this.#t.document.readyState==="complete")try{t()}catch{}else this.#t.addEventListener("load",t)}runOnInit(t){this.#s.push(t)}#n(){this.#t.document.currentScript&&(this.#i.add(E(window.document.currentScript)),window.document.currentScript.remove())}#o(){for(let t of this.#i.keys())for(let e of this.#t.document.querySelectorAll(t))e.remove()}static#r(){for(let t of n.#e.#s)t()}};window.Kint||(window.Kint=h);window.Kint.init(window);})();
+</script><style class="kint-rich-style">.kint-rich{--spacing: 4px;--nav-size: 15px;--backdrop-color: rgba(255, 255, 255, 0.9);--main-background: #e0eaef;--secondary-background: #c1d4df;--text-color: #1d1e1e;--variable-name-color: #1d1e1e;--variable-type-color: #0092db;--variable-type-color-hover: #5cb730;--border-color: #b6cedb;--border-color-hover: #0092db;--border: 1px solid var(--border-color);--foldout-max-size: calc(100vh - 100px);--foldout-zindex: 999999;--caret-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 150'><g stroke-width='2' fill='%23FFF'><path d='M1 1h28v28H1zm5 14h18m-9 9V6M1 61h28v28H1zm5 14h18' stroke='%23379'/><path d='M1 31h28v28H1zm5 14h18m-9 9V36M1 91h28v28H1zm5 14h18' stroke='%235A3'/><path d='M1 121h28v28H1zm5 5l18 18m-18 0l18-18' stroke='%23CCC'/></g></svg>");--ap-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><g stroke='%23000' fill='transparent'><path d='M2 8h3m3 3v3M8 2v3m3 3h3M3 8' stroke-width='2' stroke-linecap='round'/><circle stroke-width='1.5' r='4.5' cx='8' cy='8'/></g></svg>");--folder-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M2 2h4l2 2h6v9H2V2h2' stroke-width='2' stroke='%23000' fill='transparent' stroke-linejoin='round'/></svg>");--search-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><g stroke='%23000' fill='transparent'><path d='M2 14l3-3' stroke-linecap='round' stroke-width='3'/><circle stroke-width='2' r='5' cx='9' cy='7'/></g></svg>");font-size:13px;overflow-x:auto;white-space:nowrap;background:var(--backdrop-color);direction:ltr;contain:content}.kint-rich.kint-folder{position:fixed;bottom:0;left:0;right:0;z-index:var(--foldout-zindex);width:100%;margin:0;display:block}.kint-rich.kint-folder dd.kint-foldout{max-height:var(--foldout-max-size);padding-right:calc(var(--spacing)*2);overflow-y:scroll;display:none}.kint-rich.kint-folder dd.kint-foldout.kint-show{display:block}.kint-rich::selection{background:var(--border-color-hover);color:var(--text-color)}.kint-rich .kint-focused{box-shadow:0 0 3px 3px var(--variable-type-color-hover)}.kint-rich .kint-focused.kint-weak-focus{box-shadow:0 0 3px 1px color-mix(in srgb, var(--variable-type-color-hover) 50%, transparent)}.kint-rich,.kint-rich::before,.kint-rich::after,.kint-rich *,.kint-rich *::before,.kint-rich *::after{box-sizing:border-box;border-radius:0;color:var(--text-color);float:none !important;font-family:Consolas,Menlo,Monaco,Lucida Console,Liberation Mono,DejaVu Sans Mono,Bitstream Vera Sans Mono,Courier New,monospace,serif;line-height:15px;margin:0;padding:0;text-align:left}.kint-rich{margin:calc(var(--spacing)*2) 0}.kint-rich dt,.kint-rich dl{width:auto}.kint-rich dt,.kint-rich div.access-path{background:var(--main-background);border:var(--border);color:var(--text-color);display:block;font-weight:bold;list-style:none outside none;overflow:auto;padding:var(--spacing)}.kint-rich dt:hover,.kint-rich div.access-path:hover{border-color:var(--border-color-hover)}.kint-rich>dl dl{padding:0 0 0 calc(var(--spacing)*3)}.kint-rich dt.kint-parent>nav,.kint-rich>footer>nav{background:var(--caret-image) no-repeat scroll 0 0/var(--nav-size) 75px rgba(0,0,0,0);cursor:pointer;display:inline-block;height:var(--nav-size);width:var(--nav-size);margin-right:3px;vertical-align:middle}.kint-rich dt.kint-parent:hover>nav,.kint-rich>footer>nav:hover{background-position:0 25%}.kint-rich dt.kint-parent.kint-show>nav,.kint-rich>footer.kint-show>nav{background-position:0 50%}.kint-rich dt.kint-parent.kint-show:hover>nav,.kint-rich>footer.kint-show>nav:hover{background-position:0 75%}.kint-rich dt.kint-parent.kint-locked>nav{background-position:0 100%}.kint-rich dt.kint-parent+dd{display:none;border-left:1px dashed var(--border-color);contain:strict}.kint-rich dt.kint-parent.kint-show+dd{display:block;contain:content}.kint-rich var,.kint-rich var a{color:var(--variable-type-color);font-style:normal}.kint-rich dt:hover var,.kint-rich dt:hover var a{color:var(--variable-type-color-hover)}.kint-rich dfn{font-style:normal;font-family:monospace;color:var(--variable-name-color)}.kint-rich pre{color:var(--text-color);margin:0 0 0 calc(var(--spacing)*3);padding:5px;overflow-y:hidden;border-top:0;border:var(--border);background:var(--main-background);display:block;word-break:normal}.kint-rich .kint-access-path-trigger,.kint-rich .kint-folder-trigger,.kint-rich .kint-search-trigger{background:color-mix(in srgb, var(--text-color) 80%, transparent);border-radius:3px;padding:2px;height:var(--nav-size);width:var(--nav-size);font-size:var(--nav-size);margin-left:5px;font-weight:bold;text-align:center;line-height:1;float:right !important;cursor:pointer;position:relative;overflow:hidden}.kint-rich .kint-access-path-trigger::before,.kint-rich .kint-folder-trigger::before,.kint-rich .kint-search-trigger::before{display:block;content:"";width:100%;height:100%;background:var(--main-background);mask:center/contain no-repeat alpha}.kint-rich .kint-access-path-trigger:hover,.kint-rich .kint-folder-trigger:hover,.kint-rich .kint-search-trigger:hover{background:var(--main-background)}.kint-rich .kint-access-path-trigger:hover::before,.kint-rich .kint-folder-trigger:hover::before,.kint-rich .kint-search-trigger:hover::before{background:var(--text-color)}.kint-rich .kint-access-path-trigger::before{mask-image:var(--ap-image)}.kint-rich .kint-folder-trigger::before{mask-image:var(--folder-image)}.kint-rich .kint-search-trigger::before{mask-image:var(--search-image)}.kint-rich input.kint-search{display:none;border:var(--border);border-top-width:0;border-bottom-width:0;padding:var(--spacing);float:right !important;margin:calc(var(--spacing)*-1) 0;color:var(--variable-name-color);background:var(--secondary-background);height:calc(var(--nav-size) + var(--spacing)*2);width:calc(var(--nav-size)*10);position:relative;z-index:100}.kint-rich input.kint-search.kint-show{display:block}.kint-rich .kint-search-root ul.kint-tabs>li:not(.kint-search-match){background:var(--secondary-background);filter:saturate(0);opacity:.5}.kint-rich .kint-search-root dl:not(.kint-search-match){opacity:.5}.kint-rich .kint-search-root dl:not(.kint-search-match)>dt{background:var(--main-background);filter:saturate(0)}.kint-rich .kint-search-root dl:not(.kint-search-match) dl,.kint-rich .kint-search-root dl:not(.kint-search-match) ul.kint-tabs>li:not(.kint-search-match){opacity:1}.kint-rich div.access-path{background:var(--secondary-background);display:none;margin-top:5px;padding:4px;white-space:pre}.kint-rich div.access-path.kint-show{display:block}.kint-rich footer{padding:0 3px 3px;font-size:9px;background:rgba(0,0,0,0)}.kint-rich footer>.kint-folder-trigger{background:rgba(0,0,0,0)}.kint-rich footer>.kint-folder-trigger::before{background:var(--text-color)}.kint-rich footer nav{height:10px;width:10px;background-size:10px 50px}.kint-rich footer>ol{display:none;margin-left:32px}.kint-rich footer.kint-show>ol{display:block}.kint-rich a{color:var(--text-color);text-shadow:none;text-decoration:underline}.kint-rich a:hover{color:var(--variable-name-color);border-bottom:1px dotted var(--variable-name-color)}.kint-rich ul{list-style:none;padding-left:calc(var(--spacing)*3)}.kint-rich ul:not(.kint-tabs) li{border-left:1px dashed var(--border-color)}.kint-rich ul:not(.kint-tabs) li>dl{border-left:none}.kint-rich ul.kint-tabs{margin:0 0 0 calc(var(--spacing)*3);padding-left:0;background:var(--main-background);border:var(--border);border-top:0}.kint-rich ul.kint-tabs>li{background:var(--secondary-background);border:var(--border);cursor:pointer;display:inline-block;height:calc(var(--spacing)*6);margin:calc(var(--spacing)/2);padding:0 calc(2px + var(--spacing)*2.5);vertical-align:top}.kint-rich ul.kint-tabs>li:hover,.kint-rich ul.kint-tabs>li.kint-active-tab:hover{border-color:var(--border-color-hover);color:var(--variable-type-color-hover)}.kint-rich ul.kint-tabs>li.kint-active-tab{background:var(--main-background);border-top:0;margin-top:-1px;height:27px;line-height:24px}.kint-rich ul.kint-tabs>li:not(.kint-active-tab){line-height:calc(var(--spacing)*5)}.kint-rich ul.kint-tabs li+li{margin-left:0}.kint-rich ul.kint-tab-contents>li{display:none;contain:strict}.kint-rich ul.kint-tab-contents>li.kint-show{display:block;contain:content}.kint-rich dt:hover+dd>ul>li.kint-active-tab{border-color:var(--border-color-hover);color:var(--variable-type-color-hover)}.kint-rich dt>.kint-color-preview{width:var(--nav-size);height:var(--nav-size);display:inline-block;vertical-align:middle;margin-left:10px;border:var(--border);background-color:#ccc;background-image:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2 2"><path fill="%23FFF" d="M0 0h1v2h1V1H0z"/></svg>');background-size:min(20px,100%)}.kint-rich dt>.kint-color-preview:hover{border-color:var(--border-color-hover)}.kint-rich dt>.kint-color-preview>div{width:100%;height:100%}.kint-rich table{border-collapse:collapse;empty-cells:show;border-spacing:0}.kint-rich table *{font-size:12px}.kint-rich table dt{background:none;padding:calc(var(--spacing)/2)}.kint-rich table dt .kint-parent{min-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.kint-rich table td,.kint-rich table th{border:var(--border);padding:calc(var(--spacing)/2);vertical-align:center}.kint-rich table th{cursor:alias}.kint-rich table td:first-child,.kint-rich table th{font-weight:bold;background:var(--secondary-background);color:var(--variable-name-color)}.kint-rich table td{background:var(--main-background);white-space:pre}.kint-rich table td>dl{padding:0}.kint-rich table pre{border-top:0;border-right:0}.kint-rich table thead th:first-child{background:none;border:0}.kint-rich table tr:hover>td{box-shadow:0 0 1px 0 var(--border-color-hover) inset}.kint-rich table tr:hover var{color:var(--variable-type-color-hover)}.kint-rich table ul.kint-tabs li.kint-active-tab{height:20px;line-height:17px}.kint-rich pre.kint-source{margin-left:-1px}.kint-rich pre.kint-source[data-kint-filename]:before{display:block;content:attr(data-kint-filename);margin-bottom:var(--spacing);padding-bottom:var(--spacing);border-bottom:1px solid var(--secondary-background)}.kint-rich pre.kint-source>div:before{display:inline-block;content:counter(kint-l);counter-increment:kint-l;border-right:1px solid var(--border-color-hover);padding-right:calc(var(--spacing)*2);margin-right:calc(var(--spacing)*2)}.kint-rich pre.kint-source>div.kint-highlight{background:var(--secondary-background)}.kint-rich .kint-microtime-js .kint-microtime-lap{text-shadow:-1px 0 var(--border-color-hover),0 1px var(--border-color-hover),1px 0 var(--border-color-hover),0 -1px var(--border-color-hover);color:var(--main-background);font-weight:bold}.kint-rich{--main-background: #f8f8f8;--secondary-background: #f8f8f8;--variable-type-color: #06f;--variable-type-color-hover: #f00;--border-color: #d7d7d7;--border-color-hover: #aaa;--alternative-background: #fff;--highlight-color: #cfc;--caret-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 150'><path d='M6 7h18l-9 15zm0 30h18l-9 15zm0 45h18l-9-15zm0 30h18l-9-15zm0 12l18 18m-18 0l18-18' fill='%23555'/><path d='M6 126l18 18m-18 0l18-18' stroke-width='2' stroke='%23555'/></svg>")}.kint-rich .kint-focused{box-shadow:0 0 3px 2px var(--variable-type-color-hover)}.kint-rich dt{font-weight:normal}.kint-rich dt.kint-parent{margin-top:4px}.kint-rich dl dl{margin-top:4px;padding-left:25px;border-left:none}.kint-rich>dl>dt{background:var(--secondary-background)}.kint-rich ul{margin:0;padding-left:0}.kint-rich ul:not(.kint-tabs)>li{border-left:0}.kint-rich ul.kint-tabs{background:var(--secondary-background);border:var(--border);border-width:0 1px 1px 1px;padding:4px 0 0 12px;margin-left:-1px;margin-top:-1px}.kint-rich ul.kint-tabs li,.kint-rich ul.kint-tabs li+li{margin:0 0 0 4px}.kint-rich ul.kint-tabs li{border-bottom-width:0;height:calc(var(--spacing)*6 + 1px)}.kint-rich ul.kint-tabs li:first-child{margin-left:0}.kint-rich ul.kint-tabs li.kint-active-tab{border-top:var(--border);background:var(--alternative-background);font-weight:bold;padding-top:0;border-bottom:1px solid var(--alternative-background) !important;margin-bottom:-1px}.kint-rich ul.kint-tabs li.kint-active-tab:hover{border-bottom:1px solid var(--alternative-background)}.kint-rich ul>li>pre{border:var(--border)}.kint-rich dt:hover+dd>ul{border-color:var(--border-color-hover)}.kint-rich pre{background:var(--alternative-background);margin-top:4px;margin-left:25px}.kint-rich .kint-source{margin-left:-1px}.kint-rich .kint-source .kint-highlight{background:var(--highlight-color)}.kint-rich .kint-parent.kint-show>.kint-search{border-bottom-width:1px}.kint-rich table td{background:var(--alternative-background)}.kint-rich table td>dl{padding:0;margin:0}.kint-rich table td>dl>dt.kint-parent{margin:0}.kint-rich table td:first-child,.kint-rich table td,.kint-rich table th{padding:2px 4px}.kint-rich table dd,.kint-rich table dt{background:var(--alternative-background)}.kint-rich table tr:hover>td{box-shadow:none;background:var(--highlight-color)}
+</style>
+
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>A&A Inventory</title>
+	<link rel="icon" type="image/png" href="http://localhost/aandainventory/assets/images/aainv_logo.png">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="http://localhost/aandainventory/assets/css/style.css">
+	<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<div class="sidebar" id="sidebar">
+    <div class="sidebar-brand">
+        <i class="bi bi-box-seam-fill"></i>
+        <span>A&A System</span>
+    </div>
+    <nav class="sidebar-nav">
+        <a href="http://localhost/aandainventory/dashboard" class="nav-link ">
+            <i class="bi bi-speedometer2"></i> Dashboard
+        </a>
+        <div class="nav-section">INVENTORY</div>
+        <a href="http://localhost/aandainventory/products" class="nav-link ">
+            <i class="bi bi-box"></i> Products
+        </a>
+        <a href="http://localhost/aandainventory/suppliers" class="nav-link ">
+            <i class="bi bi-truck"></i> Suppliers
+        </a>
+        <div class="nav-section">CRM</div>
+        <a href="http://localhost/aandainventory/customers" class="nav-link ">
+            <i class="bi bi-people"></i> Customers
+        </a>
+        <a href="http://localhost/aandainventory/projects" class="nav-link ">
+            <i class="bi bi-kanban"></i> Projects
+        </a>
+        <div class="nav-section">TRANSACTIONS</div>
+        <a href="http://localhost/aandainventory/purchases" class="nav-link ">
+            <i class="bi bi-cart-plus"></i> Purchases
+        </a>
+		<a href="http://localhost/aandainventory/stock-entry" class="nav-link ">
+			<i class="bi bi-box-seam"></i> Stock Entry
+		</a>
+        <a href="http://localhost/aandainventory/sales" class="nav-link active">
+            <i class="bi bi-receipt"></i> Sales
+        </a>
+        <a href="http://localhost/aandainventory/stock-returns" class="nav-link ">
+            <i class="bi bi-arrow-return-left"></i> Stock Returns
+        </a>
+        <a href="http://localhost/aandainventory/payments" class="nav-link ">
+            <i class="bi bi-cash-stack"></i> Payments
+        </a>
+        <a href="http://localhost/aandainventory/expenses" class="nav-link ">
+            <i class="bi bi-credit-card"></i> Expenses
+        </a>
+        <div class="nav-section">REPORTS</div>
+        <a href="http://localhost/aandainventory/reports" class="nav-link ">
+            <i class="bi bi-bar-chart-line"></i> Reports
+        </a>
+    </nav>
+</div>
+
+<!-- MAIN CONTENT -->
+<div class="main-content" id="mainContent">
+    <!-- TOPBAR -->
+    <div class="topbar">
+		<button id="sidebarToggle" class="btn btn-sm btn-light me-2">
+			<i class="bi bi-list"></i>
+		</button>
+        <div class="topbar-title"></div>
+        <div class="topbar-right">
+            <span class="topbar-user"><i class="bi bi-person-circle"></i> aainv</span>
+            <a href="http://localhost/aandainventory/logout" class="btn-logout">
+                <i class="bi bi-box-arrow-right"></i> Logout
+            </a>
+        </div>
+    </div>
+
+    <!-- PAGE CONTENT -->
+    <div class="page-content">
+
+        
+        
+        
+<div class="page-title">
+    <span><i class="bi bi-pencil-square me-2"></i>Edit Sale — PF-TEST-1</span>
+    <a href="http://localhost/aandainventory/sales/view/20" class="btn-cancel"><i class="bi bi-arrow-left"></i> Back</a>
+</div>
+
+
+<form action="http://localhost/aandainventory/sales/update/20" method="POST" id="saleForm">
+
+<div class="card-custom mb-3">
+    <div class="card-custom-header">Sale Details</div>
+    <div class="card-custom-body">
+        <div class="row">
+            <div class="col-md-4">
+                <div class="form-section">
+                    <label class="form-label">Project <span class="text-danger">*</span></label>
+                    <select name="project_id" id="projectSelect" class="form-control" required>
+                        <option value="">-- Select Project --</option>
+                                                <option value="16" >
+                            Medical Project                        </option>
+                                                <option value="14" selected>
+                            Phase3D Project A                        </option>
+                                                <option value="15" >
+                            Phase3D Project B                        </option>
+                                            </select>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="form-section">
+                    <label class="form-label">Customer</label>
+                    <select name="customer_id" class="form-control">
+                        <option value="">-- Select Customer --</option>
+                                                <option value="13" >
+                            Ashwathi                        </option>
+                                                <option value="12" >
+                            Phase3D Test Customer                        </option>
+                                            </select>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="form-section">
+                    <label class="form-label">Sale Date <span class="text-danger">*</span></label>
+                    <input type="date" name="sale_date" class="form-control" value="2026-08-27" required>
+                </div>
+            </div>
+        </div>
+        <div class="row">
+            <div class="col-md-4">
+                <div class="form-section">
+                    <label class="form-label">Invoice No</label>
+                    <input type="text" name="invoice_no" class="form-control" value="PF-TEST-1">
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="form-section">
+                    <label class="form-label">Notes</label>
+                    <input type="text" name="notes" class="form-control" value="Phase4B regression test">
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card-custom mb-3 pf-compact" id="projectFinancialCard" style="display:none">
+    <div class="card-custom-header"><i class="bi bi-graph-up me-2"></i>Project Financial Summary</div>
+    <div class="card-custom-body">
+        <div class="row row-cols-2 row-cols-lg-4 g-2">
+            <div class="col">
+                <div class="pf-chip">
+                    <span class="pf-chip-icon"><i class="bi bi-folder-fill"></i></span>
+                    <span class="pf-chip-body">
+                        <span class="pf-chip-label">Project Value</span>
+                        <span class="pf-chip-value" id="pfTotalValue">-</span>
+                    </span>
+                </div>
+            </div>
+            <div class="col">
+                <div class="pf-chip">
+                    <span class="pf-chip-icon"><i class="bi bi-receipt"></i></span>
+                    <span class="pf-chip-body">
+                        <span class="pf-chip-label">This Invoice</span>
+                        <span class="pf-chip-value" id="pfInvoiceTotal">0.00</span>
+                    </span>
+                </div>
+            </div>
+            <div class="col">
+                <div class="pf-chip pf-chip-remaining">
+                    <span class="pf-chip-icon pf-icon-remaining"><i class="bi bi-wallet2"></i></span>
+                    <span class="pf-chip-body">
+                        <span class="pf-chip-label">Remaining Balance</span>
+                        <span class="pf-chip-value pf-chip-value-remaining" id="pfRemainingBalance">0.00</span>
+                        <div class="pf-progress-row">
+                            <div class="pf-progress-track"><div class="progress-bar" id="pfProgressAfterBar" role="progressbar" style="width:0%"></div></div>
+                            <span class="pf-chip-sub" id="pfProgressAfterLabel">0%</span>
+                        </div>
+                    </span>
+                </div>
+            </div>
+            <div class="col">
+                <div class="pf-chip pf-chip-status">
+                    <span class="pf-chip-icon"><i class="bi bi-flag-fill"></i></span>
+                    <span class="pf-chip-body">
+                        <span class="pf-chip-label">Status</span>
+                        <span id="pfWarning" class="pf-badge" style="display:none"></span>
+                    </span>
+                </div>
+            </div>
+        </div>
+        <span id="pfRemainingAfter" style="display:none"></span>
+        <span id="pfBilledAfterAmount" style="display:none"></span>
+    </div>
+</div>
+<style>
+#projectFinancialCard.pf-compact .card-custom-header{padding:5px 14px;font-size:0.82rem}
+#projectFinancialCard.pf-compact .card-custom-body{padding:6px 14px}
+#projectFinancialCard .pf-chip{display:flex;align-items:center;gap:8px;height:52px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:0 10px}
+#projectFinancialCard .pf-chip-icon{font-size:1rem;color:#2563eb;flex:0 0 auto;line-height:1}
+#projectFinancialCard .pf-chip-body{display:flex;flex-direction:column;justify-content:center;line-height:1.15;overflow:hidden;min-width:0;flex:1 1 auto}
+#projectFinancialCard .pf-chip-label{font-size:0.63rem;color:#64748b;text-transform:uppercase;letter-spacing:.03em}
+#projectFinancialCard .pf-chip-value{font-size:1rem;font-weight:700;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
+#projectFinancialCard .pf-chip-sub{font-size:0.7rem;font-weight:600;color:#64748b;white-space:nowrap}
+#projectFinancialCard .pf-progress-track{height:5px;background:#e2e8f0;border-radius:3px;overflow:hidden;margin-top:3px;flex:1 1 auto}
+#projectFinancialCard .pf-progress-track .progress-bar{height:100%;margin:0;transition:width .2s ease}
+#projectFinancialCard .pf-progress-row{display:flex;align-items:center;gap:6px;margin-top:3px}
+#projectFinancialCard .pf-chip-remaining{background:#f0fdf4;border-color:#bbf7d0}
+#projectFinancialCard .pf-icon-remaining{color:#16a34a;font-size:1.1rem}
+#projectFinancialCard .pf-chip-value-remaining{font-size:1.15rem;font-weight:800;color:#15803d}
+#projectFinancialCard .pf-chip-status{justify-content:flex-start}
+#projectFinancialCard .pf-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;font-size:0.7rem;font-weight:600;line-height:1.3;width:fit-content}
+#projectFinancialCard .pf-badge-success{background:#dcfce7;color:#15803d}
+#projectFinancialCard .pf-badge-warning{background:#fef3c7;color:#b45309}
+#projectFinancialCard .pf-badge-danger{background:#fee2e2;color:#b91c1c}
+</style>
+
+<div class="card-custom mb-3">
+    <div class="card-custom-header">
+        Sale Items
+        <button type="button" class="btn-save" id="addItemBtn" style="float:right;margin-top:-4px">
+            <i class="bi bi-plus"></i> Add Item
+        </button>
+    </div>
+    <div class="card-custom-body">
+        <div id="loadingMsg" style="display:none;color:#64748b;font-size:0.85rem">
+            <i class="bi bi-arrow-repeat"></i> Loading existing items...
+        </div>
+        <div id="itemsContainer"></div>
+        <div class="pf-gst-strip">
+            <div class="pf-gst-item">
+                <span class="pf-gst-label">Taxable</span>
+                <span class="pf-gst-value" id="taxableAmount">0.00</span>
+            </div>
+            <div class="pf-gst-sep">+</div>
+            <div class="pf-gst-item">
+                <span class="pf-gst-label">GST</span>
+                <span class="pf-gst-value" id="gstTotal">0.00</span>
+            </div>
+            <div class="pf-gst-sep">=</div>
+            <div class="pf-gst-item pf-gst-total">
+                <span class="pf-gst-label">Grand Total</span>
+                <span class="pf-gst-value" id="grandTotal">0.00</span>
+            </div>
+        </div>
+    </div>
+</div>
+<style>
+.pf-gst-strip{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 4px;margin-top:6px;border-top:1px solid #e2e8f0}
+.pf-gst-item{display:flex;flex-direction:column;line-height:1.15}
+.pf-gst-label{font-size:0.63rem;color:#64748b;text-transform:uppercase;letter-spacing:.03em}
+.pf-gst-value{font-size:1rem;font-weight:600;color:#0f172a;font-variant-numeric:tabular-nums}
+.pf-gst-sep{color:#94a3b8;font-size:0.9rem}
+.pf-gst-total{margin-left:4px}
+.pf-gst-total .pf-gst-value{font-size:1.3rem;font-weight:800;color:#0f172a}
+.pf-gst-total .pf-gst-label{color:#0f172a}
+</style>
+
+<div class="mb-4">
+    <button type="submit" class="btn-save"><i class="bi bi-save"></i> Update Sale</button>
+    <a href="http://localhost/aandainventory/sales/view/20" class="btn-cancel ms-2"><i class="bi bi-x"></i> Cancel</a>
+</div>
+
+</form>
+
+
+    </div>
+</div>
+
+<script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+	
+	<!-- DataTables -->
+<link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
+<script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+	
+<script src="http://localhost/aandainventory/assets/js/gst-calc.js"></script>
+<script src="http://localhost/aandainventory/assets/js/project-financial.js"></script>
+<script>
+var existingItems = [{"id":"46","sale_id":"20","product_id":"4","quantity":"1.000","unit_price":"5.50","gst_percent":"12.00","gst_applicable":"1","gst_amount":"0.66","total":"5.50","total_with_gst":"6.16","stock_source":"GENERAL","project_id":null,"created_at":"2026-08-27 15:12:44","updated_at":"2026-08-27 15:12:44","product_name":"Electrical Wire 2.5mm","unit":"","selling_price":"5.50"}];
+var ajaxBase      = 'http://localhost/aandainventory/sales/get-products';
+var excludeSaleId = 20;
+var itemCount     = 0;
+
+initProjectFinancialTracker('http://localhost/aandainventory/sales/project-financial-summary', excludeSaleId);
+
+/* ---------------------------------------------------------------
+   Build an item row HTML string.
+   prefill: object with { stock_source, product_id, product_name,
+            unit, selling_price, quantity, unit_price }  OR null
+--------------------------------------------------------------- */
+function buildItemRow(num, prefill) {
+    var srcGen = (prefill && prefill.stock_source === 'GENERAL') ? ' selected' : '';
+    var srcPrj = (prefill && prefill.stock_source === 'PROJECT') ? ' selected' : '';
+
+    // Product dropdown: start with a placeholder; populated via AJAX
+    var productOpt = prefill
+        ? '<option value="' + prefill.product_id + '" selected>' +
+          prefill.product_name + ' (' + (prefill.unit || '') + ')</option>'
+        : '<option value="">Select Source First</option>';
+
+    var prefillQty   = prefill ? parseFloat(prefill.quantity).toFixed(3)   : '';
+    var prefillPrice = prefill ? parseFloat(prefill.unit_price).toFixed(2) : '';
+    var lineVal      = (prefill && prefill.quantity && prefill.unit_price)
+                         ? (parseFloat(prefill.quantity) * parseFloat(prefill.unit_price)).toFixed(2)
+                         : '0.00';
+
+    var gstApp        = (prefill && prefill.gst_applicable !== undefined) ? parseInt(prefill.gst_applicable) : 1;
+    var gstAppWith     = (gstApp === 1) ? ' selected' : '';
+    var gstAppWithout  = (gstApp === 0) ? ' selected' : '';
+
+    return '<div class="item-row" id="item-' + num + '">' +
+        '<div class="row-num">#' + num + '</div>' +
+        '<button type="button" class="remove-item" onclick="removeItem(' + num + ')"><i class="bi bi-x-circle-fill"></i></button>' +
+        '<div class="row align-items-end">' +
+
+            '<div class="col-md-2"><div class="form-section">' +
+                '<label class="form-label">Source</label>' +
+                '<select name="items[' + num + '][stock_source]" class="form-control item-source" required>' +
+                    '<option value="">Select</option>' +
+                    '<option value="GENERAL"' + srcGen + '>GENERAL</option>' +
+                    '<option value="PROJECT"' + srcPrj + '>PROJECT</option>' +
+                '</select>' +
+            '</div></div>' +
+
+            '<div class="col-md-3"><div class="form-section">' +
+                '<label class="form-label">Product</label>' +
+                '<select name="items[' + num + '][product_id]" class="form-control product-select" required>' +
+                    productOpt +
+                '</select>' +
+            '</div></div>' +
+
+            '<div class="col-md-1"><div class="form-section">' +
+                '<label class="form-label">A Qty</label>' +
+                '<input type="text" class="form-control available-stock" readonly>' +
+            '</div></div>' +
+
+            '<div class="col-md-1"><div class="form-section">' +
+                '<label class="form-label">Qty</label>' +
+                '<input type="number" name="items[' + num + '][quantity]" class="form-control qty-input" value="' + prefillQty + '" required>' +
+            '</div></div>' +
+
+            '<div class="col-md-2"><div class="form-section">' +
+                '<label class="form-label">Unit Price</label>' +
+                '<input type="number" name="items[' + num + '][unit_price]" class="form-control price-input" step="0.01" min="0" value="' + prefillPrice + '" required>' +
+            '</div></div>' +
+
+			'<div class="col-md-1"><div class="form-section">' +
+				'<label class="form-label">GST %</label>' +
+				'<input type="text" class="form-control gst-percent" readonly>' +
+			'</div></div>' +
+
+			'<div class="col-md-1"><div class="form-section">' +
+				'<label class="form-label">GST</label>' +
+				'<select name="items[' + num + '][gst_applicable]" class="form-control gst-applicable">' +
+					'<option value="1"' + gstAppWith + '>With</option>' +
+					'<option value="0"' + gstAppWithout + '>Without</option>' +
+				'</select>' +
+			'</div></div>' +
+
+            '<div class="col-md-2"><div class="form-section">' +
+                '<label class="form-label">Line Total</label>' +
+                '<input type="text" class="form-control line-total" readonly value="' + lineVal + '">' +
+            '</div></div>' +
+
+        '</div></div>';
+}
+
+/* ---------------------------------------------------------------
+   Bind change events to a row
+--------------------------------------------------------------- */
+function bindRowEvents(num, prefillProductId, prefillAvailable) {
+    var row = $('#item-' + num);
+
+    // Source change → reload products via AJAX
+    row.find('.item-source').on('change', function() {
+        var source    = $(this).val();
+        var projectId = $('#projectSelect').val();
+        if (!source) return;
+
+        var params = { source: source, exclude_sale_id: excludeSaleId };
+        if (source === 'PROJECT') params.project_id = projectId;
+
+        $.get(ajaxBase, params, function(data) {
+            var select = row.find('.product-select');
+            select.empty().append('<option value="">-- Select Product --</option>');
+            data.forEach(function(p) {
+                select.append(
+                    '<option value="' + p.id + '" data-price="' + p.selling_price +
+						'" data-qty="' + p.available_qty + '" data-gst="' + (p.gst_percent || 0) + '">' +
+                    p.name + ' (' + p.unit + ') — Stock: ' + parseFloat(p.available_qty).toFixed(2) +
+                    '</option>'
+                );
+            });
+            if (data.length === 0) {
+                select.append('<option value="" disabled>No stock available for this source</option>');
+            }
+            calcLineTotal(row);
+        });
+    });
+
+    // Product change → fill price + available
+    row.find('.product-select').on('change', function() {
+		var selected = $(this).find(':selected');
+
+		var price = parseFloat(selected.data('price')) || 0;
+		var avail = parseFloat(selected.data('qty'))   || 0;
+		var gst   = parseFloat(selected.attr('data-gst')) || 0;
+
+		row.find('.price-input').val(price.toFixed(2));
+		row.find('.available-stock').val(avail.toFixed(3));
+		row.find('.gst-percent').val(gst + '%');
+
+		calcLineTotal(row);
+	});
+
+    // Qty validation + recalc
+    row.find('.qty-input').on('input', function() {
+        var qty   = parseFloat($(this).val()) || 0;
+        var avail = parseFloat(row.find('.available-stock').val()) || 0;
+        if (avail > 0 && qty > avail) {
+            $(this).val(avail.toFixed(3));
+            alert('Quantity exceeds available stock (' + avail.toFixed(3) + ').');
+        }
+        calcLineTotal(row);
+    });
+
+    row.find('.price-input').on('input', function() { calcLineTotal(row); });
+
+    row.find('.gst-applicable').on('change', function() { calcLineTotal(row); });
+
+    // Pre-fill available qty display if given (from existing item load)
+    if (prefillAvailable !== undefined && prefillAvailable !== null) {
+        row.find('.available-stock').val(parseFloat(prefillAvailable).toFixed(3));
+    }
+}
+
+/* ---------------------------------------------------------------
+   Add a brand-new empty row (for "Add Item" button)
+--------------------------------------------------------------- */
+function addNewItem() {
+    itemCount++;
+    $('#itemsContainer').append(buildItemRow(itemCount, null));
+    bindRowEvents(itemCount, null, null);
+    calcTotal();
+}
+
+/* ---------------------------------------------------------------
+   Add a pre-filled row then load available qty via AJAX
+--------------------------------------------------------------- */
+function addPrefillItem(prefill, num) {
+    $('#itemsContainer').append(buildItemRow(num, prefill));
+
+    var row       = $('#item-' + num);
+    var source    = prefill.stock_source;
+    var projectId = $('#projectSelect').val();
+
+    var params = { source: source, exclude_sale_id: excludeSaleId };
+    if (source === 'PROJECT') params.project_id = projectId;
+
+    // Load full product list for this source so dropdown is complete
+    $.get(ajaxBase, params, function(data) {
+        var select = row.find('.product-select');
+        select.empty().append('<option value="">-- Select Product --</option>');
+
+        var foundAvail = null;
+        data.forEach(function(p) {
+            var sel = (parseInt(p.id) === parseInt(prefill.product_id)) ? ' selected' : '';
+            select.append(
+                '<option value="' + p.id + '" data-price="' + p.selling_price +
+                '" data-qty="' + p.available_qty + '" data-gst="' + (p.gst_percent || 0) + '"' + sel + '>' +
+                p.name + ' (' + p.unit + ') — Stock: ' + parseFloat(p.available_qty).toFixed(2) +
+                '</option>'
+            );
+            if (parseInt(p.id) === parseInt(prefill.product_id)) {
+                foundAvail = p.available_qty;
+            }
+        });
+
+        // If product not in AJAX result (e.g. fully consumed elsewhere),
+        // keep the pre-filled option and show 0 available
+        if (select.val() != prefill.product_id) {
+            select.prepend(
+                '<option value="' + prefill.product_id + '" data-gst="' + (prefill.gst_percent || 0) + '" selected>' +
+                prefill.product_name + ' (' + (prefill.unit || '') + ')</option>'
+            );
+            select.val(prefill.product_id);
+            foundAvail = 0;
+        }
+
+        row.find('.available-stock').val(foundAvail !== null ? parseFloat(foundAvail).toFixed() : '0.000');
+
+        // Restore qty/price from existing item (AJAX may have reset them)
+        row.find('.qty-input').val(parseFloat(prefill.quantity).toFixed());
+        row.find('.price-input').val(parseFloat(prefill.unit_price).toFixed(2));
+
+		var selected = row.find('.product-select').find(':selected');
+		var gst = parseFloat(selected.attr('data-gst')) || 0;
+		row.find('.gst-percent').val(gst + '%');
+
+		calcLineTotal(row);
+    });
+
+    bindRowEvents(num, prefill.product_id, null);
+    calcTotal();
+}
+
+function removeItem(num) {
+    $('#item-' + num).remove();
+    calcTotal();
+}
+
+function calcLineTotal(row) {
+    var qty   = parseFloat(row.find('.qty-input').val())   || 0;
+    var price = parseFloat(row.find('.price-input').val()) || 0;
+    var selected = row.find('.product-select').find(':selected');
+	var gst = parseFloat(selected.attr('data-gst')) || 0;
+	var gstApplicable = row.find('.gst-applicable').val() === '1';
+
+	var result = gstCalculateLine(qty, price, gst, gstApplicable);
+
+	row.find('.line-total').val(result.total.toFixed(2));
+    calcTotal();
+}
+
+function calcTotal() {
+    var lines = [];
+    $('.item-row').each(function() {
+        var row = $(this);
+        var qty   = parseFloat(row.find('.qty-input').val()) || 0;
+        var price = parseFloat(row.find('.price-input').val()) || 0;
+        var gst   = parseFloat(row.find('.product-select').find(':selected').attr('data-gst')) || 0;
+        var gstApplicable = row.find('.gst-applicable').val() === '1';
+        lines.push(gstCalculateLine(qty, price, gst, gstApplicable));
+    });
+    var summary = gstSummarize(lines);
+    $('#taxableAmount').text(summary.taxable.toFixed(2));
+    $('#gstTotal').text(summary.gst.toFixed(2));
+    $('#grandTotal').text(summary.grandTotal.toFixed(2));
+
+    updateFinancialPreview(summary.grandTotal);
+}
+
+// ---------------------------------------------------------------
+// Boot: pre-load existing items, then wire buttons
+// ---------------------------------------------------------------
+$(document).ready(function() {
+    if (existingItems.length > 0) {
+        $('#loadingMsg').show();
+        existingItems.forEach(function(item) {
+            itemCount++;
+            addPrefillItem(item, itemCount);
+        });
+        setTimeout(function() { $('#loadingMsg').hide(); calcTotal(); }, 600);
+    } else {
+        addNewItem();
+    }
+
+    loadProjectFinancialSummary($('#projectSelect').val());
+});
+
+$('#addItemBtn').on('click', addNewItem);
+
+$('#projectSelect').on('change', function() {
+    loadProjectFinancialSummary($(this).val());
+});
+</script>
+	<script>
+		$(document).ready(function () {
+			$('select').not('.no-search').each(function () {
+				if (!$(this).hasClass("select2-hidden-accessible")) {
+					$(this).select2({
+						width: '100%',
+						placeholder: 'Search...',
+						allowClear: true
+					});
+				}
+			});
+		});
+	</script>
+	<script>
+	$('#sidebarToggle').on('click', function () {
+		$('#sidebar').toggleClass('collapsed');
+		$('#mainContent').toggleClass('expanded');
+	});
+	</script>
+</body>
+</html>

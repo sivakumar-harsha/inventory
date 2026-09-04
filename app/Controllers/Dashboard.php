@@ -41,9 +41,18 @@ class Dashboard extends Controller
         $data['total_project_cash_received'] = (float) $db->query("SELECT COALESCE(SUM(amount),0) AS t FROM project_cash_receipts")->getRow()->t;
         $data['total_cash_received'] = (float) $data['total_payments'] + $data['total_project_cash_received'];
 
+        // Release 4.6.5 (Direct Project Income): revenue also includes
+        // DIRECT_INCOME-type Project Cash Receipts (cash that will never be
+        // invoiced) — ADVANCE-type receipts never enter this figure, same
+        // rule as Reports::profitLoss().
+        $data['total_direct_income'] = (float) $db->query("SELECT COALESCE(SUM(amount),0) AS t FROM project_cash_receipts WHERE receipt_type = 'DIRECT_INCOME'")->getRow()->t;
+
         // Release 4.3.2: overall Net Profit KPI for the redesigned dashboard,
         // derived from the totals already fetched above (no new query).
-        $data['total_net_profit'] = $data['total_sales'] - $data['total_purchases'] - $data['total_expenses'];
+        // Release 4.6.5: + Direct Income, matching the P&L revenue formula —
+        // this is the exact figure that previously showed ₹0 revenue/negative
+        // profit for a project paid entirely in un-invoiced cash.
+        $data['total_net_profit'] = $data['total_sales'] - $data['total_purchases'] - $data['total_expenses'] + $data['total_direct_income'];
 
         // Release 4.3.1 (Bug 1 fix): "This month" must be measured against the
         // business transaction date (sale_date / purchase_date / expense_date),
@@ -75,8 +84,18 @@ class Dashboard extends Controller
         // purchase cost - expenses), reusing ProjectModel's existing method
         // rather than re-deriving the GST-aware allocation logic here.
         $monthCogs = array_sum($projectModel->getAllocatedPurchaseCostByProject(null, $monthStart, $monthEnd));
-        $data['month_cogs']       = $monthCogs;
-        $data['month_net_profit'] = $data['month_sales'] - $monthCogs - $data['month_expenses'];
+        $data['month_cogs'] = $monthCogs;
+
+        // Release 4.6.5: This Month's Direct Income, filtered on receipt_date
+        // the same way month_sales is filtered on sale_date — added to
+        // This Month Net Profit for the same reason as the overall KPI above.
+        $data['month_direct_income'] = (float) $db->query("
+            SELECT COALESCE(SUM(amount),0) AS t
+            FROM project_cash_receipts
+            WHERE receipt_type = 'DIRECT_INCOME' AND receipt_date >= ? AND receipt_date <= ?
+        ", [$monthStart, $monthEnd])->getRow()->t;
+
+        $data['month_net_profit'] = $data['month_sales'] - $monthCogs - $data['month_expenses'] + $data['month_direct_income'];
 
         $data['recent_sales'] = $db->query("
             SELECT s.*, p.name AS project_name, c.name AS customer_name
@@ -117,6 +136,12 @@ class Dashboard extends Controller
         // Project count is small (single digits to low tens), so a per-
         // project call is the correct trade-off against duplicating the
         // FIFO-aware outstanding-collection formula in raw SQL.
+        // Release 4.5.1: filter/display net of Project Cash Receipts — a
+        // project whose available cash already covers its invoice
+        // outstanding is no longer actually "pending".
+        // Release 4.5.6 (Phase 4): Outstanding Collection is invoice-only —
+        // outstanding_collection_balance (SUM(sales.balance_amount)-derived),
+        // never netted against Project Cash Receipts.
         $topPending = [];
         foreach ($projectModel->orderBy('name', 'ASC')->findAll() as $project) {
             $summary = $projectModel->getFinancialSummary($project['id']);
@@ -131,19 +156,11 @@ class Dashboard extends Controller
         usort($topPending, fn($a, $b) => $b['outstanding_collection'] <=> $a['outstanding_collection']);
         $data['top_pending_projects'] = array_slice($topPending, 0, 5);
 
-        // Release 4.5 (Phase 8): Outstanding Collection KPI = Invoice
-        // Outstanding (unchanged raw figure, sales.balance_amount) minus
-        // Available Project Cash, never negative; any cash left over after
-        // covering the invoice outstanding is shown as Advance Credit.
-        $rawOutstanding = (float) $data['total_outstanding'];
-        $cashAvailable  = (float) $data['total_project_cash_received'];
-        if ($cashAvailable >= $rawOutstanding) {
-            $data['total_outstanding']    = 0.0;
-            $data['total_advance_credit'] = round($cashAvailable - $rawOutstanding, 2);
-        } else {
-            $data['total_outstanding']    = round($rawOutstanding - $cashAvailable, 2);
-            $data['total_advance_credit'] = 0.0;
-        }
+        // Release 4.5.6 (Phase 4): Outstanding Collection KPI stays the raw
+        // invoice-only figure (sales.balance_amount) queried above — no
+        // longer netted against Project Cash Receipts. Advance Credit
+        // sublabel retired along with the netting it depended on.
+        $data['total_advance_credit'] = 0.0;
 
         return view('dashboard/index', $data);
     }

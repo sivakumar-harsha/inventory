@@ -34,6 +34,9 @@
                 <label class="form-label">Password</label>
                 <input type="password" name="password" class="form-control" placeholder="Enter password" required>
             </div>
+            <div class="text-end mb-2">
+                <a href="<?= base_url('forgot-password') ?>" style="color: var(--primary); font-size: 0.8rem; text-decoration: none;">Forgot Password?</a>
+            </div>
             <button type="submit" class="btn-save w-100 mt-2">
                 <i class="bi bi-box-arrow-in-right me-2"></i> Login
             </button>

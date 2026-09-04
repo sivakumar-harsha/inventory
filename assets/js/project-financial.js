@@ -48,6 +48,23 @@ function pfSetExceeded(exceeded) {
 function renderCurrentStatus(s) {
     $('#pfTotalValue').text(pfFmt(s.total_project_value));
     $('#pfAlreadyInvoiced').text(pfFmt(s.total_billed));
+
+    // Release 4.6.5: warn (never block) when this project already has Direct
+    // Project Income recorded — raising an invoice here risks double-counting
+    // cash that was already recognized as revenue via the cash receipt.
+    var directIncome = parseFloat(s.total_direct_income) || 0;
+    var $notice = $('#directIncomeNotice');
+    if ($notice.length) {
+        if (directIncome > 0.004) {
+            $('#directIncomeNoticeText').text(
+                'Direct Project Income already exists for this project (₹' + pfFmt(directIncome) + '). ' +
+                'Creating an invoice for the same work may duplicate revenue. Verify before saving.'
+            );
+            $notice.show();
+        } else {
+            $notice.hide();
+        }
+    }
 }
 
 // Called from calcTotal() with the grandTotal it already computed — no re-derivation here.
@@ -57,9 +74,14 @@ function updateFinancialPreview(currentInvoiceTotal) {
 
     if (!pfSummary) return;
 
-    // Project Remaining Balance = Project Value - Total Billed (financial_summary's
-    // remaining_billable_value, unchanged calculation — this file only displays it).
-    var remaining = parseFloat(pfSummary.remaining_billable_value) || 0;
+    // Release 4.6.5.8 (bug fix): display remaining_balance_display, not
+    // remaining_billable_value. remaining_billable_value (Project Value -
+    // Advance - Total Billed) still governs invoice eligibility server-side
+    // (Sales::store()'s billing-cap check) and is deliberately left
+    // unchanged there — this card is informational only (see
+    // pfSetExceeded()'s comment below) and must match Project View/
+    // Statement's Remaining Balance, which nets out Direct Project Income.
+    var remaining = parseFloat(pfSummary.remaining_balance_display) || 0;
 
     // Remaining Balance After This Invoice = Project Remaining Balance - Current Invoice Grand Total
     var remainingAfter = remaining - currentInvoiceTotal;

@@ -170,7 +170,7 @@
 <!-- ROW 2: COLLECTIONS & PROJECTS -->
 <div class="row g-3 mb-3">
     <div class="col-md-3 col-6">
-        <div class="kpi-card kpi-red">
+        <div class="kpi-card kpi-red" title="Invoice-only outstanding balance (not netted against Project Cash Receipts).">
             <div class="kpi-icon"><i class="bi bi-hourglass-split"></i></div>
             <div>
                 <div class="kpi-value"><?= number_format($total_outstanding, 2) ?></div>
@@ -217,6 +217,7 @@
             <div>
                 <div class="kpi-value"><?= number_format($total_cash_received, 2) ?></div>
                 <div class="kpi-label">Cash Received</div>
+                <div class="kpi-sublabel" style="font-size:11px;color:#16a34a;margin-top:2px;">Invoice Payments + Project Cash Receipts</div>
             </div>
         </div>
     </div>

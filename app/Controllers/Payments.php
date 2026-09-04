@@ -3,6 +3,7 @@
 namespace App\Controllers;
 
 use App\Models\SaleModel;
+use App\Models\ProjectModel;
 use CodeIgniter\Controller;
 
 class Payments extends Controller
@@ -63,12 +64,62 @@ class Payments extends Controller
         // Release 2.1C (Bug 2, Issue A): Step 1 project list is Active
         // projects only — Completed projects shouldn't accept new payments
         // from this screen.
+        // Release 4.5.4 (Phase D): customer_name added so the Project Cash
+        // Receipt mode's Project dropdown can auto-fill Customer, same as
+        // project_cash_receipts/create.php.
         $data['projects'] = $db->query("
-            SELECT id, name FROM projects WHERE status = 'ACTIVE' ORDER BY name ASC
+            SELECT p.id, p.name, c.name AS customer_name
+            FROM projects p
+            LEFT JOIN customers c ON p.customer_id = c.id
+            WHERE p.status = 'ACTIVE'
+            ORDER BY p.name ASC
         ")->getResultArray();
+
+        // Release 4.5.3/4.5.4: per-project { cash_received, net_outstanding },
+        // for the Step 3 Invoice Payment cards (Phase C) and the Project Cash
+        // Receipt mode summary cards (Phase D). Covers every project that has
+        // an invoice plus every Active project (so the Cash Receipt dropdown,
+        // which lists Active projects with no invoices yet too, is covered).
+        // Reuses ProjectModel::getFinancialSummary() — no new calculation.
+        $data['project_financials'] = $this->buildProjectFinancialsMap(
+            array_merge(array_column($data['sales'], 'project_id'), array_column($data['projects'], 'id'))
+        );
 
         $data['selected_sale_id'] = $saleId;
         return view('payments/create', $data);
+    }
+
+    // Release 4.5.3/4.5.4/4.5.7: builds { project_id: { cash_received,
+    // net_outstanding, remaining_balance, total_customer_paid } } for the
+    // given list of project ids, using ProjectModel's existing
+    // getFinancialSummary() so every figure matches Dashboard/Statement/
+    // Balance Sheet exactly — no new calculation, just exposed here for the
+    // Cash Receipt mode's live preview cards.
+    // Release 4.6.5: remaining_balance/total_customer_paid now read the
+    // model's own remaining_balance_display/cash_received_combined fields
+    // (Project Cash Receipts split ADVANCE vs DIRECT_INCOME internally)
+    // instead of re-deriving the same formula inline — same values as
+    // before this release for any project whose receipts are all ADVANCE
+    // (the default), since remaining_balance_display/cash_received_combined
+    // are defined identically to the old inline formulas.
+    private function buildProjectFinancialsMap(array $projectIds): array
+    {
+        $projectModel = new ProjectModel();
+        $map = [];
+        foreach ($projectIds as $pid) {
+            $pid = (int) $pid;
+            if ($pid && !isset($map[$pid])) {
+                $summary       = $projectModel->getFinancialSummary($pid);
+                $cashReceived  = (float) ($summary['total_cash_received'] ?? 0);
+                $map[$pid] = [
+                    'cash_received'       => $cashReceived,
+                    'net_outstanding'     => (float) ($summary['net_outstanding_collection_balance'] ?? 0),
+                    'remaining_balance'   => (float) ($summary['remaining_balance_display'] ?? 0),
+                    'total_customer_paid' => (float) ($summary['cash_received_combined'] ?? 0),
+                ];
+            }
+        }
+        return $map;
     }
 
     public function store()
@@ -160,6 +211,8 @@ class Payments extends Controller
                 }
             }
         }
+
+        $data['project_financials'] = $this->buildProjectFinancialsMap(array_column($data['sales'], 'project_id'));
 
         return view('payments/edit', $data);
     }

@@ -9,12 +9,23 @@
     $csValue     = (float) ($financial_summary['total_project_value'] ?? 0);
     $csBilled    = (float) ($financial_summary['total_billed'] ?? 0);
     $csPercent   = (float) ($financial_summary['billing_progress_percent'] ?? 0);
-    $csRemaining = (float) ($financial_summary['remaining_billable_value'] ?? 0);
+
+    // Release 4.6.5: Remaining Balance (display) now comes from the model's
+    // own remaining_balance_display — same formula as before this release,
+    // just named/shared instead of re-derived inline. remaining_billable_value
+    // itself (financial_summary) is untouched.
+    $csRemaining = (float) ($financial_summary['remaining_balance_display'] ?? 0);
+
+    // Release 4.6.5: Total Customer Paid = same cash_received_combined figure
+    // as the Cash Received card above (both now include invoice payments).
+    $csTotalCustomerPaid = (float) ($financial_summary['cash_received_combined'] ?? 0);
 
     $billingCompletionStatus = $billing_completion_status ?? 'ACTIVE';
     $bcsMap = ['ACTIVE' => 'active', 'PARTIAL' => 'partial', 'COMPLETED' => 'completed'];
     $bcsCls = $bcsMap[$billingCompletionStatus] ?? 'active';
 
+    // Release 4.5.5 (Phase C): Outstanding Collection reverted to invoice-only
+    // (outstanding_collection_balance) — never subtract Project Cash Received.
     $outstanding = (float) ($financial_summary['outstanding_collection_balance'] ?? 0);
 ?>
 
@@ -39,8 +50,10 @@
     </div>
 </div>
 
-<!-- Release 3.0 (Phase C): Project Financial Summary — exactly 8 compact KPI
-     cards, 2 rows x 4 columns. -->
+<!-- Release 4.6.5.7 (Phase A/B): Project Financial Summary — exactly 8 compact
+     KPI cards, 2 rows x 4 columns (Cash Received card removed — the same
+     figure is already inside Total Customer Paid; getFinancialSummary()
+     itself is unchanged, only this card was removed from the UI). -->
 <div class="row g-12 mb-3 statement-kpi-row">
     <div class="col-md-3 col-6">
         <div class="kpi-card kpi-blue">
@@ -99,7 +112,7 @@
         <div class="kpi-card kpi-green">
             <div class="kpi-icon"><i class="bi bi-cash-stack"></i></div>
             <div>
-                <div class="kpi-value"><?= number_format($financial_summary['total_paid'] ?? 0, 2) ?></div>
+                <div class="kpi-value"><?= number_format($csTotalCustomerPaid, 2) ?></div>
                 <div class="kpi-label">Total Customer Paid</div>
             </div>
         </div>
@@ -141,6 +154,40 @@
                 <div class="kpi-value"><?= number_format($total_expenses, 2) ?></div>
                 <div class="kpi-label">Total Expenses</div>
             </div>
+        </div>
+    </div>
+</div>
+
+<?php
+    // Release 4.6.5.7 (UI only): Direct Project Income data, unchanged from
+    // Release 4.6.5.5 — total still reuses financial_summary's own
+    // total_direct_income (getFinancialSummary()), $directIncomeReceipts is
+    // still the same ASC-ordered read from Projects::_buildStatementData().
+    // Latest Receipt Date is simply the last element of that already-ordered
+    // list — a display pick, not a new calculation.
+    $directIncomeReceipts = $direct_income_receipts ?? [];
+    $totalDirectIncome    = (float) ($financial_summary['total_direct_income'] ?? 0);
+    $directIncomeCount    = count($directIncomeReceipts);
+    $latestReceiptDate    = $directIncomeCount > 0 ? end($directIncomeReceipts)['receipt_date'] : null;
+?>
+
+<!-- Release 4.6.5.7 (Phase C): compact Direct Project Income summary card —
+     replaces the old full-width table in this position. The table itself
+     moves into the collapsible history section below (Phase D), unchanged. -->
+<div class="card-custom mb-3">
+    <div class="card-custom-header"><i class="bi bi-cash-coin me-2"></i>Direct Project Income</div>
+    <div class="card-custom-body di-compact-body">
+        <div class="di-mini-chip">
+            <span class="di-mini-label">Total Direct Income</span>
+            <span class="di-mini-value">₹<?= number_format($totalDirectIncome, 2) ?></span>
+        </div>
+        <div class="di-mini-chip">
+            <span class="di-mini-label">Number of Receipts</span>
+            <span class="di-mini-value"><?= $directIncomeCount ?></span>
+        </div>
+        <div class="di-mini-chip">
+            <span class="di-mini-label">Latest Receipt</span>
+            <span class="di-mini-value"><?= $latestReceiptDate ? date('d M Y', strtotime($latestReceiptDate)) : '—' ?></span>
         </div>
     </div>
 </div>
@@ -216,6 +263,58 @@
     </div>
 </div>
 
+<!-- Release 4.6.5.7 (Phase D): Direct Project Income History — the same
+     read-only table + total row from Release 4.6.5.5, now tucked into a
+     collapsed-by-default section so it doesn't take first-screen space.
+     Bootstrap's native collapse (bootstrap.bundle.min.js, already loaded in
+     layouts/main.php) — no new JS. -->
+<div class="card-custom mb-3">
+    <div class="card-custom-header di-history-header" data-bs-toggle="collapse" data-bs-target="#directIncomeHistoryCollapse" role="button" aria-expanded="false" aria-controls="directIncomeHistoryCollapse">
+        <i class="bi bi-clock-history me-2"></i>Direct Project Income History (<?= $directIncomeCount ?> Receipt<?= $directIncomeCount === 1 ? '' : 's' ?>)
+        <i class="bi bi-chevron-down di-history-caret ms-2"></i>
+    </div>
+    <div class="collapse" id="directIncomeHistoryCollapse">
+        <div class="card-custom-body">
+            <?php if (empty($directIncomeReceipts)): ?>
+            <div class="text-center text-muted" style="padding:14px 0">No Direct Project Income recorded.</div>
+            <?php else: ?>
+            <div class="table-responsive">
+                <table class="table-custom" id="directIncomeTable">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Receipt No</th>
+                            <th>Reference Number</th>
+                            <th>Payment Method</th>
+                            <th>Notes</th>
+                            <th style="text-align:right">Amount</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($directIncomeReceipts as $r): ?>
+                        <tr>
+                            <td><?= esc($r['receipt_date']) ?></td>
+                            <td><?= esc($r['receipt_no']) ?></td>
+                            <td><?= esc($r['reference'] ?: '—') ?></td>
+                            <td><?= esc($r['payment_method']) ?></td>
+                            <td><?= esc($r['notes'] ?: '—') ?></td>
+                            <td style="text-align:right"><?= number_format($r['amount'], 2) ?></td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                    <tfoot>
+                        <tr>
+                            <td colspan="5" style="text-align:right;font-weight:700">Total Direct Income</td>
+                            <td style="text-align:right;font-weight:700"><?= number_format($totalDirectIncome, 2) ?></td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+            <?php endif; ?>
+        </div>
+    </div>
+</div>
+
 <!-- Release 3.0 (Phase F): Timeline redesign — Date, Event, Reference, Amount,
      Running Collection Balance. Description and Category columns removed.
      Ordering and calculations (FIFO running balance) are unchanged. -->
@@ -242,6 +341,8 @@
                             'Project Advance' => 'Customer Advance Received',
                             'Sales Invoice'    => 'Billing Raised to Customer',
                             'Invoice Payment'  => 'Payment Collected from Customer',
+                            'Advance Receipt' => 'Advance Received (Cash)',
+                            'Direct Project Income' => 'Direct Project Income',
                             'Purchase'         => 'Purchased Materials for Project',
                             'Expense'          => 'Project Expense Recorded',
                         ];
@@ -249,6 +350,8 @@
                             'Project Advance' => 'bi-piggy-bank',
                             'Sales Invoice'    => 'bi-receipt-cutoff',
                             'Invoice Payment'  => 'bi-cash-coin',
+                            'Advance Receipt' => 'bi-piggy-bank',
+                            'Direct Project Income' => 'bi-cash-coin',
                             'Purchase'         => 'bi-cart',
                             'Expense'          => 'bi-credit-card',
                         ];
@@ -256,19 +359,31 @@
                             'Project Advance' => 'event-badge-advance',
                             'Sales Invoice'    => 'event-badge-billing',
                             'Invoice Payment'  => 'event-badge-payment',
+                            // Release 4.6.5: Advance Receipt keeps the same
+                            // badge as before (green, same as Invoice Payment)
+                            // — running balance math for it is unchanged.
+                            // Direct Project Income gets its own distinct
+                            // badge so it reads as revenue, not a collection.
+                            'Advance Receipt' => 'event-badge-payment',
+                            'Direct Project Income' => 'event-badge-income',
                             'Purchase'         => 'event-badge-purchase',
                             'Expense'          => 'event-badge-expense',
+                        ];
+                        $typeTooltips = [
+                            'Advance Receipt' => 'Cash received without invoice allocation — held against a future invoice.',
+                            'Direct Project Income' => 'Cash received with no invoice ever raised — recognized as revenue immediately.',
                         ];
                     ?>
                     <?php foreach ($timeline as $ev): ?>
                     <?php
-                        $typeIcon  = $typeIcons[$ev['type']] ?? 'bi-dot';
-                        $typeLabel = $typeLabels[$ev['type']] ?? $ev['type'];
-                        $badgeCls  = $typeBadgeCls[$ev['type']] ?? 'event-badge-payment';
+                        $typeIcon    = $typeIcons[$ev['type']] ?? 'bi-dot';
+                        $typeLabel   = $typeLabels[$ev['type']] ?? $ev['type'];
+                        $badgeCls    = $typeBadgeCls[$ev['type']] ?? 'event-badge-payment';
+                        $typeTooltip = $typeTooltips[$ev['type']] ?? '';
                     ?>
                     <tr data-date="<?= esc($ev['date']) ?>" data-category="<?= esc($ev['category']) ?>" data-type="<?= esc($ev['type']) ?>">
                         <td><?= esc($ev['date']) ?></td>
-                        <td><span class="event-badge <?= $badgeCls ?>"><i class="bi <?= $typeIcon ?>"></i><?= esc($typeLabel) ?></span></td>
+                        <td><span class="event-badge <?= $badgeCls ?>" <?= $typeTooltip ? 'title="' . esc($typeTooltip) . '"' : '' ?>><i class="bi <?= $typeIcon ?>"></i><?= esc($typeLabel) ?></span></td>
                         <td><?= esc($ev['reference']) ?></td>
                         <td style="text-align:right">
                             <?= $ev['amount'] !== null ? number_format($ev['amount'], 2) : '—' ?>
@@ -276,6 +391,8 @@
                         <td style="text-align:right" class="running-balance-col">
                             <?php if ($ev['category'] === 'Cost'): ?>
                                 <span class="balance-pill balance-costonly">Project Cost Only</span>
+                            <?php elseif ($ev['category'] === 'Income'): ?>
+                                <span class="balance-pill balance-income">Revenue Entry</span>
                             <?php elseif ($ev['running_balance'] === null): ?>
                                 —
                             <?php elseif ($ev['running_balance'] < -0.004): ?>
@@ -336,6 +453,9 @@
 .event-badge-purchase { background: #ffedd5; color: #c2410c; }
 .event-badge-expense  { background: #fee2e2; color: #b91c1c; }
 .event-badge-advance  { background: #f3e8ff; color: #7e22ce; }
+/* Release 4.6.5.5: Direct Project Income badge switched to green (was
+   cyan) per this release's requirement. */
+.event-badge-income   { background: #dcfce7; color: #15803d; }
 
 .balance-pill {
     display: inline-block;
@@ -352,6 +472,32 @@
 .balance-credit      { background: #dcfce7; color: #15803d; }
 .balance-settled      { background: transparent; color: #15803d; border: 1px solid #15803d; }
 .balance-costonly    { background: #f1f5f9; color: #64748b; }
+.balance-income      { background: #dcfce7; color: #15803d; }
+
+/* Release 4.6.5.7 (Phase C): compact Direct Project Income summary — same
+   mini-card language as Billing Overview's figures strip, just as chips
+   instead of an inline sentence. */
+.di-compact-body { display: flex; gap: 10px; flex-wrap: wrap; padding: 10px; }
+.di-mini-chip {
+    flex: 1;
+    min-width: 150px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    background: #f0fdf4;
+    border: 1px solid #bbf7d0;
+    border-radius: 8px;
+    padding: 8px 12px;
+}
+.di-mini-label { font-size: 0.66rem; color: #64748b; text-transform: uppercase; letter-spacing: .02em; }
+.di-mini-value { font-size: 1.05rem; font-weight: 700; color: #15803d; }
+
+/* Release 4.6.5.7 (Phase D): collapsible Direct Project Income History —
+   header toggles Bootstrap's native .collapse, caret rotates on expand. */
+.di-history-header { cursor: pointer; display: flex; align-items: center; user-select: none; }
+.di-history-caret { transition: transform 0.2s ease; margin-left: auto; }
+.di-history-header[aria-expanded="true"] .di-history-caret { transform: rotate(180deg); }
+#directIncomeTable tfoot td { background: #f0fdf4; border-top: 2px solid #bbf7d0; }
 
 .running-balance-col { font-variant-numeric: tabular-nums; }
 

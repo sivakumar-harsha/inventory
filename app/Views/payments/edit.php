@@ -115,7 +115,8 @@
                     data-total="<?= $s['total_amount'] ?>"
                     data-advance="<?= $s['advance_applied'] ?>"
                     data-paid="<?= $s['paid_amount'] ?>"
-                    data-pending="<?= $pendingForEdit ?>">
+                    data-pending="<?= $pendingForEdit ?>"
+                    data-project-id="<?= (int) ($s['project_id'] ?? 0) ?>">
                     <?= esc($s['invoice_no'] ?: 'Sale #' . $s['id']) ?> — <?= esc($s['project_name']) ?> — Invoice Pending: <?= number_format($pendingForEdit, 2) ?>
                 </option>
                 <?php endforeach; ?>
@@ -137,6 +138,14 @@
                 <div class="pay-chip">
                     <span class="pay-chip-label">Invoice Pending</span>
                     <span class="pay-chip-value text-pending" id="detPending">0.00</span>
+                </div>
+                <div class="pay-chip">
+                    <span class="pay-chip-label">Project Cash Received</span>
+                    <span class="pay-chip-value text-cash" id="detCashReceived">0.00</span>
+                </div>
+                <div class="pay-chip">
+                    <span class="pay-chip-label">Net Outstanding After Cash</span>
+                    <span class="pay-chip-value" id="detNetOutstanding">0.00</span>
                 </div>
             </div>
 
@@ -201,6 +210,9 @@
 .text-advance { color: #2563eb; }
 .text-paid { color: #16a34a; }
 .text-pending { color: #ea580c; font-weight: 600; }
+.text-cash { color: #16a34a; }
+.text-net-pending { color: #ea580c; font-weight: 600; }
+.text-net-settled { color: #16a34a; font-weight: 600; }
 .badge-status { padding: 2px 8px; font-size: 0.68rem; border-radius: 10px; }
 .invoice-table .btn-sm { padding: 3px 10px; font-size: 0.72rem; }
 .step3-invoice-label { float: right; font-weight: 500; font-size: 0.78rem; color: #2563eb; }
@@ -219,6 +231,14 @@
      "$ is not defined" and silently aborted the whole block, so project
      select, invoice filtering and Step 3 never worked no matter how the
      logic itself was written. -->
+
+<script>
+// Release 4.5.3/4.5.4: { project_id: { cash_received, net_outstanding } } —
+// built server-side from ProjectModel::getFinancialSummary()
+// (Payments::buildProjectFinancialsMap()), so the Step 3 cards read the same
+// figures as Dashboard/Statement/Balance Sheet.
+var PROJECT_FINANCIALS_MAP = <?= json_encode($project_financials) ?>;
+</script>
 <script src="<?= base_url('assets/js/payments-workflow.js') ?>"></script>
 <script>
 $(document).ready(function() {

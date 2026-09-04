@@ -108,9 +108,19 @@ class ProjectModel extends Model
         // against any specific invoice here. total_billed/total_paid/
         // total_advance_applied/outstanding_collection_balance/
         // remaining_billable_value above are all unchanged.
-        $totalCashReceived = (new ProjectCashReceiptModel())->totalForProject($projectId);
+        $cashReceiptModel  = new ProjectCashReceiptModel();
+        $totalCashReceived = $cashReceiptModel->totalForProject($projectId);
         $totalInvoicePayments = $totalPaid;
         $totalCashAvailable   = $totalCashReceived;
+
+        // Release 4.6.5 (Direct Project Income): split the same receipt total
+        // above by receipt_type — ADVANCE (money held against a future
+        // invoice, not yet revenue) vs DIRECT_INCOME (cash that will never be
+        // invoiced, recognized as revenue immediately). Both are still part
+        // of total_cash_received above; this split only feeds the two new
+        // fields below, nothing existing is recalculated from it.
+        $totalAdvanceReceipts = $cashReceiptModel->totalForProject($projectId, null, null, 'ADVANCE');
+        $totalDirectIncome    = $cashReceiptModel->totalForProject($projectId, null, null, 'DIRECT_INCOME');
 
         // net_outstanding_collection_balance: presentation-only figure combining
         // outstanding_collection_balance (invoice pending, net of advance) with
@@ -118,6 +128,27 @@ class ProjectModel extends Model
         // outstanding_collection_balance: positive = still owed after cash,
         // negative = credit on account (unused advance + unused cash combined).
         $netOutstandingCollectionBalance = round($outstandingCollectionBalance - $totalCashAvailable, 2);
+
+        // Release 4.5.5 (Phase A): single source of truth for Available Project
+        // Cash — derived only from net_outstanding_collection_balance (negative
+        // = customer has excess cash on account), never recomputed elsewhere as
+        // total_cash_received - outstanding_collection_balance.
+        $availableProjectCash = max(0, -$netOutstandingCollectionBalance);
+
+        // Release 4.6.5 (Direct Project Income):
+        // - remaining_balance_display: the same "net Project Cash Receipts
+        //   against Remaining Balance" figure the views already computed
+        //   inline (Release 4.5.5) — now split by type and named, so both
+        //   Project View and Project Statement read one shared value instead
+        //   of duplicating the formula. remaining_billable_value itself
+        //   (above) is never touched — it still governs invoice eligibility.
+        // - cash_received_combined: the one "Cash Received" figure the whole
+        //   app should show — Invoice Payments + Advance Receipts + Direct
+        //   Income. total_cash_received (above) keeps its original meaning
+        //   (Project Cash Receipts only, both types) for the internal chips
+        //   that already depend on it (Payments create/edit summary cards).
+        $remainingBalanceDisplay = $totalProjectValue - $advanceAmount - $totalBilled - $totalAdvanceReceipts - $totalDirectIncome;
+        $cashReceivedCombined    = $totalPaid + $totalAdvanceReceipts + $totalDirectIncome;
 
         return [
             'total_project_value'            => $totalProjectValue,
@@ -138,6 +169,11 @@ class ProjectModel extends Model
             'total_invoice_payments'           => $totalInvoicePayments,
             'total_cash_available'             => $totalCashAvailable,
             'net_outstanding_collection_balance' => $netOutstandingCollectionBalance,
+            'available_project_cash'           => $availableProjectCash,
+            'total_advance_receipts'           => $totalAdvanceReceipts,
+            'total_direct_income'              => $totalDirectIncome,
+            'remaining_balance_display'        => $remainingBalanceDisplay,
+            'cash_received_combined'           => $cashReceivedCombined,
         ];
     }
 
@@ -322,22 +358,31 @@ class ProjectModel extends Model
             ];
         }
 
-        // Release 4.5 (Phase 7): Project Cash Received — independent of both
-        // Project Advance and Invoice Payment above (its own table, no
-        // sale_id). Category 'Payment' so it reduces the running collection
-        // balance exactly like an advance/invoice payment does.
+        // Release 4.6.5 (Direct Project Income): Project Cash Received is
+        // split into two timeline event types by receipt_type — independent
+        // of both Project Advance and Invoice Payment above (its own table,
+        // no sale_id).
+        // - Advance Receipt: category 'Payment' — same as before this
+        //   release, reduces the running collection balance like an
+        //   invoice payment does (it's still cash held against a future
+        //   invoice).
+        // - Direct Project Income: category 'Income' (new) — money that will
+        //   never be invoiced must never offset invoice-outstanding running
+        //   balance, so it carries running_balance = null, like Purchase/
+        //   Expense events do for 'Cost'.
         $cashReceipts = $db->query("
-            SELECT id, receipt_no, receipt_date, amount, payment_method, reference
+            SELECT id, receipt_no, receipt_date, amount, payment_method, receipt_type, reference
             FROM project_cash_receipts WHERE project_id = ?
         ", [$projectId])->getResultArray();
         foreach ($cashReceipts as $cr) {
+            $isDirectIncome = ($cr['receipt_type'] ?? 'ADVANCE') === 'DIRECT_INCOME';
             $events[] = [
                 'date'        => $cr['receipt_date'],
-                'type'        => 'Project Cash Received',
+                'type'        => $isDirectIncome ? 'Direct Project Income' : 'Advance Receipt',
                 'reference'   => $cr['reference'] ?: $cr['receipt_no'],
-                'description' => 'Cash received (' . $cr['receipt_no'] . ')' . ($cr['payment_method'] ? ' via ' . $cr['payment_method'] : ''),
+                'description' => ($isDirectIncome ? 'Direct income received (' : 'Advance received (') . $cr['receipt_no'] . ')' . ($cr['payment_method'] ? ' via ' . $cr['payment_method'] : ''),
                 'amount'      => (float) $cr['amount'],
-                'category'    => 'Payment',
+                'category'    => $isDirectIncome ? 'Income' : 'Payment',
             ];
         }
 

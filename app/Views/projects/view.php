@@ -11,7 +11,27 @@
     $csValue     = (float) ($financial_summary['total_project_value'] ?? 0);
     $csBilled    = (float) ($financial_summary['total_billed'] ?? 0);
     $csPercent   = (float) ($financial_summary['billing_progress_percent'] ?? 0);
-    $csRemaining = max(0, $csValue - $csBilled);
+
+    // Release 4.6.5 (Direct Project Income): "Cash Received" is now the one
+    // consistent figure app-wide — Invoice Payments + Advance Receipts +
+    // Direct Income (ProjectModel's cash_received_combined). Previously this
+    // card showed Project Cash Receipts only, which didn't match the
+    // Dashboard's own "Cash Received" definition.
+    $projectCashReceived = (float) ($financial_summary['cash_received_combined'] ?? 0);
+
+    // Release 4.6.5: Remaining Balance (display) now comes from the model's
+    // own remaining_balance_display — same formula as before this release
+    // (Project Value - Advance - Total Invoiced - Project Cash Receipts),
+    // just named and shared instead of re-derived inline here.
+    // remaining_billable_value itself is untouched — it still governs
+    // invoice eligibility (Sales Create), never this display figure.
+    $csRemaining = max(0, (float) ($financial_summary['remaining_balance_display'] ?? 0));
+
+    // Release 4.6.5: Total Customer Paid = Invoice Payments + Advance
+    // Receipts + Direct Income (cash_received_combined) — same formula as
+    // the Cash Received card above; both are the same figure now that Cash
+    // Received includes invoice payments too.
+    $csTotalCustomerPaid = (float) ($financial_summary['cash_received_combined'] ?? 0);
 
     // Release 2.3A: Project Billing Status is a separate, manual concept from
     // invoice collection status — it tracks whether more invoices are
@@ -20,21 +40,14 @@
     $isBillingCompleted      = $billingCompletionStatus === 'COMPLETED';
     $bcsMap = ['ACTIVE' => 'active', 'PARTIAL' => 'partial', 'COMPLETED' => 'completed'];
     $bcsCls = $bcsMap[$billingCompletionStatus] ?? 'active';
-    // Display-only: once billing is manually marked complete, Remaining To
-    // Bill reads as 0 on this page regardless of unbilled contract value.
+    // Display-only: once billing is manually marked complete, Remaining
+    // Balance reads as 0 on this page regardless of unbilled contract value.
     // remaining_billable_value itself (financial_summary) is never changed.
     if ($isBillingCompleted) {
         $csRemaining = 0.0;
     }
 
     $projectCostTillDate = $total_purchases + $total_expenses;
-    $customerPaid        = (float) ($financial_summary['total_paid'] ?? 0);
-
-    // Release 4.5 (Phase 6): Project Cash Receipt figures — independent of
-    // Customer Payments Received (invoice payments) above. No allocation
-    // logic here, just the receipt-table total for this project.
-    $projectCashReceived = (float) ($financial_summary['total_cash_received'] ?? 0);
-    $totalCashReceived   = $customerPaid + $projectCashReceived;
 ?>
 
 <!-- Release 2.2C (Task 1): Project Header — one compact single-line summary
@@ -67,8 +80,12 @@
     </div>
 </div>
 
-<!-- Release 2.2B (Section 2): Project Health Dashboard — exactly 6 KPI cards,
-     2 rows x 3 columns. -->
+<!-- Release 4.5.6 (Phase 1): Project Health Dashboard — exactly 5 KPI cards:
+     Contract Value, Project Cost Till Date, Remaining Balance (nets Cash
+     Received), Cash Received (Project Cash Receipts only), Total Customer
+     Paid (Invoice Payments + Cash Received). Purchase Count, Sales Invoice
+     Count, Payment Count, Project Cash Received (duplicate), and Available
+     Project Cash all stay removed. -->
 <div class="row g-12 mb-3 project-kpi-row">
     <div class="col-md-4 col-6">
         <div class="kpi-card kpi-blue">
@@ -98,34 +115,6 @@
         </div>
     </div>
     <div class="col-md-4 col-6">
-        <div class="kpi-card kpi-blue">
-            <div class="kpi-icon"><i class="bi bi-cart"></i></div>
-            <div>
-                <div class="kpi-value"><?= count($purchases) ?></div>
-                <div class="kpi-label">Purchase Count</div>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-4 col-6">
-        <div class="kpi-card kpi-blue">
-            <div class="kpi-icon"><i class="bi bi-receipt"></i></div>
-            <div>
-                <div class="kpi-value"><?= count($sales) ?></div>
-                <div class="kpi-label">Sales Invoice Count</div>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-4 col-6">
-        <div class="kpi-card kpi-green">
-            <div class="kpi-icon"><i class="bi bi-cash-stack"></i></div>
-            <div>
-                <div class="kpi-value"><?= $total_payments_count ?></div>
-                <div class="kpi-label">Payment Count</div>
-            </div>
-        </div>
-    </div>
-    <!-- Release 4.5 (Phase 6): new KPI, existing 6 cards above unchanged. -->
-    <div class="col-md-4 col-6">
         <div class="kpi-card kpi-green">
             <div class="kpi-icon"><i class="bi bi-piggy-bank"></i></div>
             <div>
@@ -134,71 +123,35 @@
             </div>
         </div>
     </div>
+    <div class="col-md-4 col-6">
+        <div class="kpi-card kpi-green">
+            <div class="kpi-icon"><i class="bi bi-cash-stack"></i></div>
+            <div>
+                <div class="kpi-value"><?= number_format($csTotalCustomerPaid, 2) ?></div>
+                <div class="kpi-label">Total Customer Paid</div>
+            </div>
+        </div>
+    </div>
 </div>
 
-<!-- Release 2.2B (Section 3): Billing Overview — one progress bar only, plus
-     4 compact billing metrics and 2 compact payment cards. Invoice Collection
-     Progress bar, Invoice Count Summary, old Billing Progress strip and
-     Project Progress Summary strip are all removed. -->
+<!-- Release 4.5.5 (Phase D): Billing Overview back to original design —
+     progress bar plus Contract Value / Total Invoiced / Remaining Balance /
+     Billing %. All extra mini cards (Total Invoice Payments, Project Cash
+     Received, Outstanding Collection (Net), Available Project Cash) removed. -->
 <div class="card-custom mb-3">
     <div class="card-custom-header"><i class="bi bi-graph-up-arrow me-2"></i>Billing Overview</div>
     <div class="card-custom-body billing-overview-body">
-
-        <div class="mb-2">
-            <div class="progress" style="height:6px;background:#e2e8f0;border-radius:999px;overflow:hidden">
-                <div class="progress-bar" role="progressbar"
-                     style="width:<?= max(0, min(100, $csPercent)) ?>%;background:#2563eb"></div>
-            </div>
-            <div class="billing-strip-figures">
-                <span><span class="billing-strip-label">Contract Value</span> ₹<?= number_format($csValue, 2) ?></span>
-                <span class="billing-strip-sep">•</span>
-                <span><span class="billing-strip-label">Total Invoiced</span> ₹<?= number_format($csBilled, 2) ?></span>
-                <span class="billing-strip-sep">•</span>
-                <span><span class="billing-strip-label">Remaining To Bill</span> ₹<?= number_format($csRemaining, 2) ?></span>
-                <span class="billing-strip-pct ms-auto"><?= number_format($csPercent, 0) ?>% Billed</span>
-            </div>
+        <div class="progress" style="height:6px;background:#e2e8f0;border-radius:999px;overflow:hidden">
+            <div class="progress-bar" role="progressbar"
+                 style="width:<?= max(0, min(100, $csPercent)) ?>%;background:#2563eb"></div>
         </div>
-
-        <div class="row g-12">
-            <div class="col-md-6">
-                <div class="billing-mini-card billing-mini-green">
-                    <div class="billing-mini-icon"><i class="bi bi-cash-stack"></i></div>
-                    <div>
-                        <div class="billing-mini-value"><?= number_format($customerPaid, 2) ?></div>
-                        <div class="billing-mini-label">Customer Payments Received</div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-6">
-                <div class="billing-mini-card billing-mini-blue">
-                    <div class="billing-mini-icon"><i class="bi bi-wallet2"></i></div>
-                    <div>
-                        <div class="billing-mini-value"><?= number_format($csRemaining, 2) ?></div>
-                        <div class="billing-mini-label">Remaining Balance</div>
-                    </div>
-                </div>
-            </div>
-            <!-- Release 4.5 (Phase 6): Project Cash Received + Total Cash
-                 Received, added alongside the two existing cards above
-                 (unchanged/unrenamed). -->
-            <div class="col-md-6">
-                <div class="billing-mini-card billing-mini-green">
-                    <div class="billing-mini-icon"><i class="bi bi-piggy-bank"></i></div>
-                    <div>
-                        <div class="billing-mini-value"><?= number_format($projectCashReceived, 2) ?></div>
-                        <div class="billing-mini-label">Project Cash Received</div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-6">
-                <div class="billing-mini-card billing-mini-green">
-                    <div class="billing-mini-icon"><i class="bi bi-cash-coin"></i></div>
-                    <div>
-                        <div class="billing-mini-value"><?= number_format($totalCashReceived, 2) ?></div>
-                        <div class="billing-mini-label">Total Cash Received</div>
-                    </div>
-                </div>
-            </div>
+        <div class="billing-strip-figures">
+            <span><span class="billing-strip-label">Contract Value</span> ₹<?= number_format($csValue, 2) ?></span>
+            <span class="billing-strip-sep">•</span>
+            <span><span class="billing-strip-label">Total Invoiced</span> ₹<?= number_format($csBilled, 2) ?></span>
+            <span class="billing-strip-sep">•</span>
+            <span><span class="billing-strip-label">Remaining Balance</span> ₹<?= number_format($csRemaining, 2) ?></span>
+            <span class="billing-strip-pct ms-auto"><?= number_format($csPercent, 0) ?>% Billed</span>
         </div>
     </div>
 </div>

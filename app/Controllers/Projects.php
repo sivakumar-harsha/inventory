@@ -68,6 +68,10 @@ class Projects extends Controller
         foreach ($projects as &$p) {
             $fs = $this->model->getFinancialSummary((int) $p['id']);
             $p['contract_value']   = $fs['total_project_value'] ?? 0;
+            // Release 4.5.6 (Phase 4): Outstanding Collection column is
+            // invoice-only (outstanding_collection_balance) — no longer net
+            // of Project Cash Receipts. payment_status below already used
+            // the raw invoice-only figure (unchanged).
             $p['customer_pending'] = $fs['outstanding_collection_balance'] ?? 0;
 
             if ((int) $p['sale_count'] === 0) {
@@ -358,18 +362,28 @@ class Projects extends Controller
         $sheet->getStyle('A5')->getFont()->setBold(true)->setSize(12)->getColor()->setRGB('FFFFFF');
         $sheet->getStyle('A5')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('3C5A82');
 
+        // Release 4.6.5: Cash Received / Remaining Balance / Total Customer
+        // Paid now read the model's own cash_received_combined /
+        // remaining_balance_display (Invoice Payments + Advance Receipts +
+        // Direct Income) — the same consistent figures the screen uses,
+        // instead of re-deriving them here from total_cash_received.
+        $exportCashReceived      = (float) ($fs['cash_received_combined'] ?? 0);
+        $exportRemainingBalance  = (float) ($fs['remaining_balance_display'] ?? 0);
+        $exportTotalCustomerPaid = (float) ($fs['cash_received_combined'] ?? 0);
+
         $summaryRows = [
             ['Project Value', $fs['total_project_value'] ?? 0],
             ['Advance Received', $fs['advance_amount'] ?? 0],
             ['Total Billed', $fs['total_billed'] ?? 0],
-            ['Remaining Billable Value', $fs['remaining_billable_value'] ?? 0],
-            ['Total Payments Received', $fs['total_paid'] ?? 0],
-            ['Outstanding Collection Balance', $fs['outstanding_collection_balance'] ?? 0],
+            ['Remaining Balance', $exportRemainingBalance],
+            ['Total Customer Paid', $exportTotalCustomerPaid],
+            ['Outstanding Collection', $fs['outstanding_collection_balance'] ?? 0],
             ['Billing Progress (%)', $fs['billing_progress_percent'] ?? 0],
             ['Total Purchases', $data['total_purchases']],
             ['Total Expenses', $data['total_expenses']],
             ['Total Cost', $data['total_cost']],
             ['Net Profit', $data['net_profit']],
+            ['Cash Received', $exportCashReceived],
         ];
 
         $r = 6;
@@ -382,6 +396,54 @@ class Projects extends Controller
             if ($r % 2 == 0) {
                 $sheet->getStyle("A$r:D$r")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('F7FBFC');
             }
+            $r++;
+        }
+
+        // ===== DIRECT PROJECT INCOME (Release 4.6.5.5) =====
+        $directIncomeReceipts = $data['direct_income_receipts'] ?? [];
+        $totalDirectIncome    = (float) ($fs['total_direct_income'] ?? 0);
+
+        $diHeaderRow = $r + 1;
+        $sheet->setCellValue("A$diHeaderRow", 'DIRECT PROJECT INCOME');
+        $sheet->mergeCells("A{$diHeaderRow}:G{$diHeaderRow}");
+        $sheet->getStyle("A$diHeaderRow")->getFont()->setBold(true)->setSize(12)->getColor()->setRGB('FFFFFF');
+        $sheet->getStyle("A$diHeaderRow")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('3C5A82');
+
+        $r = $diHeaderRow + 1;
+        if (empty($directIncomeReceipts)) {
+            $sheet->setCellValue("A$r", 'No Direct Project Income recorded.');
+            $sheet->mergeCells("A{$r}:G{$r}");
+            $r++;
+        } else {
+            $diHeaders = ['Date', 'Receipt No', 'Reference Number', 'Payment Method', 'Notes', 'Amount'];
+            foreach ($diHeaders as $i => $h) {
+                $col = chr(65 + $i);
+                $sheet->setCellValue("$col$r", $h);
+            }
+            $sheet->getStyle("A{$r}:F{$r}")->getFont()->setBold(true)->getColor()->setRGB('FFFFFF');
+            $sheet->getStyle("A{$r}:F{$r}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('3C5A82');
+            $r++;
+
+            foreach ($directIncomeReceipts as $rec) {
+                $sheet->setCellValue("A$r", $rec['receipt_date']);
+                $sheet->setCellValue("B$r", $rec['receipt_no']);
+                $sheet->setCellValue("C$r", $rec['reference']);
+                $sheet->setCellValue("D$r", $rec['payment_method']);
+                $sheet->setCellValue("E$r", $rec['notes']);
+                $sheet->setCellValue("F$r", $rec['amount']);
+                $sheet->getStyle("F$r")->getNumberFormat()->setFormatCode('#,##0.00');
+                if ($r % 2 == 0) {
+                    $sheet->getStyle("A$r:F$r")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('F7FBFC');
+                }
+                $r++;
+            }
+
+            $sheet->setCellValue("A$r", 'Total Direct Income');
+            $sheet->mergeCells("A{$r}:E{$r}");
+            $sheet->getStyle("A$r")->getFont()->setBold(true);
+            $sheet->setCellValue("F$r", $totalDirectIncome);
+            $sheet->getStyle("F$r")->getFont()->setBold(true);
+            $sheet->getStyle("F$r")->getNumberFormat()->setFormatCode('#,##0.00');
             $r++;
         }
 
@@ -451,18 +513,26 @@ class Projects extends Controller
         $fs       = $data['financial_summary'];
         $timeline = $data['timeline'];
 
+        // Release 4.6.5: same field changes as statementExport() — Cash
+        // Received / Remaining Balance / Total Customer Paid all read the
+        // model's cash_received_combined / remaining_balance_display.
+        $pdfCashReceived      = (float) ($fs['cash_received_combined'] ?? 0);
+        $pdfRemainingBalance  = (float) ($fs['remaining_balance_display'] ?? 0);
+        $pdfTotalCustomerPaid = (float) ($fs['cash_received_combined'] ?? 0);
+
         $summaryRows = [
             ['Project Value', $fs['total_project_value'] ?? 0],
             ['Advance Received', $fs['advance_amount'] ?? 0],
             ['Total Billed', $fs['total_billed'] ?? 0],
-            ['Remaining Billable Value', $fs['remaining_billable_value'] ?? 0],
-            ['Total Payments Received', $fs['total_paid'] ?? 0],
-            ['Outstanding Collection Balance', $fs['outstanding_collection_balance'] ?? 0],
+            ['Remaining Balance', $pdfRemainingBalance],
+            ['Total Customer Paid', $pdfTotalCustomerPaid],
+            ['Outstanding Collection', $fs['outstanding_collection_balance'] ?? 0],
             ['Billing Progress (%)', number_format($fs['billing_progress_percent'] ?? 0, 1) . '%'],
             ['Total Purchases', $data['total_purchases']],
             ['Total Expenses', $data['total_expenses']],
             ['Total Cost', $data['total_cost']],
             ['Net Profit', $data['net_profit']],
+            ['Cash Received', $pdfCashReceived],
         ];
 
         $html = '
@@ -494,9 +564,42 @@ class Projects extends Controller
             $displayValue = is_numeric($value) ? number_format((float) $value, 2) : $value;
             $html .= '<tr><td class="summary-label">' . esc($label) . '</td><td class="right">' . $displayValue . '</td></tr>';
         }
-        $html .= '</table>
+        $html .= '</table>';
 
-            <div class="section-title">TIMELINE</div>
+        // Release 4.6.5.5: Direct Project Income section — after Financial
+        // Summary, before Timeline. Read-only history, no calculation beyond
+        // reusing $fs['total_direct_income'] (getFinancialSummary(), unchanged).
+        $directIncomeReceipts = $data['direct_income_receipts'] ?? [];
+        $totalDirectIncomePdf = (float) ($fs['total_direct_income'] ?? 0);
+
+        $html .= '<div class="section-title">DIRECT PROJECT INCOME</div>';
+        if (empty($directIncomeReceipts)) {
+            $html .= '<table><tr><td class="center">No Direct Project Income recorded.</td></tr></table>';
+        } else {
+            $html .= '<table>
+                <tr>
+                    <th>Date</th>
+                    <th>Receipt No</th>
+                    <th>Reference Number</th>
+                    <th>Payment Method</th>
+                    <th>Notes</th>
+                    <th>Amount</th>
+                </tr>';
+            foreach ($directIncomeReceipts as $rec) {
+                $html .= '<tr>
+                    <td>' . esc($rec['receipt_date']) . '</td>
+                    <td>' . esc($rec['receipt_no']) . '</td>
+                    <td>' . esc($rec['reference'] ?: '-') . '</td>
+                    <td>' . esc($rec['payment_method']) . '</td>
+                    <td>' . esc($rec['notes'] ?: '-') . '</td>
+                    <td class="right">' . number_format($rec['amount'], 2) . '</td>
+                </tr>';
+            }
+            $html .= '<tr><td colspan="5" class="right summary-label">Total Direct Income</td><td class="right summary-label">' . number_format($totalDirectIncomePdf, 2) . '</td></tr>';
+            $html .= '</table>';
+        }
+
+        $html .= '<div class="section-title">TIMELINE</div>
             <table>
                 <tr>
                     <th>Date</th>
@@ -564,9 +667,23 @@ class Projects extends Controller
         $totalPurchases = $this->model->getAllocatedPurchaseCost($id);
         $totalExpenses  = (float) $totals['total_expenses'];
         $totalCost      = $totalPurchases + $totalExpenses;
-        $netProfit      = ($financialSummary['total_billed'] ?? 0) - $totalCost;
 
-        $balance = (float) ($financialSummary['outstanding_collection_balance'] ?? 0);
+        // Release 4.6.5.6 (bug fix): Revenue must include Direct Project
+        // Income, matching Reports::profitLoss()/getProfitLossBreakdown()
+        // and getBalanceSheetData() (Release 4.6.5) — this statement was
+        // left on the old invoice-only revenue formula, understating Net
+        // Profit by exactly the project's total_direct_income. Both terms
+        // come straight from the already-computed financial_summary
+        // (total_billed, total_direct_income) — no new aggregation, and
+        // Advance receipts are not part of either figure, so they still
+        // never affect profit.
+        $projectRevenue = ($financialSummary['total_billed'] ?? 0) + ($financialSummary['total_direct_income'] ?? 0);
+        $grossProfit    = $projectRevenue - $totalPurchases;
+        $netProfit      = $projectRevenue - $totalCost;
+
+        // Release 4.5.1: net of Project Cash Receipts, matching the
+        // Outstanding Collection card shown on this same statement page.
+        $balance = (float) ($financialSummary['net_outstanding_collection_balance'] ?? 0);
         if ($balance > 0.005) {
             $balanceStatus = 'Outstanding';
         } elseif ($balance < -0.005) {
@@ -580,16 +697,32 @@ class Projects extends Controller
         // needed for the statement header's Billing Status badge.
         $billingCompletionStatus = $this->model->getBillingCompletionStatus($project, $financialSummary);
 
+        // Release 4.6.5.5: dedicated Direct Project Income list — plain,
+        // read-only history straight from project_cash_receipts, no
+        // aggregation logic here. Total reuses financial_summary's own
+        // total_direct_income (already-computed by getFinancialSummary())
+        // rather than re-summing, so there is exactly one source of truth
+        // for that figure.
+        $directIncomeReceipts = $db->query("
+            SELECT receipt_no, receipt_date, reference, payment_method, notes, amount
+            FROM project_cash_receipts
+            WHERE project_id = ? AND receipt_type = 'DIRECT_INCOME'
+            ORDER BY receipt_date ASC, id ASC
+        ", [$id])->getResultArray();
+
         return [
             'project'                    => $project,
             'financial_summary'          => $financialSummary,
             'total_purchases'            => $totalPurchases,
             'total_expenses'             => $totalExpenses,
             'total_cost'                 => $totalCost,
+            'project_revenue'            => $projectRevenue,
+            'gross_profit'               => $grossProfit,
             'net_profit'                 => $netProfit,
             'balance_status'             => $balanceStatus,
             'billing_completion_status'  => $billingCompletionStatus,
             'timeline'                   => $this->model->getTimelineEvents($id),
+            'direct_income_receipts'     => $directIncomeReceipts,
         ];
     }
 }

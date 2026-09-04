@@ -14,6 +14,15 @@ $routes->get('login', 'Auth::login');
 $routes->post('login', 'Auth::doLogin');
 $routes->get('logout', 'Auth::logout');
 
+// Forgot Password (public, OTP-based reset)
+$routes->get('forgot-password', 'Auth::forgotPassword');
+$routes->post('forgot-password/send', 'Auth::sendOtp');
+$routes->get('forgot-password/verify', 'Auth::verifyOtp');
+$routes->post('forgot-password/verify', 'Auth::verifyOtp');
+$routes->post('forgot-password/resend', 'Auth::resendOtp');
+$routes->get('forgot-password/reset', 'Auth::resetPassword');
+$routes->post('forgot-password/reset', 'Auth::resetPassword');
+
 // =============================================
 // PROTECTED ROUTES (require login)
 // =============================================
@@ -93,13 +102,11 @@ $routes->get('payments/edit/(:num)', 'Payments::edit/$1', ['filter' => 'auth']);
 $routes->post('payments/update/(:num)', 'Payments::update/$1', ['filter' => 'auth']);
 $routes->get('payments/delete/(:num)', 'Payments::delete/$1', ['filter' => 'auth']);
 
-// Release 4.5: Project Cash Receipts — separate module, independent of Payments
-$routes->get('project-cash-receipts', 'ProjectCashReceipts::index', ['filter' => 'auth']);
-$routes->get('project-cash-receipts/create', 'ProjectCashReceipts::create', ['filter' => 'auth']);
+// Release 4.5.5 (Phase E): Project Cash Receipt now has exactly one entry
+// point — the Payment Type toggle on payments/create.php — so only the
+// storage endpoint remains routed. index/create/edit/update/delete (the
+// standalone list + form pages) are removed.
 $routes->post('project-cash-receipts/store', 'ProjectCashReceipts::store', ['filter' => 'auth']);
-$routes->get('project-cash-receipts/edit/(:num)', 'ProjectCashReceipts::edit/$1', ['filter' => 'auth']);
-$routes->post('project-cash-receipts/update/(:num)', 'ProjectCashReceipts::update/$1', ['filter' => 'auth']);
-$routes->get('project-cash-receipts/delete/(:num)', 'ProjectCashReceipts::delete/$1', ['filter' => 'auth']);
 
 // Expense Categories (Masters)
 $routes->get('expense-categories', 'ExpenseCategories::index', ['filter' => 'auth']);

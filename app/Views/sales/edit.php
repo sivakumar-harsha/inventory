@@ -102,6 +102,13 @@
                 </div>
             </div>
         </div>
+
+        <!-- Release 4.6.5.1: same Direct Project Income warning as Sales Create —
+             informational only, never blocks Update Sale. -->
+        <div id="directIncomeNotice" style="display:none" class="alert alert-warning">
+            <i class="bi bi-exclamation-triangle-fill me-2"></i>
+            <span id="directIncomeNoticeText"></span>
+        </div>
     </div>
 </div>
 
