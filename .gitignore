@@ -1,26 +1,7 @@
-# Environment
+/vendor/
+/writable/cache/*
+/writable/debugbar/*
+/writable/logs/*
+/writable/session/*
+!writable/cache/index.html
 .env
-
-# Writable folder
-writable/cache/*
-writable/logs/*
-writable/session/*
-writable/debugbar/*
-writable/uploads/*
-
-# Vendor
-vendor/
-
-# Database backups
-*.sql
-
-# Zip backups
-*.zip
-
-# Build folder
-builds/
-
-# Temporary files
-cookies.txt
-headers.txt
-*.html
