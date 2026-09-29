@@ -2,6 +2,8 @@
 
 namespace App\Controllers;
 
+use App\Models\BankAccountModel;
+use App\Models\BankTransactionModel;
 use App\Models\ProjectModel;
 use App\Models\CustomerModel;
 use App\Models\SaleModel;
@@ -107,24 +109,61 @@ class Projects extends Controller
 
     public function create()
     {
-        $data['customers'] = (new CustomerModel())->orderBy('name','ASC')->findAll();
+        $data['customers']    = (new CustomerModel())->orderBy('name','ASC')->findAll();
+        $data['bankAccounts'] = $this->_activeBankAccounts();
         return view('projects/create', $data);
     }
 
     public function store()
     {
-        $this->model->insert([
-            'name'                 => $this->request->getPost('name'),
-            'customer_id'          => $this->request->getPost('customer_id') ?: null,
-            'status'               => $this->request->getPost('status'),
-            'start_date'           => $this->request->getPost('start_date') ?: null,
-            'end_date'             => $this->request->getPost('end_date') ?: null,
-            'description'          => $this->request->getPost('description'),
-            'total_project_value'  => $this->request->getPost('total_project_value') ?: 0,
-            'advance_amount'       => $this->request->getPost('advance_amount') ?: 0,
-            'advance_date'         => $this->request->getPost('advance_date') ?: null,
-            'advance_notes'        => $this->request->getPost('advance_notes'),
-        ]);
+        $adv        = $this->_extractAdvance();
+        $customerId = (int) $this->request->getPost('customer_id');
+
+        if ($errors = $this->_validateAdvance($adv, $this->_postedProjectValue(), $customerId)) {
+            return $this->_advanceRejected($errors, null);
+        }
+        $adv = $this->_normalizeAdvance($adv);
+
+        $db = \Config\Database::connect();
+        $db->transStart();
+
+        try {
+            $row = [
+                'name'                 => $this->request->getPost('name'),
+                'customer_id'          => $this->request->getPost('customer_id') ?: null,
+                'status'               => $this->request->getPost('status'),
+                'start_date'           => $this->request->getPost('start_date') ?: null,
+                'end_date'             => $this->request->getPost('end_date') ?: null,
+                'description'          => $this->request->getPost('description'),
+                'total_project_value'  => $this->request->getPost('total_project_value') ?: 0,
+                'advance_amount'       => $adv['amount'],
+                'advance_date'         => $this->request->getPost('advance_date') ?: null,
+                'advance_notes'        => $this->request->getPost('advance_notes'),
+            ];
+            // The method/bank columns come from migration 2026-09-25-000001; they are sent only
+            // with an advance, so a project without one saves exactly as it always did.
+            if ($adv['amount'] > 0) {
+                $row['advance_payment_method']  = $adv['method'];
+                $row['advance_bank_account_id'] = $adv['bank_account_id'];
+            }
+
+            $projectId = $this->model->insert($row);
+            if ($projectId === false) {
+                throw new \RuntimeException('Failed to save project: ' . implode(' ', $this->model->errors()));
+            }
+
+            $this->_syncAdvanceDeposit((int) $projectId, $this->model->find($projectId), $adv, $customerId, []);
+        } catch (\Throwable $e) {
+            $db->transRollback();
+            return $this->_advanceFailed($e, 'save', null);
+        }
+
+        $db->transComplete();
+
+        if ($db->transStatus() === false) {
+            return $this->_advanceRejected(['Failed to save project due to a database error.'], null, 500);
+        }
+
         return redirect()->to('/projects')->with('success', 'Project created successfully.');
     }
 
@@ -133,11 +172,18 @@ class Projects extends Controller
         $data['project']   = $this->model->find($id);
         $data['customers'] = (new CustomerModel())->orderBy('name','ASC')->findAll();
         if (!$data['project']) return redirect()->to('/projects')->with('error', 'Project not found.');
+        $data['bankAccounts'] = $this->_activeBankAccounts();
         return view('projects/edit', $data);
     }
 
     public function update($id)
     {
+        $id      = (int) $id;
+        $project = $this->model->find($id);
+        if (! $project) {
+            return redirect()->to('/projects')->with('error', 'Project not found.');
+        }
+
         $status  = $this->request->getPost('status');
         $endDate = $this->request->getPost('end_date') ?: null;
 
@@ -147,18 +193,58 @@ class Projects extends Controller
             $endDate = date('Y-m-d');
         }
 
-        $this->model->update($id, [
-            'name'                 => $this->request->getPost('name'),
-            'customer_id'          => $this->request->getPost('customer_id') ?: null,
-            'status'               => $status,
-            'start_date'           => $this->request->getPost('start_date') ?: null,
-            'end_date'             => $endDate,
-            'description'          => $this->request->getPost('description'),
-            'total_project_value'  => $this->request->getPost('total_project_value') ?: 0,
-            'advance_amount'       => $this->request->getPost('advance_amount') ?: 0,
-            'advance_date'         => $this->request->getPost('advance_date') ?: null,
-            'advance_notes'        => $this->request->getPost('advance_notes'),
-        ]);
+        $adv        = $this->_extractAdvance();
+        $customerId = (int) $this->request->getPost('customer_id');
+
+        if ($errors = $this->_validateAdvance($adv, $this->_postedProjectValue(), $customerId)) {
+            return $this->_advanceRejected($errors, $project);
+        }
+        $adv = $this->_normalizeAdvance($adv);
+
+        $db = \Config\Database::connect();
+        $db->transStart();
+
+        try {
+            $bank     = new BankTransactionModel();
+            $existing = $this->_advanceDeposits($id);
+            // Snapshot every account the reversal or the repost can touch, for the overdraft check below.
+            $before   = $bank->balancesOf(array_merge(array_column($existing, 'bank_account_id'), [$adv['bank_account_id']]));
+
+            $row = [
+                'name'                 => $this->request->getPost('name'),
+                'customer_id'          => $this->request->getPost('customer_id') ?: null,
+                'status'               => $status,
+                'start_date'           => $this->request->getPost('start_date') ?: null,
+                'end_date'             => $endDate,
+                'description'          => $this->request->getPost('description'),
+                'total_project_value'  => $this->request->getPost('total_project_value') ?: 0,
+                'advance_amount'       => $adv['amount'],
+                'advance_date'         => $this->request->getPost('advance_date') ?: null,
+                'advance_notes'        => $this->request->getPost('advance_notes'),
+            ];
+            // Method/bank are rewritten with an advance, and cleared when the advance goes to zero
+            // (only where the columns exist, i.e. the row read back carries them).
+            if ($adv['amount'] > 0 || array_key_exists('advance_payment_method', $project)) {
+                $row['advance_payment_method']  = $adv['method'];
+                $row['advance_bank_account_id'] = $adv['bank_account_id'];
+            }
+
+            if ($this->model->update($id, $row) === false) {
+                throw new \RuntimeException('Failed to update project: ' . implode(' ', $this->model->errors()));
+            }
+
+            $this->_syncAdvanceDeposit($id, $this->model->find($id), $adv, $customerId, $existing);
+            $bank->assertNotOverdrawn($before);
+        } catch (\Throwable $e) {
+            $db->transRollback();
+            return $this->_advanceFailed($e, 'update', $project);
+        }
+
+        $db->transComplete();
+
+        if ($db->transStatus() === false) {
+            return $this->_advanceRejected(['Failed to update project due to a database error.'], $project, 500);
+        }
 
         // Release 1.6.4 (Rules 1-3): advance_amount may have changed —
         // re-run FIFO allocation across this project's invoices.
@@ -169,8 +255,280 @@ class Projects extends Controller
 
     public function delete($id)
     {
-        $this->model->delete($id);
+        $id      = (int) $id;
+        $project = $this->model->find($id);
+        if (! $project) {
+            return redirect()->to('/projects')->with('error', 'Project not found.');
+        }
+
+        $db = \Config\Database::connect();
+        $db->transStart();
+
+        try {
+            $bank     = new BankTransactionModel();
+            $existing = $this->_advanceDeposits($id);
+            $before   = $bank->balancesOf(array_column($existing, 'bank_account_id'));
+
+            // Release 4.8.4J: give the advance deposit back out of the bank account first. The
+            // Customer Ledger advance row is derived from this project row, so it goes with it.
+            $this->_syncAdvanceDeposit($id, $project, ['amount' => 0.0], 0, $existing);
+
+            // A failed query inside a transaction returns false instead of throwing (e.g. a
+            // foreign key from sales/purchases), so confirm the row is really gone.
+            $this->model->delete($id);
+            if ($this->model->find($id) !== null) {
+                throw new \RuntimeException('The project is still referenced by other records and could not be deleted.');
+            }
+
+            $bank->assertNotOverdrawn($before);
+        } catch (\Throwable $e) {
+            $db->transRollback();
+            return redirect()->to('/projects')->with('error', 'Failed to delete project: ' . $e->getMessage());
+        }
+
+        $db->transComplete();
+
+        if ($db->transStatus() === false) {
+            return redirect()->to('/projects')->with('error', 'Failed to delete project due to a database error.');
+        }
+
         return redirect()->to('/projects')->with('success', 'Project deleted successfully.');
+    }
+
+    // =========================================================
+    // PROJECT ADVANCE (Release 4.8.4J)
+    // The advance on the project row IS the customer's first advance payment:
+    // the Customer Ledger reads it straight from projects (CustomerLedger), and a
+    // Bank Transfer / Cheque / UPI advance also posts one DEPOSIT
+    // (reference_type PROJECT_ADVANCE_DEPOSIT, reference_id = project id) through
+    // BankTransactionModel — store() posts it, update() reconciles it (reverse and
+    // repost only when something about it changed), delete() reverses it, all in
+    // the same DB transaction as the project itself. Cash / Other post nothing.
+    // Balance math lives in BankTransactionModel; these helpers only decide
+    // whether and what to post.
+    // =========================================================
+
+    private const ADVANCE_METHODS = ['CASH', 'BANK_TRANSFER', 'CHEQUE', 'UPI', 'OTHER'];
+
+    /** Accounts the Bank Account dropdown may offer (active only) — same list General Purchases offers. */
+    private function _activeBankAccounts(): array
+    {
+        return (new BankAccountModel())->where('is_active', 1)->orderBy('bank_name', 'ASC')->findAll();
+    }
+
+    /** The advance/method/bank fields exactly as submitted, before validation. */
+    private function _extractAdvance(): array
+    {
+        $raw     = $this->request->getPost('advance_amount');
+        $invalid = is_array($raw) || ($raw !== null && $raw !== '' && ! is_numeric($raw));
+        $amount  = $invalid ? 0.0 : round((float) $raw, 2);
+
+        $method = $this->request->getPost('payment_method');
+        $bank   = $this->request->getPost('bank_account_id');
+        $date   = $this->request->getPost('advance_date');
+
+        return [
+            'amount'          => $amount,
+            'invalid'         => $invalid || $amount < 0,
+            'method'          => is_string($method) ? strtoupper(trim($method)) : '',
+            'bank_account_id' => is_scalar($bank) ? (int) $bank : 0,
+            'date'            => is_string($date) ? trim($date) : '',
+        ];
+    }
+
+    private function _postedProjectValue(): float
+    {
+        $raw = $this->request->getPost('total_project_value');
+
+        return is_scalar($raw) && is_numeric($raw) ? round((float) $raw, 2) : 0.0;
+    }
+
+    /**
+     * Advance rules: cannot exceed the Total Project Value; a positive advance
+     * needs a customer (its Customer Ledger credit), a valid payment method and
+     * — for Bank Transfer / Cheque / UPI — an existing, active bank account.
+     * Cash/Other ignore the bank account entirely. Returns error strings; empty
+     * means valid (a zero advance needs nothing).
+     */
+    private function _validateAdvance(array $adv, float $projectValue, int $customerId): array
+    {
+        $errors = [];
+
+        if ($adv['invalid']) {
+            $errors[] = 'Advance amount must be a number of zero or more.';
+        }
+        if ($adv['date'] !== '') {
+            $parsed = \DateTime::createFromFormat('Y-m-d', $adv['date']);
+            if (! $parsed || $parsed->format('Y-m-d') !== $adv['date']) {
+                $errors[] = 'Advance date is not a valid date.';
+            }
+        }
+
+        if ($adv['amount'] <= 0) {
+            return $errors;
+        }
+
+        if ($adv['amount'] > $projectValue + 0.004) {
+            $errors[] = 'Advance amount (' . number_format($adv['amount'], 2) . ') cannot exceed the Total Project Value of ' . number_format($projectValue, 2) . '.';
+        }
+
+        if ($customerId <= 0 || ! (new CustomerModel())->find($customerId)) {
+            $errors[] = 'Select a customer for a project with an advance — the advance is credited to that customer\'s ledger.';
+        }
+
+        if (! in_array($adv['method'], self::ADVANCE_METHODS, true)) {
+            $errors[] = $adv['method'] === '' ? 'Payment method is required when an advance is received.' : 'The selected payment method is not valid.';
+        } elseif (BankTransactionModel::isBankMethod($adv['method'])) {
+            if ($adv['bank_account_id'] <= 0) {
+                $errors[] = 'A bank account is required for Bank Transfer, Cheque and UPI payments.';
+            } else {
+                $account = (new BankAccountModel())->find($adv['bank_account_id']);
+                if (! $account) {
+                    $errors[] = 'The selected bank account was not found.';
+                } elseif ((int) $account['is_active'] !== 1) {
+                    $errors[] = 'Transactions cannot be posted against an inactive bank account.';
+                }
+            }
+        }
+
+        return $errors;
+    }
+
+    /**
+     * What actually gets stored: a zero advance carries no method or bank
+     * account, and Cash/Other never carry a bank account (the form clears it;
+     * this enforces it for any other client). Empty values become NULL.
+     */
+    private function _normalizeAdvance(array $adv): array
+    {
+        $method = $adv['method'];
+        $bank   = $adv['bank_account_id'];
+
+        if ($adv['amount'] <= 0) {
+            $method = '';
+            $bank   = 0;
+        } elseif (! BankTransactionModel::isBankMethod($method)) {
+            $bank = 0;
+        }
+
+        return [
+            'amount'          => $adv['amount'],
+            'method'          => $method !== '' ? $method : null,
+            'bank_account_id' => $bank > 0 ? $bank : null,
+        ];
+    }
+
+    /** Every bank row currently posted for one project's advance (normally 0 or 1). */
+    private function _advanceDeposits(int $projectId): array
+    {
+        return (new BankTransactionModel())
+            ->where('reference_type', ProjectModel::REF_PROJECT_ADVANCE)
+            ->where('reference_id', $projectId)
+            ->findAll();
+    }
+
+    /**
+     * Brings the bank in line with the project's advance: posts nothing for no
+     * advance or a Cash/Other one, and otherwise exactly one DEPOSIT. When the
+     * posted row already matches (account, date, amount, remarks) it is left
+     * alone, so saving a project without touching its advance does not churn
+     * the bank ledger; on any difference the old deposit is reversed and
+     * removed first and the new one posted. Must run inside the caller's DB
+     * transaction.
+     */
+    private function _syncAdvanceDeposit(int $projectId, array $project, array $adv, int $customerId, array $existing): void
+    {
+        $desired = null;
+
+        if (($adv['amount'] ?? 0) > 0 && BankTransactionModel::isBankMethod($adv['method'] ?? null)) {
+            $customer = $customerId > 0 ? (new CustomerModel())->find($customerId) : null;
+
+            $desired = [
+                'bank_account_id'  => (int) $adv['bank_account_id'],
+                'transaction_date' => ProjectModel::advanceDate($project),
+                'transaction_type' => 'DEPOSIT',
+                'amount'           => $adv['amount'],
+                'reference_type'   => ProjectModel::REF_PROJECT_ADVANCE,
+                'reference_id'     => $projectId,
+                'reference_no'     => ProjectModel::projectNumber($projectId),
+                'remarks'          => 'Project Advance Received - ' . ($customer['name'] ?? 'Unknown Customer'),
+                'created_by'       => session()->get('user_id'),
+            ];
+        }
+
+        if ($desired !== null && count($existing) === 1) {
+            $row = $existing[0];
+            if ((int) $row['bank_account_id'] === $desired['bank_account_id']
+                && $row['transaction_date'] === $desired['transaction_date']
+                && $row['transaction_type'] === 'DEPOSIT'
+                && abs((float) $row['amount'] - $desired['amount']) < 0.005
+                && (string) $row['reference_no'] === $desired['reference_no']
+                && (string) $row['remarks'] === $desired['remarks']) {
+                return;
+            }
+        }
+
+        $bank = new BankTransactionModel();
+
+        if ($existing) {
+            $bank->deleteBankTransaction(ProjectModel::REF_PROJECT_ADVANCE, $projectId);
+
+            // deleteBankTransaction() does not check its deletes (a failed one returns false inside the transaction).
+            if ($this->_advanceDeposits($projectId)) {
+                throw new \RuntimeException('Failed to reverse the previous project advance deposit.');
+            }
+        }
+
+        if ($desired !== null) {
+            $bank->createBankTransaction($desired);
+        }
+    }
+
+    /** Re-renders the create/edit form with an error banner and every entered value preserved. */
+    private function _advanceRejected(array $errors, ?array $project, int $status = 422)
+    {
+        // Posted values end up in HTML attributes and a <script> block, so keep scalars only.
+        $old = [];
+        foreach ($this->request->getPost() as $key => $value) {
+            $old[$key] = is_scalar($value) ? (string) $value : '';
+        }
+
+        $data = [
+            'customers'    => (new CustomerModel())->orderBy('name', 'ASC')->findAll(),
+            'bankAccounts' => $this->_activeBankAccounts(),
+            'formErrors'   => $errors,
+            'old'          => $old,
+        ];
+
+        if ($project === null) {
+            $view = 'projects/create';
+        } else {
+            $map = [
+                'name' => 'name', 'customer_id' => 'customer_id', 'status' => 'status', 'start_date' => 'start_date',
+                'end_date' => 'end_date', 'description' => 'description', 'total_project_value' => 'total_project_value',
+                'advance_amount' => 'advance_amount', 'advance_date' => 'advance_date', 'advance_notes' => 'advance_notes',
+                'payment_method' => 'advance_payment_method', 'bank_account_id' => 'advance_bank_account_id',
+            ];
+            foreach ($map as $field => $column) {
+                if (array_key_exists($field, $old)) {
+                    $project[$column] = $old[$field];
+                }
+            }
+            $data['project'] = $project;
+            $view            = 'projects/edit';
+        }
+
+        return $this->response->setStatusCode($status)->setBody(view($view, $data));
+    }
+
+    /** A DomainException is a rule (overdraft) → 422; anything else is unexpected → 500. Both keep the form. */
+    private function _advanceFailed(\Throwable $e, string $verb, ?array $project)
+    {
+        if ($e instanceof \DomainException) {
+            return $this->_advanceRejected([$e->getMessage()], $project);
+        }
+
+        return $this->_advanceRejected(['Failed to ' . $verb . ' project: ' . $e->getMessage()], $project, 500);
     }
 
     /**
@@ -369,7 +727,9 @@ class Projects extends Controller
         // instead of re-deriving them here from total_cash_received.
         $exportCashReceived      = (float) ($fs['cash_received_combined'] ?? 0);
         $exportRemainingBalance  = (float) ($fs['remaining_balance_display'] ?? 0);
-        $exportTotalCustomerPaid = (float) ($fs['cash_received_combined'] ?? 0);
+        // Release 4.8.6A-1: Total Customer Paid now includes the project Advance; the balance rows below it
+        // follow the statement cards (Customer Advance Balance and/or Outstanding Collection / Settled).
+        $exportTotalCustomerPaid = (float) ($fs['total_customer_paid'] ?? $fs['cash_received_combined'] ?? 0);
 
         $summaryRows = [
             ['Project Value', $fs['total_project_value'] ?? 0],
@@ -377,7 +737,7 @@ class Projects extends Controller
             ['Total Billed', $fs['total_billed'] ?? 0],
             ['Remaining Balance', $exportRemainingBalance],
             ['Total Customer Paid', $exportTotalCustomerPaid],
-            ['Outstanding Collection', $fs['outstanding_collection_balance'] ?? 0],
+            ...$this->_customerBalanceRows($fs),
             ['Billing Progress (%)', $fs['billing_progress_percent'] ?? 0],
             ['Total Purchases', $data['total_purchases']],
             ['Total Expenses', $data['total_expenses']],
@@ -518,7 +878,7 @@ class Projects extends Controller
         // model's cash_received_combined / remaining_balance_display.
         $pdfCashReceived      = (float) ($fs['cash_received_combined'] ?? 0);
         $pdfRemainingBalance  = (float) ($fs['remaining_balance_display'] ?? 0);
-        $pdfTotalCustomerPaid = (float) ($fs['cash_received_combined'] ?? 0);
+        $pdfTotalCustomerPaid = (float) ($fs['total_customer_paid'] ?? $fs['cash_received_combined'] ?? 0);
 
         $summaryRows = [
             ['Project Value', $fs['total_project_value'] ?? 0],
@@ -526,7 +886,7 @@ class Projects extends Controller
             ['Total Billed', $fs['total_billed'] ?? 0],
             ['Remaining Balance', $pdfRemainingBalance],
             ['Total Customer Paid', $pdfTotalCustomerPaid],
-            ['Outstanding Collection', $fs['outstanding_collection_balance'] ?? 0],
+            ...$this->_customerBalanceRows($fs),
             ['Billing Progress (%)', number_format($fs['billing_progress_percent'] ?? 0, 1) . '%'],
             ['Total Purchases', $data['total_purchases']],
             ['Total Expenses', $data['total_expenses']],
@@ -633,6 +993,26 @@ class Projects extends Controller
 
         $fileName = 'project_statement_' . preg_replace('/[^A-Za-z0-9_-]/', '_', $project['name']) . '_' . date('d-m-Y_H-i') . '.pdf';
         $dompdf->stream($fileName, ["Attachment" => true]);
+    }
+
+    /**
+     * Release 4.8.6A-2 Final Patch: the statement's customer lines for the Excel/PDF summary — one row
+     * per card shown on screen (Customer Advance Balance and/or Outstanding Collection, or Settled),
+     * taken from the model's customer_cards so the export always matches the page.
+     */
+    private function _customerBalanceRows(array $fs): array
+    {
+        $rows = [];
+        foreach (($fs['customer_cards'] ?? []) as $card) {
+            if ($card['type'] === 'ADVANCE') {
+                $rows[] = ['Customer Advance Balance (Cr)', $card['amount']];
+            } elseif ($card['type'] === 'OUTSTANDING') {
+                $rows[] = ['Outstanding Collection (Dr)', $card['amount']];
+            } else {
+                $rows[] = ['Settled', 0];
+            }
+        }
+        return $rows ?: [['Settled', 0]];
     }
 
     /**

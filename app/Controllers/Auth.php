@@ -28,14 +28,8 @@ class Auth extends Controller
 
         $authenticated = false;
 
-        if ($user) {
-            if (password_verify((string) $password, (string) $user['password'])) {
-                $authenticated = true;
-            } elseif (hash_equals((string) $user['password'], (string) $password)) {
-                // Legacy plaintext row: accept once, then transparently upgrade to a proper hash.
-                $authenticated = true;
-                $userModel->update($user['id'], ['password' => password_hash($password, PASSWORD_DEFAULT)]);
-            }
+        if ($user && hash_equals((string) $user['password'], (string) $password)) {
+            $authenticated = true;
         }
 
         if ($authenticated) {
@@ -44,6 +38,10 @@ class Auth extends Controller
                 'user_id'   => $user['id'],
                 'username'  => $user['username'],
             ]);
+
+            // Release 4.8.8A: audit trail only.
+            audit_login((int) $user['id'], $user['username']);
+
             return redirect()->to('/dashboard');
         }
 
@@ -52,6 +50,14 @@ class Auth extends Controller
 
     public function logout()
     {
+        // Release 4.8.8A: audit trail only — read before destroy() wipes the
+        // session data it depends on.
+        $userId   = session()->get('user_id');
+        $username = session()->get('username');
+        if ($userId && $username) {
+            audit_logout((int) $userId, (string) $username);
+        }
+
         session()->destroy();
         return redirect()->to('/login')->with('success', 'You have been logged out.');
     }
@@ -209,7 +215,7 @@ class Auth extends Controller
 
             $userId = (int) session()->get('reset_user_id');
             $userModel = new UserModel();
-            $userModel->update($userId, ['password' => password_hash($password, PASSWORD_DEFAULT)]);
+            $userModel->update($userId, ['password' => $password]);
 
             $resetModel = new PasswordResetModel();
             $resetModel->deleteForUser($userId);

@@ -5,3 +5,5 @@
 /writable/session/*
 !writable/cache/index.html
 .env
+
+*.zip

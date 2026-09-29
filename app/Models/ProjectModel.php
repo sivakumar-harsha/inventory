@@ -12,10 +12,37 @@ class ProjectModel extends Model
         'name', 'customer_id', 'status', 'start_date', 'end_date', 'description',
         'total_project_value', 'advance_amount', 'advance_date', 'advance_notes',
         'billing_status',
+        // Release 4.8.4J (migration 2026-09-25-000001); written only while a project carries an advance.
+        'advance_payment_method', 'advance_bank_account_id',
     ];
     protected $useTimestamps = true;
     protected $createdField  = 'created_at';
     protected $updatedField  = 'updated_at';
+
+    /** Bank reference_type of a project's advance deposit (reference_id = projects.id). Distinct from ProjectCashReceipts' PROJECT_ADVANCE, whose reference_id is a receipt id. */
+    public const REF_PROJECT_ADVANCE = 'PROJECT_ADVANCE_DEPOSIT';
+
+    /** Display number of a project, e.g. PRJ-000012 (projects carry no number column of their own). */
+    public static function projectNumber(int $projectId): string
+    {
+        return 'PRJ-' . str_pad((string) $projectId, 6, '0', STR_PAD_LEFT);
+    }
+
+    /**
+     * Date the project's advance was received: Advance Date when given, else
+     * the day the project was created (the same fallback the project timeline
+     * uses). Shared by the bank deposit and the Customer Ledger row so the two
+     * always carry the same date.
+     */
+    public static function advanceDate(array $project): string
+    {
+        $date = (string) ($project['advance_date'] ?? '');
+        if ($date === '') {
+            $date = substr((string) ($project['created_at'] ?? ''), 0, 10);
+        }
+
+        return $date !== '' ? $date : date('Y-m-d');
+    }
 
     /**
      * Release 2.1C (Bug 1): project payment status represents entire project
@@ -150,6 +177,48 @@ class ProjectModel extends Model
         $remainingBalanceDisplay = $totalProjectValue - $advanceAmount - $totalBilled - $totalAdvanceReceipts - $totalDirectIncome;
         $cashReceivedCombined    = $totalPaid + $totalAdvanceReceipts + $totalDirectIncome;
 
+        // Release 4.8.6A-1: Total Customer Paid = everything the customer actually paid us — the
+        // project's own Advance plus Customer Payment vouchers (invoice payments, advance
+        // receipts, direct income). Internal adjustments and invoice settlement are never money
+        // received, so they do not appear here.
+        $customerPaidAdvance = $advanceAmount + $totalAdvanceReceipts;
+        // Final patch: Direct Income is NOT a customer collection, so it is left out here
+        // (it stays available as total_direct_income and inside cash_received_combined).
+        $totalCustomerPaid   = $advanceAmount + $totalAdvanceReceipts + $totalPaid;
+
+        // Release 4.8.6A-2 Final Patch: TWO independent customer figures, never one shared balance.
+        //   unused_customer_advance = Advance Received - Advance Allocated (sales.advance_applied)
+        //   invoice_outstanding     = Invoice Total - Advance Allocated - Customer Payments
+        // The Project Statement / Project View show them side by side (Customer Advance Balance and
+        // Outstanding Collection), so an advance the accountant has not applied is visible next to the
+        // invoice it could settle. Neither uses Remaining Balance; Direct Income and Project Cash
+        // Receipts are not part of either. Without the allocation table (old automatic FIFO) the two
+        // are never both above zero, so the old single card is reproduced.
+        $unusedCustomerAdvance = max(0.0, round($advanceAmount - $totalAdvanceApplied, 2));
+        $invoiceOutstanding    = max(0.0, round($totalBilled - $totalAdvanceApplied - $totalPaid, 2));
+        $hasInvoices           = $totalBilled > 0.004;
+
+        // Headline status for exports / summaries (the cards themselves use the two values above).
+        if ($invoiceOutstanding > 0.004) {
+            $customerBalanceStatus = 'Outstanding';
+        } elseif ($unusedCustomerAdvance > 0.004) {
+            $customerBalanceStatus = 'Advance';
+        } else {
+            $customerBalanceStatus = 'Settled';
+        }
+
+        // Display matrix: Customer Advance Balance whenever unused advance exists; Outstanding
+        // Collection when invoices are still owed, "Settled" when invoices exist and nothing is owed;
+        // nothing in the second slot when there is no invoice yet (unless the whole page is empty).
+        $customerCards = [];
+        if ($unusedCustomerAdvance > 0.004) {
+            $customerCards[] = ['type' => 'ADVANCE', 'label' => 'Customer Advance Balance', 'amount' => $unusedCustomerAdvance];
+        }
+        if ($invoiceOutstanding > 0.004) {
+            $customerCards[] = ['type' => 'OUTSTANDING', 'label' => 'Outstanding Collection', 'amount' => $invoiceOutstanding];
+        } elseif ($hasInvoices || ! $customerCards) {
+            $customerCards[] = ['type' => 'SETTLED', 'label' => 'Settled', 'amount' => 0.0];
+        }
         return [
             'total_project_value'            => $totalProjectValue,
             'advance_amount'                 => $advanceAmount,
@@ -174,6 +243,12 @@ class ProjectModel extends Model
             'total_direct_income'              => $totalDirectIncome,
             'remaining_balance_display'        => $remainingBalanceDisplay,
             'cash_received_combined'           => $cashReceivedCombined,
+            'customer_paid_advance'            => $customerPaidAdvance,
+            'total_customer_paid'              => $totalCustomerPaid,
+            'unused_customer_advance'          => $unusedCustomerAdvance,
+            'invoice_outstanding'              => $invoiceOutstanding,
+            'customer_balance_status'          => $customerBalanceStatus,
+            'customer_cards'                   => $customerCards,
         ];
     }
 

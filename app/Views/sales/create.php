@@ -177,6 +177,9 @@
     <a href="<?= base_url('sales') ?>" class="btn-cancel ms-2"><i class="bi bi-x"></i> Cancel</a>
 </div>
 
+<!-- Release 4.8.6A-2: advance the accountant chose to apply (modal). 0 = none. -->
+<input type="hidden" name="advance_to_apply" id="advanceToApply" value="0">
+
 </form>
 
 <?= $this->section('scripts') ?>
@@ -198,6 +201,7 @@ $('#addItemBtn').on('click', function() {
     addItem();
 });
 </script>
+<?= $this->setVar('advanceEditing', false)->setVar('advanceExcludeSaleId', 0)->setVar('advancePaidAmount', 0)->include('sales/_advance_modal') ?>
 <?= $this->endSection() ?>
 
 <?= $this->endSection() ?>

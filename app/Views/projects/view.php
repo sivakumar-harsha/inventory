@@ -31,7 +31,39 @@
     // Receipts + Direct Income (cash_received_combined) — same formula as
     // the Cash Received card above; both are the same figure now that Cash
     // Received includes invoice payments too.
-    $csTotalCustomerPaid = (float) ($financial_summary['cash_received_combined'] ?? 0);
+    // Release 4.8.6A-1: now also includes the project's own Advance, so this card shows the same
+    // figure as Total Customer Paid on the Project Statement (total_customer_paid).
+    $csTotalCustomerPaid = (float) ($financial_summary['total_customer_paid'] ?? $financial_summary['cash_received_combined'] ?? 0);
+
+    // Release 4.8.6A-2 Final UI Constitution Patch (presentation only): the same ONE dynamic card as
+    // the Project Statement — Customer Advance Balance / Outstanding Collection / Settled — chosen from
+    // the model's unused_customer_advance and invoice_outstanding (never Remaining Balance), plus the
+    // same read-only Customer Advance Summary below the KPI row.
+    $csAdvReceived = (float) ($financial_summary['advance_amount'] ?? 0);
+    $csAdvApplied  = (float) ($financial_summary['total_advance_applied'] ?? 0);
+    $csUnused      = (float) ($financial_summary['unused_customer_advance'] ?? 0);
+    $csOutstanding = (float) ($financial_summary['invoice_outstanding'] ?? 0);
+    $csHasInvoices = $csBilled > 0.004;
+    $dynSubtitle   = '';
+    if ($csHasInvoices && $csOutstanding > 0.004) {
+        $dynKpiCls = 'kpi-orange'; $dynIcon = 'bi-hourglass-split';
+        $dynLabel  = 'Outstanding Collection';
+        $dynValue  = '₹' . number_format($csOutstanding, 2) . ' Dr';
+        if ($csUnused > 0.004) {
+            $dynSubtitle = 'Unused Advance Available : ₹' . number_format($csUnused, 2);
+        }
+    } elseif ($csUnused > 0.004) {
+        $dynKpiCls = 'kpi-green'; $dynIcon = 'bi-award';
+        $dynLabel  = 'Customer Advance Balance';
+        $dynValue  = '₹' . number_format($csUnused, 2) . ' Cr';
+        $dynSubtitle = $csHasInvoices
+            ? 'Invoice fully settled. Advance available for future invoices.'
+            : 'Unused customer advance available.';
+    } else {
+        $dynKpiCls = 'kpi-green'; $dynIcon = 'bi-check-circle';
+        $dynLabel  = 'Settled';
+        $dynValue  = '₹0.00';
+    }
 
     // Release 2.3A: Project Billing Status is a separate, manual concept from
     // invoice collection status — it tracks whether more invoices are
@@ -131,6 +163,30 @@
                 <div class="kpi-label">Total Customer Paid</div>
             </div>
         </div>
+    </div>
+    <!-- Single dynamic card: Customer Advance Balance / Outstanding Collection / Settled. -->
+    <div class="col-md-4 col-6">
+        <div class="kpi-card <?= $dynKpiCls ?>"<?= $dynSubtitle !== '' ? ' title="' . esc($dynSubtitle) . '"' : '' ?>>
+            <div class="kpi-icon"><i class="bi <?= $dynIcon ?>"></i></div>
+            <div>
+                <div class="kpi-value"><?= $dynValue ?></div>
+                <div class="kpi-label"><?= esc($dynLabel) ?></div>
+                <?php if ($dynSubtitle !== ''): ?>
+                <div class="kpi-breakdown kpi-subtitle"><?= esc($dynSubtitle) ?></div>
+                <?php endif; ?>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Release 4.8.6A-2 Final UI Patch: read-only Customer Advance Summary (not a KPI card) — same
+     figures and layout as the Project Statement. -->
+<div class="card-custom mb-3">
+    <div class="card-custom-header"><i class="bi bi-piggy-bank me-2"></i>Customer Advance Summary</div>
+    <div class="card-custom-body adv-summary-body">
+        <div class="adv-summary-row"><span class="adv-summary-label">Advance Received</span><span class="adv-summary-value">₹<?= number_format($csAdvReceived, 2) ?></span></div>
+        <div class="adv-summary-row"><span class="adv-summary-label">Advance Applied to Invoices</span><span class="adv-summary-value">₹<?= number_format($csAdvApplied, 2) ?></span></div>
+        <div class="adv-summary-row adv-summary-total"><span class="adv-summary-label">Unused Advance Available</span><span class="adv-summary-value">₹<?= number_format($csUnused, 2) ?></span></div>
     </div>
 </div>
 
@@ -255,10 +311,19 @@
 .project-header-dates { font-size: 0.74rem; color: #64748b; }
 .project-header-actions { display: flex; gap: 8px; flex-wrap: wrap; align-self: center; }
 .project-subheader-sep { color: #cbd5e1; }
-.project-kpi-row .kpi-card { padding: 8px 10px; min-height: 68px; border-width: 1px; gap: 6px; text-align: center; justify-content: center; }
+.project-kpi-row .kpi-card { height: 100%; padding: 8px 10px; min-height: 68px; border-width: 1px; gap: 6px; text-align: center; justify-content: center; }
 .project-kpi-row .kpi-icon { width: 28px; height: 28px; font-size: 14px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .project-kpi-row .kpi-value { font-size: 20px; font-weight: 700; text-align: center; }
 .project-kpi-row .kpi-label { font-size: 11px; color: #64748b; text-align: center; }
+.project-kpi-row .kpi-breakdown { font-size: 10px; line-height: 1.15; color: #64748b; text-align: center; }
+/* Customer Advance Summary: three compact read-only rows (same look as the Project Statement). */
+.adv-summary-body { padding: 6px 14px; }
+.adv-summary-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 4px 0; border-bottom: 1px solid #f1f5f9; font-size: 0.8rem; max-width: 460px; }
+.adv-summary-row:last-child { border-bottom: 0; }
+.adv-summary-label { color: #64748b; }
+.adv-summary-value { color: #1e293b; font-weight: 600; font-variant-numeric: tabular-nums; }
+.adv-summary-total .adv-summary-label { color: #1e293b; font-weight: 600; }
+.adv-summary-total .adv-summary-value { color: #15803d; font-weight: 700; }
 .billing-overview-body { padding: 8px 12px; }
 .billing-strip-pct { font-size: 0.78rem; font-weight: 700; color: #2563eb; white-space: nowrap; text-align: right; }
 .billing-strip-figures { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 0.76rem; color: #1e293b; margin-top: 4px; }

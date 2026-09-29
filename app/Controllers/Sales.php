@@ -11,6 +11,8 @@ use CodeIgniter\Controller;
 
 class Sales extends Controller
 {
+    private const ALLOCATION_UNAVAILABLE = 'Advance allocation is unavailable until the pending migration is applied.';
+
     public function index()
     {
         $db = \Config\Database::connect();
@@ -109,6 +111,62 @@ class Sales extends Controller
 
         $summary = (new ProjectModel())->getFinancialSummary((int) $projectId, $excludeSaleId);
 
+        // Release 4.8.6A-2: what the "Customer Advance Available" modal needs. advance_balance is the
+        // advance still free for the invoice being saved/edited (its own current allocation counts
+        // as free); the financial summary above is untouched.
+        $saleModel = new SaleModel();
+        $project   = (new ProjectModel())->find((int) $projectId);
+        $customer  = ($project && ! empty($project['customer_id'])) ? (new CustomerModel())->find((int) $project['customer_id']) : null;
+        $summary['advance_allocation_enabled'] = $saleModel->allocationsEnabled();
+        $summary['advance_balance']            = $saleModel->advanceBalance((int) $projectId, $excludeSaleId);
+        $summary['advance_current']            = 0.0;
+        if ($excludeSaleId) {
+            $own = \Config\Database::connect()->query("SELECT advance_applied, project_id FROM sales WHERE id = ?", [$excludeSaleId])->getRowArray();
+            if ($own && (int) $own['project_id'] === (int) $projectId) {
+                $summary['advance_current'] = (float) $own['advance_applied'];
+            }
+        }
+
+        // Release 4.8.6C-1: every figure the "Customer Advance Available" modal shows comes from here,
+        // not from JavaScript arithmetic. Display only — same rules the server enforces on save:
+        //   received  = projects.advance_amount
+        //   others    = advance applied on the OTHER invoices of this project (this invoice, when
+        //               editing, is excluded, so its own allocation counts as still available)
+        //   available = received - others (never negative)
+        // invoice_total is the total being saved (the form's grand total, sent as ?invoice_total=;
+        // an unsaved total cannot be known to the server any other way; an edit falls back to the
+        // stored total); outstanding-before-apply = that total less payments already on this invoice.
+        $dbm      = \Config\Database::connect();
+        $received = round((float) ($project['advance_amount'] ?? 0), 2);
+        $sqlO     = "SELECT COALESCE(SUM(advance_applied), 0) AS t FROM sales WHERE project_id = ?";
+        $parO     = [(int) $projectId];
+        if ($excludeSaleId) {
+            $sqlO .= " AND id <> ?";
+            $parO[] = $excludeSaleId;
+        }
+        $others = round((float) $dbm->query($sqlO, $parO)->getRow()->t, 2);
+
+        $invoiceTotal = $this->request->getGet('invoice_total');
+        if ($invoiceTotal !== null && $invoiceTotal !== '') {
+            $invoiceTotal = round(max(0.0, (float) $invoiceTotal), 2);
+        } elseif ($excludeSaleId) {
+            $invoiceTotal = round((float) ($dbm->query("SELECT total_amount FROM sales WHERE id = ?", [$excludeSaleId])->getRow()->total_amount ?? 0), 2);
+        } else {
+            $invoiceTotal = 0.0;
+        }
+        $paidHere = $excludeSaleId ? round((float) $dbm->query("SELECT COALESCE(SUM(amount), 0) AS t FROM payments WHERE sale_id = ?", [$excludeSaleId])->getRow()->t, 2) : 0.0;
+
+        $summary['advance_received']                = $received;
+        $summary['allocated_to_other_invoices']     = $others;
+        $summary['available_customer_advance']      = max(0.0, round($received - $others, 2));
+        $summary['current_invoice_allocation']      = $summary['advance_current'];
+        $summary['invoice_total']                   = $invoiceTotal;
+        $summary['invoice_outstanding_before_apply'] = max(0.0, round($invoiceTotal - $paidHere, 2));
+
+        $summary['modal_project_name']  = $project['name'] ?? '';
+        $summary['modal_customer_id']   = $project['customer_id'] ?? null;
+        $summary['modal_customer_name'] = $customer['name'] ?? '';
+
         return $this->response->setJSON($summary);
     }
 
@@ -171,7 +229,42 @@ class Sales extends Controller
             }
         }
 
-        $saleModel = new SaleModel();
+        // Release 4.8.6A-2: the advance the accountant chose to apply in the "Customer Advance
+        // Available" modal (0 = Don't Apply). Never applied automatically. Checked inside this
+        // transaction with the project row locked, so two invoices saved together cannot spend the
+        // same advance twice.
+        // Release 4.8.6B Hotfix: advance_action is the modal's explicit answer — 'apply' (Apply & Save)
+        // or 'none' (Save Invoice Only). 'none' always means 0 whatever amount was posted.
+        $saleModel     = new SaleModel();
+        $advanceAction = (string) $this->request->getPost('advance_action');
+        $advanceApply  = $advanceAction === 'none' ? 0.0 : round((float) $this->request->getPost('advance_to_apply'), 2);
+        $customerId    = $this->request->getPost('customer_id') ?: null;
+        if ($advanceApply < 0) {
+            $db->transRollback();
+            return redirect()->back()->withInput()->with('error', 'Advance to apply cannot be negative.');
+        }
+        if ($advanceAction === 'apply' && $advanceApply <= 0.004) {
+            $db->transRollback();
+            return redirect()->back()->withInput()->with('error', 'Advance to apply must be greater than 0.');
+        }
+        // The invoice is not saved until the accountant has answered the modal.
+        if (! in_array($advanceAction, ['apply', 'none'], true) && $this->_advanceChoiceRequired($saleModel, $projectId ? (int) $projectId : 0, $customerId, null)) {
+            $db->transRollback();
+            return redirect()->back()->withInput()->with('error', 'This project has unused customer advance. Choose whether to apply it before saving the invoice.');
+        }
+        // Release 4.8.6B-1: no allocation table = no way to apply advance (never stored on the invoice).
+        if ($advanceApply > 0 && ! $saleModel->allocationsEnabled()) {
+            $db->transRollback();
+            return redirect()->back()->withInput()->with('error', self::ALLOCATION_UNAVAILABLE);
+        }
+        if ($advanceApply > 0) {
+            $err = $this->_checkAdvanceApply($db, $saleModel, $projectId ? (int) $projectId : 0, $customerId, $advanceApply, (float) $totalAmount, 0.0, null);
+            if ($err) {
+                $db->transRollback();
+                return redirect()->back()->withInput()->with('error', $err);
+            }
+        }
+
         $saleId    = $saleModel->insert([
             'project_id'     => $projectId,
             'customer_id'    => $this->request->getPost('customer_id') ?: null,
@@ -221,9 +314,25 @@ class Sales extends Controller
             ]);
         }
 
-        // Release 1.6.4 (Rules 1-3): new invoice changes the project's FIFO
-        // advance allocation across all of its invoices.
-        (new SaleModel())->recalculateProjectBilling((int) $projectId);
+        // Release 4.8.6A-2: record the chosen allocation (a matching record only — no bank
+        // transaction, no payment voucher, no receipt), then refresh the invoice's paid/balance/
+        // status. Any failure here rolls the invoice back too.
+        if ($advanceApply > 0) {
+            $projectRow = (new ProjectModel())->find((int) $projectId);
+            $ok = $saleModel->setInvoiceAllocation((int) $saleId, (int) $projectId, (int) ($customerId ?: ($projectRow['customer_id'] ?? 0)) ?: null, (string) $saleDate, $advanceApply, session()->get('user_id') ? (int) session()->get('user_id') : null);
+            if (! $ok) {
+                $db->transRollback();
+                return redirect()->back()->withInput()->with('error', 'Failed to record the advance allocation; the invoice was not saved.');
+            }
+        }
+        $saleModel->recalculateProjectBilling((int) $projectId);
+        if ($advanceApply > 0) {
+            $applied = (float) $db->query("SELECT advance_applied FROM sales WHERE id = ?", [(int) $saleId])->getRow()->advance_applied;
+            if (abs($applied - $advanceApply) > 0.004) {
+                $db->transRollback();
+                return redirect()->back()->withInput()->with('error', 'The advance allocation could not be applied in full; the invoice was not saved.');
+            }
+        }
 
         $db->transComplete();
         if ($db->transStatus() === false) { $error = $db->error(); dd($error); }
@@ -264,6 +373,10 @@ class Sales extends Controller
         $data['projects']  = (new ProjectModel())->orderBy('name','ASC')->findAll();
         $data['customers'] = (new CustomerModel())->orderBy('name','ASC')->findAll();
 
+        // Release 4.8.6A-2 Patch: an invoice carrying an old automatic (FIFO) advance is shown with a
+        // "Legacy Advance Adjustment" badge. Opening this page never converts it.
+        $data['legacy_advance'] = (new SaleModel())->isLegacyAdvance((int) $id);
+
         return view('sales/edit', $data);
     }
 
@@ -280,6 +393,19 @@ class Sales extends Controller
             return redirect()->to('/sales')->with('error', 'Sale not found.');
         }
         $oldProjectId = (int) $sale['project_id'];
+
+        // Release 4.8.6A-2 Patch: the accountant's explicit "Convert to New Allocation" click for a
+        // legacy invoice. This is the ONLY place a legacy invoice gets an allocation row; opening or
+        // saving the edit page never does. Amount, balance and status of the invoice do not change.
+        if ($this->request->getPost('convert_legacy_advance')) {
+            $db->transStart();
+            $converted = (new SaleModel())->convertLegacyAdvance((int) $id, session()->get('user_id') ? (int) session()->get('user_id') : null);
+            $db->transComplete();
+            if (! $converted || $db->transStatus() === false) {
+                return redirect()->to('/sales/view/' . (int) $id)->with('error', 'This invoice has no legacy advance adjustment to convert.');
+            }
+            return redirect()->to('/sales/view/' . (int) $id)->with('success', 'Legacy advance converted to a new allocation.');
+        }
 
         $items     = $this->request->getPost('items');
         $projectId = $this->request->getPost('project_id');
@@ -344,6 +470,51 @@ class Sales extends Controller
             $newTotal     += $calc['total_with_gst'];
         }
 
+        // Release 4.8.6A-2: the advance chosen in the modal, when the form sent one. Absent = leave
+        // this invoice's allocation as it is; 0 = remove it. Validated against the advance still free
+        // for this invoice (its own current allocation counts as free) and against what is unpaid.
+        // Release 4.8.6B Hotfix: advance_action = 'apply' | 'none' is the modal's explicit answer.
+        $saleModel     = new SaleModel();
+        $advanceAction = (string) $this->request->getPost('advance_action');
+        $advancePost   = $this->request->getPost('advance_to_apply');
+        $advanceSent   = ($advancePost !== null && $advancePost !== '') || in_array($advanceAction, ['apply', 'none'], true);
+        $advanceApply  = $advanceSent ? ($advanceAction === 'none' ? 0.0 : round((float) $advancePost, 2)) : null;
+        $customerId    = $this->request->getPost('customer_id') ?: null;
+        if ($advanceAction === 'apply' && $advanceApply <= 0.004) {
+            $db->transRollback();
+            return redirect()->back()->with('error', 'Advance to apply must be greater than 0.');
+        }
+        // An old automatic (legacy) advance on the same project is left alone and never asks; anything
+        // else with unused customer advance must go through the modal before the invoice is saved.
+        $legacySame = $oldProjectId === (int) $projectId && $saleModel->isLegacyAdvance((int) $id);
+        if (! $advanceSent && ! $legacySame && $this->_advanceChoiceRequired($saleModel, (int) $projectId, $customerId, (int) $id)) {
+            $db->transRollback();
+            return redirect()->back()->with('error', 'This project has unused customer advance. Choose whether to apply it before saving the invoice.');
+        }
+        if ($advanceSent) {
+            if ($oldProjectId === (int) $projectId && $saleModel->isLegacyAdvance((int) $id)) {
+                $db->transRollback();
+                return redirect()->back()->with('error', 'This invoice carries a legacy advance adjustment. Use "Convert to New Allocation" first; editing does not change it.');
+            }
+            if ($advanceApply < 0) {
+                $db->transRollback();
+                return redirect()->back()->with('error', 'Advance to apply cannot be negative.');
+            }
+            // Release 4.8.6B-1: no allocation table = no way to apply advance (never stored on the invoice).
+            if ($advanceApply > 0 && ! $saleModel->allocationsEnabled()) {
+                $db->transRollback();
+                return redirect()->back()->with('error', self::ALLOCATION_UNAVAILABLE);
+            }
+            if ($advanceApply > 0) {
+                $paidNow =(float) $db->query("SELECT COALESCE(SUM(amount), 0) AS t FROM payments WHERE sale_id = ?", [(int) $id])->getRow()->t;
+                $err = $this->_checkAdvanceApply($db, $saleModel, (int) $projectId, $customerId, $advanceApply, (float) $newTotal, $paidNow, (int) $id);
+                if ($err) {
+                    $db->transRollback();
+                    return redirect()->back()->with('error', $err);
+                }
+            }
+        }
+
         // Determine stock_source for the sale header
         $sources     = array_unique(array_column($validItems, 'stock_source'));
         $stockSource = count($sources) === 1 ? $sources[0] : 'MIXED';
@@ -372,10 +543,38 @@ class Sales extends Controller
         // Release 1.6.4 (Rules 1-3): total_amount and/or project_id may have
         // changed — re-run FIFO advance allocation for the new project, and
         // for the old project too if the invoice moved to a different one.
-        $saleModel = new SaleModel();
+        // Release 4.8.6A-2: advance applied to this invoice came out of its OLD project's advance,
+        // so moving the invoice to another project releases that allocation first.
+        $allocationsOn = $saleModel->allocationsEnabled();
+        if ($oldProjectId !== (int) $projectId) {
+            $saleModel->setInvoiceAllocation((int) $id, $oldProjectId, null, (string) $saleDate, 0.0, null);
+            if (! $allocationsOn) {
+                // Release 4.8.6B-1: no allocation table — release an old automatic amount so the old
+                // project's advance is not carried into the new project.
+                $db->table('sales')->where('id', (int) $id)->update(['advance_applied' => 0]);
+            }
+        }
+        // Release 4.8.6B-1: without the allocation table the modal only offers Save Invoice Only, which
+        // touches no advance at all (an old automatic amount stays as it is).
+        $touchAllocation = $advanceSent && $allocationsOn;
+        if ($touchAllocation) {
+            $projectRow = (new ProjectModel())->find((int) $projectId);
+            $ok = $saleModel->setInvoiceAllocation((int) $id, (int) $projectId, (int) ($customerId ?: ($projectRow['customer_id'] ?? 0)) ?: null, (string) $saleDate, (float) $advanceApply, session()->get('user_id') ? (int) session()->get('user_id') : null);
+            if (! $ok) {
+                $db->transRollback();
+                return redirect()->back()->with('error', 'Failed to update the advance allocation; the invoice was not changed.');
+            }
+        }
         $saleModel->recalculateProjectBilling((int) $projectId);
         if ($oldProjectId !== (int) $projectId) {
             $saleModel->recalculateProjectBilling($oldProjectId);
+        }
+        if ($touchAllocation) {
+            $applied = (float) $db->query("SELECT advance_applied FROM sales WHERE id = ?", [(int) $id])->getRow()->advance_applied;
+            if (abs($applied - (float) $advanceApply) > 0.004) {
+                $db->transRollback();
+                return redirect()->back()->with('error', 'The advance allocation could not be applied in full; the invoice was not changed.');
+            }
         }
 
         $db->transComplete();
@@ -391,6 +590,51 @@ class Sales extends Controller
     // =========================================================
     // PRIVATE HELPERS
     // =========================================================
+
+    /**
+     * Release 4.8.6B Hotfix: true when the "Customer Advance Available" modal must be answered before
+     * this invoice can be saved — the project has a customer and unused advance (for an edit, its own
+     * current allocation counts as free). Same test the modal's JavaScript uses to decide to open.
+     */
+    private function _advanceChoiceRequired(SaleModel $saleModel, int $projectId, $customerId, ?int $excludeSaleId): bool
+    {
+        if (! $projectId) {
+            return false;
+        }
+        $project = (new ProjectModel())->find($projectId);
+        if (! $project || (! $customerId && empty($project['customer_id']))) {
+            return false;
+        }
+        return $saleModel->advanceBalance($projectId, $excludeSaleId) > 0.004;
+    }
+
+    /**
+     * Release 4.8.6A-2: validate an advance allocation. Returns an error message, or null when it is
+     * fine. Locks the project row so concurrent invoices cannot spend the same advance twice.
+     */
+    private function _checkAdvanceApply(\CodeIgniter\Database\BaseConnection $db, SaleModel $saleModel, int $projectId, $customerId, float $apply, float $invoiceTotal, float $alreadyPaid, ?int $excludeSaleId): ?string
+    {
+        if (! $projectId) {
+            return 'Advance cannot be applied to this invoice.';
+        }
+        $db->query("SELECT id FROM projects WHERE id = ? FOR UPDATE", [$projectId]);
+        $project = (new ProjectModel())->find($projectId);
+        if (! $customerId && empty($project['customer_id'])) {
+            return 'Advance cannot be applied: this project has no customer.';
+        }
+        $totalCents = (int) round($invoiceTotal * 100);
+        if ($apply * 100 > $totalCents + 0.5) {
+            return 'Advance to apply (' . number_format($apply, 2) . ') cannot exceed the invoice amount (' . number_format($totalCents / 100, 2) . ').';
+        }
+        if (($apply + $alreadyPaid) * 100 > $totalCents + 0.5) {
+            return 'Advance to apply (' . number_format($apply, 2) . ') plus the ' . number_format($alreadyPaid, 2) . ' already paid would exceed the invoice amount.';
+        }
+        $available = $saleModel->advanceBalance($projectId, $excludeSaleId);
+        if ($apply > $available + 0.004) {
+            return 'Advance to apply (' . number_format($apply, 2) . ') exceeds the available project advance (' . number_format($available, 2) . ').';
+        }
+        return null;
+    }
 
     /**
      * Query available stock within the current transaction context.
@@ -487,6 +731,32 @@ class Sales extends Controller
 
         $data['gst_summary'] = gst_summarize_items($data['items']);
 
+        // Release 4.8.6A-2: advance applied to this invoice — the allocation history and the advance
+        // that was available to it (what other invoices have not used).
+        $saleModel = new SaleModel();
+        $data['allocations']       = [];
+        $data['advance_available'] = $saleModel->advanceBalance((int) $data['sale']['project_id'], (int) $id);
+        if ($saleModel->allocationsEnabled()) {
+            $data['allocations'] = $db->query("
+                SELECT a.*, u.username AS created_by_name
+                FROM project_advance_allocations a
+                LEFT JOIN users u ON u.id = a.created_by
+                WHERE a.sales_invoice_id = ? ORDER BY a.id ASC
+            ", [$id])->getResultArray();
+        }
+
+        // Release 4.8.6A-2 Patch: Allocation Status for the Advance Applied card, the legacy flag, and
+        // whether the card shows at all (the project has an advance, or this invoice carries one).
+        $appliedNow  = (float) ($data['sale']['advance_applied'] ?? 0);
+        $invoiceTotal = (float) ($data['sale']['total_amount'] ?? 0);
+        $data['allocation_status'] = $appliedNow <= 0.004 ? 'Not Applied'
+            : ($appliedNow >= $invoiceTotal - 0.004 ? 'Fully Applied' : 'Partially Applied');
+        $data['legacy_advance']    = $saleModel->isLegacyAdvance((int) $id);
+        $projectAdv = $data['sale']['project_id']
+            ? (float) ($db->query("SELECT advance_amount FROM projects WHERE id = ?", [(int) $data['sale']['project_id']])->getRow()->advance_amount ?? 0)
+            : 0.0;
+        $data['show_advance_card'] = $saleModel->allocationsEnabled() && ($projectAdv > 0.004 || $appliedNow > 0.004);
+
         return view('sales/view', $data);
     }
 
@@ -498,6 +768,11 @@ class Sales extends Controller
         $db->table('stock_ledger')->where('reference_type','SALE')->where('reference_id',$id)->delete();
         $db->table('sale_items')->where('sale_id',$id)->delete();
         $db->table('payments')->where('sale_id',$id)->delete();
+        // Release 4.8.6A-2: the invoice's allocation rows go with it, which frees the advance again.
+        // Matching records only — no bank change.
+        if ((new SaleModel())->allocationsEnabled()) {
+            $db->table(SaleModel::ALLOCATION_TABLE)->where('sales_invoice_id', (int) $id)->delete();
+        }
         $db->table('sales')->where('id',$id)->delete();
 
         // Release 1.6.4 (Rules 1-3): deleting an invoice frees up any advance

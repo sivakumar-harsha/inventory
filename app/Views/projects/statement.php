@@ -18,15 +18,45 @@
 
     // Release 4.6.5: Total Customer Paid = same cash_received_combined figure
     // as the Cash Received card above (both now include invoice payments).
-    $csTotalCustomerPaid = (float) ($financial_summary['cash_received_combined'] ?? 0);
+    // Release 4.8.6A-1: Total Customer Paid = Project Advance + Customer Payment vouchers
+    // (getFinancialSummary()'s total_customer_paid). Advance Allocation is never added.
+    $csTotalCustomerPaid = (float) ($financial_summary['total_customer_paid'] ?? $financial_summary['cash_received_combined'] ?? 0);
+    $csPaidAdvance       = (float) ($financial_summary['customer_paid_advance'] ?? 0);
+    $csPaidInvoice       = (float) ($financial_summary['total_paid'] ?? 0);
 
     $billingCompletionStatus = $billing_completion_status ?? 'ACTIVE';
     $bcsMap = ['ACTIVE' => 'active', 'PARTIAL' => 'partial', 'COMPLETED' => 'completed'];
     $bcsCls = $bcsMap[$billingCompletionStatus] ?? 'active';
 
-    // Release 4.5.5 (Phase C): Outstanding Collection reverted to invoice-only
-    // (outstanding_collection_balance) — never subtract Project Cash Received.
-    $outstanding = (float) ($financial_summary['outstanding_collection_balance'] ?? 0);
+    // Release 4.8.6A-2 Final UI Constitution Patch (presentation only): ONE dynamic KPI card, chosen
+    // from two independent model figures (unused_customer_advance / invoice_outstanding) plus whether
+    // any invoice exists. Nothing is recalculated here; the same figures also feed the read-only
+    // Customer Advance Summary below the KPI row.
+    $csAdvReceived = (float) ($financial_summary['advance_amount'] ?? 0);
+    $csAdvApplied  = (float) ($financial_summary['total_advance_applied'] ?? 0);
+    $csUnused      = (float) ($financial_summary['unused_customer_advance'] ?? 0);
+    $csOutstanding = (float) ($financial_summary['invoice_outstanding'] ?? 0);
+    $csHasInvoices = $csBilled > 0.004;
+    $dynSubtitle   = '';
+    if ($csHasInvoices && $csOutstanding > 0.004) {
+        $dynKpiCls = 'kpi-orange'; $dynIcon = 'bi-hourglass-split';
+        $dynLabel  = 'Outstanding Collection';
+        $dynValue  = '₹' . number_format($csOutstanding, 2) . ' Dr';
+        if ($csUnused > 0.004) {
+            $dynSubtitle = 'Unused Advance Available : ₹' . number_format($csUnused, 2);
+        }
+    } elseif ($csUnused > 0.004) {
+        $dynKpiCls = 'kpi-green'; $dynIcon = 'bi-award';
+        $dynLabel  = 'Customer Advance Balance';
+        $dynValue  = '₹' . number_format($csUnused, 2) . ' Cr';
+        $dynSubtitle = $csHasInvoices
+            ? 'Invoice fully settled. Advance available for future invoices.'
+            : 'Unused customer advance available.';
+    } else {
+        $dynKpiCls = 'kpi-green'; $dynIcon = 'bi-check-circle';
+        $dynLabel  = 'Settled';
+        $dynValue  = '₹0.00';
+    }
 ?>
 
 <!-- Release 3.0 (Phase B): compact header, identical pattern to Project View. -->
@@ -114,27 +144,20 @@
             <div>
                 <div class="kpi-value"><?= number_format($csTotalCustomerPaid, 2) ?></div>
                 <div class="kpi-label">Total Customer Paid</div>
+                <div class="kpi-breakdown">Advance: ₹<?= number_format($csPaidAdvance, 2) ?> · Invoice Payments: ₹<?= number_format($csPaidInvoice, 2) ?></div>
             </div>
         </div>
     </div>
+    <!-- Single dynamic card: Customer Advance Balance / Outstanding Collection / Settled. -->
     <div class="col-md-3 col-6">
-        <?php
-            if ($outstanding > 0.004) {
-                $outKpiCls = 'kpi-orange'; $outIcon = 'bi-hourglass-split';
-                $outValue  = number_format($outstanding, 2);
-            } elseif ($outstanding < -0.004) {
-                $outKpiCls = 'kpi-green'; $outIcon = 'bi-award';
-                $outValue  = number_format(abs($outstanding), 2) . ' Credit';
-            } else {
-                $outKpiCls = 'kpi-green'; $outIcon = 'bi-check-circle';
-                $outValue  = 'Settled';
-            }
-        ?>
-        <div class="kpi-card <?= $outKpiCls ?>">
-            <div class="kpi-icon"><i class="bi <?= $outIcon ?>"></i></div>
+        <div class="kpi-card <?= $dynKpiCls ?>"<?= $dynSubtitle !== '' ? ' title="' . esc($dynSubtitle) . '"' : '' ?>>
+            <div class="kpi-icon"><i class="bi <?= $dynIcon ?>"></i></div>
             <div>
-                <div class="kpi-value"><?= $outValue ?></div>
-                <div class="kpi-label">Outstanding Collection</div>
+                <div class="kpi-value kpi-value-fit"><?= $dynValue ?></div>
+                <div class="kpi-label kpi-label-tight"><?= esc($dynLabel) ?></div>
+                <?php if ($dynSubtitle !== ''): ?>
+                <div class="kpi-breakdown kpi-subtitle"><?= esc($dynSubtitle) ?></div>
+                <?php endif; ?>
             </div>
         </div>
     </div>
@@ -155,6 +178,17 @@
                 <div class="kpi-label">Total Expenses</div>
             </div>
         </div>
+    </div>
+</div>
+
+<!-- Release 4.8.6A-2 Final UI Patch: read-only Customer Advance Summary (not a KPI card). Same
+     figures as the model's advance_amount / total_advance_applied / unused_customer_advance. -->
+<div class="card-custom mb-3">
+    <div class="card-custom-header"><i class="bi bi-piggy-bank me-2"></i>Customer Advance Summary</div>
+    <div class="card-custom-body adv-summary-body">
+        <div class="adv-summary-row"><span class="adv-summary-label">Advance Received</span><span class="adv-summary-value">₹<?= number_format($csAdvReceived, 2) ?></span></div>
+        <div class="adv-summary-row"><span class="adv-summary-label">Advance Applied to Invoices</span><span class="adv-summary-value">₹<?= number_format($csAdvApplied, 2) ?></span></div>
+        <div class="adv-summary-row adv-summary-total"><span class="adv-summary-label">Unused Advance Available</span><span class="adv-summary-value">₹<?= number_format($csUnused, 2) ?></span></div>
     </div>
 </div>
 
@@ -428,7 +462,27 @@
 .statement-kpi-row .kpi-card { padding: 8px 10px; height: 72px; border-width: 1px; gap: 6px; text-align: center; justify-content: center; }
 .statement-kpi-row .kpi-icon { width: 28px; height: 28px; font-size: 14px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .statement-kpi-row .kpi-value { font-size: 18px; font-weight: 700; text-align: center; }
+.statement-kpi-row .kpi-breakdown { font-size: 10px; line-height: 1.15; color: #64748b; text-align: center; }
+/* "Customer Advance Balance" is longer than the old label and wraps to two lines on mid-width screens; tighter leading keeps it inside the fixed-height card. */
+.statement-kpi-row .kpi-label-tight { line-height: 1.1; }
+/* The "₹… Cr/Dr" value is wider than the old plain number; keep it on one line on mid-width screens. */
+.statement-kpi-row .kpi-value-fit { white-space: nowrap; }
+@media (max-width: 1199.98px) { .statement-kpi-row .kpi-value-fit { font-size: 15px; } }
+/* 992-1199px: four cards per row, so the fixed-height card only has room for a tighter breakdown; the dynamic card's subtitle moves to its tooltip. */
+@media (min-width: 992px) and (max-width: 1199.98px) { .statement-kpi-row .kpi-card { padding-top: 2px; padding-bottom: 2px; } .statement-kpi-row .kpi-breakdown { font-size: 9px; line-height: 1.05; } .statement-kpi-row .kpi-value { line-height: 1.15; } }
+@media (max-width: 1199.98px) { .statement-kpi-row .kpi-breakdown.kpi-subtitle { display: none; } }
+/* Below 992px the cards are too narrow for the extra breakdown line (the original cards already overflow there), so it is left to the value + label only. */
+@media (max-width: 991.98px) { .statement-kpi-row .kpi-breakdown:not(.kpi-subtitle) { display: none; } }
 .statement-kpi-row .kpi-label { font-size: 11px; color: #64748b; text-align: center; }
+
+/* Customer Advance Summary: three compact read-only rows. */
+.adv-summary-body { padding: 6px 14px; }
+.adv-summary-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 4px 0; border-bottom: 1px solid #f1f5f9; font-size: 0.8rem; max-width: 460px; }
+.adv-summary-row:last-child { border-bottom: 0; }
+.adv-summary-label { color: #64748b; }
+.adv-summary-value { color: #1e293b; font-weight: 600; font-variant-numeric: tabular-nums; }
+.adv-summary-total .adv-summary-label { color: #1e293b; font-weight: 600; }
+.adv-summary-total .adv-summary-value { color: #15803d; font-weight: 700; }
 
 .billing-overview-body { padding: 10px; }
 .billing-strip-pct { font-size: 0.78rem; font-weight: 700; color: #2563eb; white-space: nowrap; text-align: right; }

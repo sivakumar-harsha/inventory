@@ -1,0 +1,6 @@
+Bank Accounts Ui QA (Tests\Unit\BankAccountsUiQA)
+ [x] Index and create pages render
+ [x] Full ui flow store view edit transactions statement
+ [x] Missing account redirects instead of erroring
+ [x] Supplier ledger and general purchase still render unaffected
+

@@ -28,6 +28,54 @@
             </div>
         </div>
 
+        <?php
+            // Release 4.8.6A-2 Final UI Constitution Patch: ONE advance-settlement card. The old separate
+            // Settlement Summary is merged into it, so the invoice's settlement (advance, payments, what
+            // is still owed = total - advance applied - payments) always shows, with or without an
+            // advance on the project. Presentation only — same values as before.
+            $ssTotal       = (float) $sale['total_amount'];
+            $ssApplied     = (float) ($sale['advance_applied'] ?? 0);
+            $ssPaid        = (float) ($sale['paid_amount'] ?? 0);
+            $ssOutstanding = max(0.0, round($ssTotal - $ssApplied - $ssPaid, 2));
+            $ssStatus      = $allocation_status ?? ($ssApplied <= 0.004 ? 'Not Applied' : ($ssApplied >= $ssTotal - 0.004 ? 'Fully Applied' : 'Partially Applied'));
+        ?>
+        <!-- Release 4.8.6A-2: advance applied to this invoice (a matching record — not a payment). -->
+        <div class="card-custom mt-3">
+            <div class="card-custom-header">Advance Applied</div>
+            <div class="card-custom-body">
+                <table class="table-custom">
+                    <tr><td><strong>Available Customer Advance</strong></td><td>₹<?= number_format($advance_available ?? 0, 2) ?></td></tr>
+                    <tr><td><strong>Advance Applied</strong></td><td class="text-success">₹<?= number_format($ssApplied, 2) ?></td></tr>
+                    <tr><td><strong>Customer Payments</strong></td><td class="text-success">₹<?= number_format($ssPaid, 2) ?></td></tr>
+                    <tr><td><strong>Invoice Outstanding</strong></td><td class="text-danger">₹<?= number_format($ssOutstanding, 2) ?></td></tr>
+                    <tr><td><strong>Allocation Status</strong></td><td><?= esc($ssStatus) ?></td></tr>
+                </table>
+                <?php if (! empty($legacy_advance)): ?>
+                <!-- Release 4.8.6A-2 Patch: old automatic (FIFO) advance — converted only when the accountant clicks. -->
+                <div class="mt-2 d-flex flex-wrap align-items-center gap-2">
+                    <span class="badge bg-secondary">Legacy Advance Adjustment</span>
+                    <form action="<?= base_url('sales/update/' . $sale['id']) ?>" method="POST" class="ms-auto" onsubmit="return confirm('Convert this legacy advance into a new allocation? The amount, balance and status stay the same.');">
+                        <?= csrf_field() ?>
+                        <input type="hidden" name="convert_legacy_advance" value="1">
+                        <button type="submit" class="btn-save"><i class="bi bi-arrow-repeat"></i> Convert to New Allocation</button>
+                    </form>
+                </div>
+                <?php endif; ?>
+            </div>
+            <?php if (count($allocations) > 1): ?>
+            <div class="table-responsive">
+                <table class="table-custom">
+                    <thead><tr><th>Date</th><th style="text-align:right">Allocated</th><th>By</th></tr></thead>
+                    <tbody>
+                        <?php foreach ($allocations as $al): ?>
+                        <tr><td><?= esc($al['allocation_date']) ?></td><td style="text-align:right"><?= number_format($al['allocated_amount'], 2) ?></td><td><?= esc($al['created_by_name'] ?? '-') ?></td></tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+            <?php endif; ?>
+        </div>
+
         <div class="card-custom mt-3">
             <div class="card-custom-header">Payments Received</div>
             <div class="table-responsive">

@@ -73,7 +73,15 @@ class ExpenseCategories extends Controller
 
     public function delete($id)
     {
-        $this->model->delete($id);
+        // Release 4.8.6A added expenses.category_id -> expense_categories.id
+        // (RESTRICT). Deleting a category still referenced by an expense now
+        // fails at the DB layer; catch that and show a friendly message
+        // instead of an uncaught database error.
+        try {
+            $this->model->delete($id);
+        } catch (\CodeIgniter\Database\Exceptions\DatabaseException $e) {
+            return redirect()->to('/expense-categories')->with('error', 'This category is used by one or more expenses and cannot be deleted.');
+        }
         return redirect()->to('/expense-categories')->with('success', 'Expense category deleted successfully.');
     }
 }

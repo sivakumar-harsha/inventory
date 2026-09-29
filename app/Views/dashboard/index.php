@@ -339,6 +339,18 @@
     </div>
 </div>
 
+<?= $this->include('dashboard/partials/service_summary') ?>
+
+<?= $this->include('dashboard/partials/loan_summary') ?>
+
+<?= $this->include('dashboard/partials/expense_summary') ?>
+
+<?= $this->include('dashboard/partials/bank_summary') ?>
+
+<?= $this->include('dashboard/partials/export_center') ?>
+
+<?= $this->include('dashboard/partials/maintenance_summary') ?>
+
 <!-- TOP PENDING PROJECTS (Phase F) -->
 <div class="row g-3 mb-3">
     <div class="col-12">

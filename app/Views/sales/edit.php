@@ -49,6 +49,19 @@
 </div>
 <?php endif; ?>
 
+<?php if (! empty($legacy_advance)): ?>
+<!-- Release 4.8.6A-2 Patch: an old automatic (FIFO) advance. Opening/saving this page never converts it. -->
+<div class="alert alert-info mb-3 d-flex flex-wrap align-items-center gap-2">
+    <span class="badge bg-secondary">Legacy Advance Adjustment</span>
+    <span>₹<?= number_format($sale['advance_applied'], 2) ?> of the project advance was applied to this invoice automatically. Editing does not change it.</span>
+    <form action="<?= base_url('sales/update/' . $sale['id']) ?>" method="POST" class="ms-auto" onsubmit="return confirm('Convert this legacy advance into a new allocation? The amount, balance and status stay the same.');">
+        <?= csrf_field() ?>
+        <input type="hidden" name="convert_legacy_advance" value="1">
+        <button type="submit" class="btn-save"><i class="bi bi-arrow-repeat"></i> Convert to New Allocation</button>
+    </form>
+</div>
+<?php endif; ?>
+
 <form action="<?= base_url('sales/update/' . $sale['id']) ?>" method="POST" id="saleForm">
 
 <div class="card-custom mb-3">
@@ -184,6 +197,9 @@
     <a href="<?= base_url('sales/view/' . $sale['id']) ?>" class="btn-cancel ms-2"><i class="bi bi-x"></i> Cancel</a>
 </div>
 
+<!-- Release 4.8.6A-2: left empty unless the modal is shown; empty = keep this invoice's allocation as it is. -->
+<input type="hidden" name="advance_to_apply" id="advanceToApply" value="">
+
 </form>
 
 <?= $this->section('scripts') ?>
@@ -222,6 +238,7 @@ $('#projectSelect').on('change', function() {
     loadProjectFinancialSummary($(this).val());
 });
 </script>
+<?= $this->setVar('advanceEditing', true)->setVar('advanceExcludeSaleId', (int) $sale['id'])->setVar('advancePaidAmount', (float) $sale['paid_amount'])->setVar('advanceLegacy', ! empty($legacy_advance))->setVar('advanceOriginalProject', (int) $sale['project_id'])->include('sales/_advance_modal') ?>
 <?= $this->endSection() ?>
 
 <?= $this->endSection() ?>

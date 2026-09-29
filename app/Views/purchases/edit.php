@@ -5,6 +5,41 @@
 	.project-qty-input.is-invalid {
 		border-color: #dc3545 !important;
 	}
+	.supplier-select-row { display: flex; gap: 8px; }
+	.supplier-select-row .select2-container { flex: 1; }
+	.btn-quick-add-supplier {
+	    width: 42px;
+	    height: var(--input-height);
+	    flex-shrink: 0;
+	    border: none;
+	    border-radius: 10px;
+	    background: var(--primary);
+	    color: #fff;
+	    font-size: 1.1rem;
+	    display: flex;
+	    align-items: center;
+	    justify-content: center;
+	    cursor: pointer;
+	    transition: background 0.15s ease;
+	}
+	.btn-quick-add-supplier:hover { background: var(--primary-dark); }
+	#quickAddSupplierModal .invalid-feedback-text { font-size: 0.8rem; }
+	.quick-add-toast {
+	    position: fixed;
+	    bottom: 24px;
+	    right: 24px;
+	    background: #16a34a;
+	    color: #fff;
+	    padding: 10px 18px;
+	    border-radius: 8px;
+	    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+	    font-size: 0.875rem;
+	    opacity: 0;
+	    transform: translateY(10px);
+	    transition: opacity 0.3s ease, transform 0.3s ease;
+	    z-index: 2000;
+	}
+	.quick-add-toast.show { opacity: 1; transform: translateY(0); }
 </style>
 
 <div class="page-title">
@@ -21,12 +56,17 @@
             <div class="col-md-4">
                 <div class="form-section">
                     <label class="form-label">Supplier <span class="text-danger">*</span></label>
-                    <select name="supplier_id" class="form-control" required>
-                        <option value="">-- Select Supplier --</option>
-                        <?php foreach ($suppliers as $s): ?>
-                        <option value="<?= $s['id'] ?>" <?= $purchase['supplier_id'] == $s['id'] ? 'selected' : '' ?>><?= esc($s['name']) ?></option>
-                        <?php endforeach; ?>
-                    </select>
+                    <div class="supplier-select-row">
+                        <select name="supplier_id" id="supplierSelect" class="form-control" required>
+                            <option value="">-- Select Supplier --</option>
+                            <?php foreach ($suppliers as $s): ?>
+                            <option value="<?= $s['id'] ?>" <?= $purchase['supplier_id'] == $s['id'] ? 'selected' : '' ?>><?= esc($s['name']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <button type="button" class="btn-quick-add-supplier" data-bs-toggle="modal" data-bs-target="#quickAddSupplierModal" title="Add New Supplier">
+                            <i class="bi bi-plus-lg"></i>
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -95,6 +135,60 @@
 </div>
 
 </form>
+
+<!-- Quick Add Supplier Modal -->
+<div class="modal fade" id="quickAddSupplierModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-person-plus me-2"></i>Add New Supplier</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="quickAddSupplierError" class="alert alert-danger d-none" role="alert"></div>
+                <form id="quickAddSupplierForm">
+                    <div class="form-section">
+                        <label class="form-label">Supplier Name <span class="text-danger">*</span></label>
+                        <input type="text" name="name" id="qs_name" class="form-control">
+                        <div class="invalid-feedback-text text-danger d-none" id="qs_name_error"></div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-section">
+                                <label class="form-label">Mobile Number <span class="text-danger">*</span></label>
+                                <input type="text" name="mobile" id="qs_mobile" class="form-control">
+                                <div class="invalid-feedback-text text-danger d-none" id="qs_mobile_error"></div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-section">
+                                <label class="form-label">Email</label>
+                                <input type="email" name="email" id="qs_email" class="form-control">
+                                <div class="invalid-feedback-text text-danger d-none" id="qs_email_error"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-section">
+                        <label class="form-label">GST Number</label>
+                        <input type="text" name="gst" id="qs_gst" class="form-control">
+                        <div class="invalid-feedback-text text-danger d-none" id="qs_gst_error"></div>
+                    </div>
+                    <div class="form-section">
+                        <label class="form-label">Address</label>
+                        <textarea name="address" id="qs_address" class="form-control"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-cancel" data-bs-dismiss="modal"><i class="bi bi-x"></i> Cancel</button>
+                <button type="button" class="btn-save" id="quickAddSupplierSaveBtn" onclick="saveQuickAddSupplier()">
+                    <span id="quickAddSupplierSpinner" class="spinner-border spinner-border-sm d-none"></span>
+                    <i class="bi bi-save" id="quickAddSupplierSaveIcon"></i> Save Supplier
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 
 <?= $this->section('scripts') ?>
 <script src="<?= base_url('assets/js/gst-calc.js') ?>"></script>
@@ -343,6 +437,76 @@ $(document).ready(function() {
 $(document).on('click', '#addItemBtn', function() {
     addItem();
 });
+
+function resetQuickAddSupplierForm() {
+    $('#quickAddSupplierForm')[0].reset();
+    $('#quickAddSupplierModal .invalid-feedback-text').addClass('d-none').text('');
+    $('#quickAddSupplierModal .form-control').removeClass('is-invalid');
+    $('#quickAddSupplierError').addClass('d-none').text('');
+}
+
+$('#quickAddSupplierModal').on('hidden.bs.modal', resetQuickAddSupplierForm);
+
+function showQuickAddSupplierToast(message) {
+    var toast = $('<div class="quick-add-toast"></div>').text(message);
+    $('body').append(toast);
+    setTimeout(function () { toast.addClass('show'); }, 10);
+    setTimeout(function () {
+        toast.removeClass('show');
+        setTimeout(function () { toast.remove(); }, 300);
+    }, 3000);
+}
+
+function saveQuickAddSupplier() {
+    var btn = $('#quickAddSupplierSaveBtn');
+    var spinner = $('#quickAddSupplierSpinner');
+    var errorBanner = $('#quickAddSupplierError');
+
+    $('#quickAddSupplierModal .invalid-feedback-text').addClass('d-none').text('');
+    $('#quickAddSupplierModal .form-control').removeClass('is-invalid');
+    errorBanner.addClass('d-none').text('');
+
+    btn.prop('disabled', true);
+    spinner.removeClass('d-none');
+
+    $.ajax({
+        url: "<?= base_url('suppliers/ajax-store') ?>",
+        type: "POST",
+        data: $('#quickAddSupplierForm').serialize(),
+        dataType: 'json'
+    }).done(function (data) {
+        if (data.status) {
+            var select = $('#supplierSelect');
+            var opt = new Option(data.supplier.name, data.supplier.id, true, true);
+            select.append(opt).trigger('change');
+
+            bootstrap.Modal.getInstance(document.getElementById('quickAddSupplierModal')).hide();
+            showQuickAddSupplierToast(data.message || 'Supplier Added Successfully.');
+        } else if (data.errors) {
+            Object.keys(data.errors).forEach(function (field) {
+                $('#qs_' + field).addClass('is-invalid');
+                $('#qs_' + field + '_error').text(data.errors[field]).removeClass('d-none');
+            });
+        } else {
+            errorBanner.text(data.message || 'Unable to save supplier.').removeClass('d-none');
+        }
+    }).fail(function (xhr) {
+        var data = xhr.responseJSON;
+        if (data && data.errors) {
+            Object.keys(data.errors).forEach(function (field) {
+                $('#qs_' + field).addClass('is-invalid');
+                $('#qs_' + field + '_error').text(data.errors[field]).removeClass('d-none');
+            });
+        } else if (data && data.message) {
+            errorBanner.text(data.message).removeClass('d-none');
+        } else {
+            errorBanner.text('A network error occurred. Please try again.').removeClass('d-none');
+        }
+    }).always(function () {
+        btn.prop('disabled', false);
+        spinner.addClass('d-none');
+    });
+}
 </script>
 <?= $this->endSection() ?>
 

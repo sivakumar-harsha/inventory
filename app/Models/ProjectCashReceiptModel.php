@@ -16,6 +16,7 @@ class ProjectCashReceiptModel extends Model
     protected $allowedFields = [
         'project_id', 'customer_id', 'receipt_no', 'amount',
         'receipt_date', 'payment_method', 'receipt_type', 'reference', 'notes',
+        'bank_account_id',
     ];
     protected $useTimestamps = true;
     protected $createdField  = 'created_at';

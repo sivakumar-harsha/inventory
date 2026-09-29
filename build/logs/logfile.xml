@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites>
+  <testsuite name="Tests\Unit\BankAccountsUiQATest" file="D:\xampp\htdocs\aandainventory\tests\unit\BankAccountsUiQATest.php" tests="4" assertions="27" errors="0" failures="0" skipped="0" time="49.313436">
+    <testcase name="testIndexAndCreatePagesRender" file="D:\xampp\htdocs\aandainventory\tests\unit\BankAccountsUiQATest.php" line="17" class="Tests\Unit\BankAccountsUiQATest" classname="Tests.Unit.BankAccountsUiQATest" assertions="6" time="39.284230"/>
+    <testcase name="testFullUiFlowStoreViewEditTransactionsStatement" file="D:\xampp\htdocs\aandainventory\tests\unit\BankAccountsUiQATest.php" line="30" class="Tests\Unit\BankAccountsUiQATest" classname="Tests.Unit.BankAccountsUiQATest" assertions="15" time="7.947510"/>
+    <testcase name="testMissingAccountRedirectsInsteadOfErroring" file="D:\xampp\htdocs\aandainventory\tests\unit\BankAccountsUiQATest.php" line="83" class="Tests\Unit\BankAccountsUiQATest" classname="Tests.Unit.BankAccountsUiQATest" assertions="2" time="0.484287"/>
+    <testcase name="testSupplierLedgerAndGeneralPurchaseStillRenderUnaffected" file="D:\xampp\htdocs\aandainventory\tests\unit\BankAccountsUiQATest.php" line="89" class="Tests\Unit\BankAccountsUiQATest" classname="Tests.Unit.BankAccountsUiQATest" assertions="4" time="1.597409"/>
+  </testsuite>
+</testsuites>

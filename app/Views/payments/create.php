@@ -284,7 +284,7 @@
                     <div class="col-md-6">
                         <div class="form-section">
                             <label class="form-label">Payment Method <span class="text-danger">*</span></label>
-                            <select name="payment_method" class="form-control" required>
+                            <select name="payment_method" id="cashPaymentMethod" class="form-control" required>
                                 <option value="CASH">Cash</option>
                                 <option value="BANK_TRANSFER">Bank Transfer</option>
                                 <option value="CHECK">Check</option>
@@ -298,6 +298,22 @@
                             <input type="text" name="reference" class="form-control">
                         </div>
                     </div>
+                </div>
+
+                <!-- Release 4.8.3D: shown only for Bank Transfer / Check; the chosen
+                     account receives the automatic DEPOSIT. Cash and Other never
+                     touch a bank account. Accounts are loaded here because the
+                     Payments controller (which renders this page) isn't touched
+                     by this release. -->
+                <?php $cashBankAccounts = $bankAccounts ?? (new \App\Models\BankAccountModel())->where('is_active', 1)->orderBy('bank_name', 'ASC')->findAll(); ?>
+                <div class="form-section pcr-hidden" id="cashBankAccountSection">
+                    <label class="form-label">Bank Account <span class="text-danger">*</span></label>
+                    <select name="bank_account_id" id="cashBankAccount" class="form-control">
+                        <option value="">-- Select Bank Account --</option>
+                        <?php foreach ($cashBankAccounts as $b): ?>
+                        <option value="<?= $b['id'] ?>"><?= esc($b['bank_name'] . ' - ' . $b['account_name']) ?> (<?= esc($b['account_number']) ?>)</option>
+                        <?php endforeach; ?>
+                    </select>
                 </div>
                 <div class="form-section">
                     <label class="form-label">Notes</label>
@@ -394,6 +410,17 @@ $(document).ready(function() {
     $('.rtype-btn').removeClass('active').attr('aria-pressed', 'false');
     $('.rtype-btn[data-rtype="DIRECT_INCOME"]').addClass('active').attr('aria-pressed', 'true');
     $('#cashReceiptType').val('DIRECT_INCOME');
+
+    // Release 4.8.3D: Bank Account applies to Bank Transfer / Check only. The
+    // hidden select isn't required (and is cleared) so Cash/Other still save.
+    function toggleCashBankAccount() {
+        var bank = ['BANK_TRANSFER', 'CHECK'].indexOf($('#cashPaymentMethod').val()) !== -1;
+        $('#cashBankAccountSection').toggleClass('pcr-hidden', !bank);
+        $('#cashBankAccount').prop('required', bank);
+        if (!bank) { $('#cashBankAccount').val(''); }
+    }
+    $('#cashPaymentMethod').on('change', toggleCashBankAccount);
+    toggleCashBankAccount();
 });
 </script>
 <?= $this->endSection() ?>
