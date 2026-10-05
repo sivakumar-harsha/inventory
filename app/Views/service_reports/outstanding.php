@@ -11,13 +11,11 @@
 	.dataTables_wrapper .dataTables_paginate .paginate_button:hover { background: #1e293b !important; color: #fff !important; }
 
 	.filter-toolbar .form-section { margin-bottom: 0; }
-	.filter-toolbar .form-label { font-size: .72rem; margin-bottom: 3px; }
-	.filter-toolbar .form-control { padding: 6px 10px; font-size: .82rem; height: auto; }
 	.filter-toolbar .btn-save { padding: 6px 12px; font-size: .8rem; white-space: nowrap; }
 
 	#outTable.table-custom th,
 	#outTable.table-custom td { padding: 7px 10px; font-size: .75rem; }
-	#outTable td:nth-child(1), #outTable td:nth-child(2), #outTable td:last-child { white-space: nowrap; }
+	#outTable td:nth-child(2), #outTable td:nth-child(3), #outTable td:last-child { white-space: nowrap; }
 
 	.badge-sr { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: .72rem; font-weight: 600; }
 	.badge-sr.badge-pending { background:#ffedd5; color:#c2410c; }
@@ -101,7 +99,7 @@
 <div class="card-custom mb-3">
     <div class="card-custom-header">Filters</div>
     <div class="card-custom-body">
-        <form method="GET" action="<?= base_url('service-reports/outstanding') ?>" class="filter-toolbar">
+        <form method="GET" data-auto-filter action="<?= base_url('service-reports/outstanding') ?>" class="filter-toolbar">
             <div class="row g-2 align-items-end">
                 <div class="col-6 col-md-3">
                     <div class="form-section">
@@ -145,7 +143,6 @@
                     </div>
                 </div>
                 <div class="col-12" style="display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap">
-                    <button type="submit" class="btn-save"><i class="bi bi-search"></i> Filter</button>
                     <a href="<?= base_url('service-reports/outstanding') ?>" class="btn-save" style="background:#6c757d;"><i class="bi bi-arrow-clockwise"></i> Reset</a>
                     <a href="<?= base_url('service-reports/export/pdf/outstanding') . (($qs = $_SERVER['QUERY_STRING'] ?? '') !== '' ? '?' . $qs : '') ?>" class="btn-save" style="background:#16a34a;"><i class="bi bi-file-earmark-pdf"></i> Export PDF</a>
                     <a href="<?= base_url('service-reports/export/excel/outstanding') . (($qs = $_SERVER['QUERY_STRING'] ?? '') !== '' ? '?' . $qs : '') ?>" class="btn-save" style="background:#16a34a;"><i class="bi bi-file-earmark-excel"></i> Export Excel</a>
@@ -164,6 +161,7 @@
         <table id="outTable" class="table-custom">
             <thead>
                 <tr>
+                    <th class="sno-col">S.No.</th>
                     <th>Receipt No</th>
                     <th>Date</th>
                     <th>Customer</th>
@@ -178,6 +176,7 @@
             <tbody>
                 <?php foreach ($rows as $r): ?>
                 <tr>
+                    <td class="sno-col" data-label="S.No."></td>
                     <td><?= esc($r['receipt_no']) ?></td>
                     <td><?= esc($r['receipt_date']) ?></td>
                     <td><?= esc($r['customer_name']) ?></td>
@@ -195,7 +194,7 @@
             </tbody>
             <tfoot>
                 <tr style="background:#f8fafc;font-weight:700">
-                    <td colspan="5">TOTAL OUTSTANDING</td>
+                    <td colspan="6">TOTAL OUTSTANDING</td>
                     <td style="text-align:right"><?= number_format($kpi_total_outstanding, 2) ?></td>
                     <td colspan="3"></td>
                 </tr>

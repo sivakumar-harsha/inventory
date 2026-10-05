@@ -85,37 +85,58 @@ class ExpenseModel extends Model
     }
 
     /**
-     * PAID totals grouped by category, highest total first.
+     * PAID totals grouped by category, highest total first. Optional
+     * inclusive Y-m-d expense_date bounds.
      */
-    public function categoryTotals(): array
+    public function categoryTotals(?string $from = null, ?string $to = null): array
     {
+        [$range, $params] = $this->_dateRange($from, $to);
+
         return $this->db->query("
             SELECT e.category_id, c.category_name,
                    COUNT(*) AS count,
                    COALESCE(SUM(e.amount), 0) AS total
             FROM expenses e
             LEFT JOIN expense_categories c ON c.id = e.category_id
-            WHERE e.status = 'PAID'
+            WHERE e.status = 'PAID' $range
             GROUP BY e.category_id, c.category_name
             ORDER BY total DESC
-        ")->getResultArray();
+        ", $params)->getResultArray();
     }
 
     /**
      * PAID totals grouped by project (a NULL project_id groups as
-     * unassigned), highest total first.
+     * unassigned), highest total first. Optional inclusive date bounds.
      */
-    public function projectTotals(): array
+    public function projectTotals(?string $from = null, ?string $to = null): array
     {
+        [$range, $params] = $this->_dateRange($from, $to);
+
         return $this->db->query("
             SELECT e.project_id, p.name AS project_name,
                    COUNT(*) AS count,
                    COALESCE(SUM(e.amount), 0) AS total
             FROM expenses e
             LEFT JOIN projects p ON p.id = e.project_id
-            WHERE e.status = 'PAID'
+            WHERE e.status = 'PAID' $range
             GROUP BY e.project_id, p.name
             ORDER BY total DESC
-        ")->getResultArray();
+        ", $params)->getResultArray();
+    }
+
+    private function _dateRange(?string $from, ?string $to): array
+    {
+        $sql    = '';
+        $params = [];
+        if ($from !== null && $from !== '') {
+            $sql     .= ' AND e.expense_date >= ?';
+            $params[] = $from;
+        }
+        if ($to !== null && $to !== '') {
+            $sql     .= ' AND e.expense_date <= ?';
+            $params[] = $to;
+        }
+
+        return [$sql, $params];
     }
 }

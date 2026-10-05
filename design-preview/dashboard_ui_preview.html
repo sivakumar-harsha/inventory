@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard UI Preview (light)</title>
+<!--
+  DESIGN PREVIEW ONLY (concept 2, light). Static sample values, no PHP, no database, no network calls.
+  Not part of the application; nothing in app/ or assets/ is touched by this file.
+-->
+<style>
+:root {
+  --ink: #1b2430;
+  --ink-2: #3f4b5b;
+  --muted: #6b7686;
+  --faint: #9aa4b2;
+  --line: #e6e9ee;
+  --line-2: #f0f2f5;
+  --bg: #f6f7f9;
+  --paper: #ffffff;
+  --tint: #fafbfc;
+
+  --accent: #3157d5;          /* restrained ink blue: links, primary action, active nav */
+  --accent-bg: #eef2ff;
+
+  --pos: #1d7a4d;  --pos-bg: #ecf8f1;  --pos-line: #bfe5cf;
+  --neg: #b4413b;  --neg-bg: #fdf1f0;  --neg-line: #f2c9c6;
+  --amb: #a86a12;  --amb-bg: #fdf5e6;  --amb-line: #f1dcae;
+
+  --r: 10px;
+  --shadow: 0 1px 2px rgba(20,30,50,.04), 0 2px 8px rgba(20,30,50,.03);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; font-size: 14px; color: var(--ink); background: var(--bg); -webkit-font-smoothing: antialiased; }
+.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+svg.i { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+/* ---------- app shell (context only; light) ---------- */
+.side { position: fixed; inset: 0 auto 0 0; width: 200px; background: #fff; border-right: 1px solid var(--line); padding: 14px 10px; font-size: 13px; }
+.side .brand { display: flex; align-items: center; gap: 8px; padding: 2px 8px 16px; font-weight: 700; color: var(--ink); }
+.side .logo { width: 24px; height: 24px; border-radius: 6px; background: var(--accent-bg); color: var(--accent); display: grid; place-items: center; font-size: 11px; font-weight: 800; }
+.side a { display: flex; align-items: center; gap: 9px; padding: 7px 10px; margin-bottom: 1px; color: var(--ink-2); text-decoration: none; border-radius: 7px; }
+.side a:hover { background: var(--line-2); }
+.side a.on { background: var(--accent-bg); color: var(--accent); font-weight: 600; }
+.main { margin-left: 200px; }
+.top { height: 45px; background: #fff; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; padding: 0 22px; font-size: 13px; color: var(--muted); }
+.ribbon { background: var(--amb-bg); color: var(--amb); border: 1px solid var(--amb-line); border-radius: 20px; padding: 2px 10px; font-weight: 600; font-size: 11px; }
+.page { padding: 18px 22px 26px; max-width: 1500px; }
+
+/* ---------- title ---------- */
+.head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.head h1 { margin: 0; font-size: 21px; font-weight: 700; letter-spacing: -.3px; }
+.head .sub { color: var(--muted); font-size: 12.5px; margin-top: 2px; }
+.pills { display: flex; gap: 6px; flex-wrap: wrap; }
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px 4px 8px; border-radius: 20px; font-size: 12px; font-weight: 600; border: 1px solid; text-decoration: none; background: #fff; }
+.pill b { font-weight: 700; }
+.pill.neg { color: var(--neg); border-color: var(--neg-line); background: var(--neg-bg); }
+.pill.amb { color: var(--amb); border-color: var(--amb-line); background: var(--amb-bg); }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex: none; }
+
+/* ---------- surfaces ---------- */
+.sheet { background: var(--paper); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow); }
+.sec-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 16px 8px; }
+.sec-h h2 { margin: 0; font-size: 12px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); }
+.sec-h a { font-size: 12px; font-weight: 600; color: var(--accent); text-decoration: none; }
+.eyebrow { font-size: 12px; font-weight: 600; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+
+/* ---------- A. financial position ---------- */
+.position { display: grid; grid-template-columns: repeat(4, 1fr); margin-bottom: 14px; }
+.pos-item { padding: 16px 18px 14px; position: relative; border-left: 1px solid var(--line-2); }
+.pos-item:first-child { border-left: 0; }
+.pos-item::before { content: ""; position: absolute; left: 18px; top: 0; width: 28px; height: 3px; border-radius: 0 0 3px 3px; background: var(--c, var(--accent)); }
+.pos-item .val { font-size: 25px; font-weight: 650; letter-spacing: -.5px; margin-top: 7px; line-height: 1.1; }
+.pos-item .val s { text-decoration: none; font-size: 15px; font-weight: 600; color: var(--faint); margin-right: 2px; }
+.pos-item .note { font-size: 11.5px; color: var(--faint); margin-top: 5px; }
+.pos-item .ico { width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; background: var(--cb, var(--accent-bg)); color: var(--c, var(--accent)); }
+.c-cash { --c: #7a6a3a; --cb: #f7f2e4; }
+.c-bank { --c: var(--accent); --cb: var(--accent-bg); }
+.c-in   { --c: var(--pos); --cb: var(--pos-bg); }
+.c-out  { --c: var(--amb); --cb: var(--amb-bg); }
+.pos-item.c-in .val { color: var(--pos); }
+.ratio { grid-column: 1 / -1; display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center; padding: 9px 18px; border-top: 1px solid var(--line-2); background: var(--tint); border-radius: 0 0 var(--r) var(--r); font-size: 12px; color: var(--muted); }
+.meter { display: flex; height: 6px; border-radius: 4px; overflow: hidden; background: var(--line-2); }
+.meter i { display: block; }
+.ratio b { color: var(--ink-2); font-weight: 600; }
+
+/* ---------- layout ---------- */
+.cols { display: grid; grid-template-columns: minmax(0, 1.75fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+.stack { display: grid; gap: 14px; }
+
+/* ---------- B. performance ---------- */
+.perf { display: grid; grid-template-columns: 1.15fr 1fr 1fr 1fr; }
+.perf .np { padding: 14px 18px; background: linear-gradient(180deg, var(--pos-bg), #f7fcf9); border-right: 1px solid var(--pos-line); border-radius: 0 0 0 var(--r); }
+.perf .np .lbl { color: var(--pos); }
+.perf .np .val { font-size: 27px; font-weight: 700; color: var(--pos); letter-spacing: -.5px; margin-top: 5px; line-height: 1.1; }
+.perf .np .note { font-size: 11.5px; color: #4d8a69; margin-top: 5px; }
+.perf .m { padding: 14px 16px; border-left: 1px solid var(--line-2); }
+.perf .np + .m { border-left: 0; }
+.perf .lbl { font-size: 12px; font-weight: 600; color: var(--muted); }
+.perf .m .val { font-size: 18px; font-weight: 650; margin-top: 5px; letter-spacing: -.3px; }
+.perf .m .note { font-size: 11.5px; color: var(--faint); margin-top: 3px; }
+.share { height: 3px; border-radius: 2px; background: var(--line-2); margin-top: 9px; overflow: hidden; }
+.share i { display: block; height: 100%; background: #b9c3d3; }
+
+/* ---------- C. collections & projects ---------- */
+.coll { display: grid; grid-template-columns: auto 1fr; gap: 26px; align-items: center; padding: 4px 16px 14px; }
+.coll .big { font-size: 25px; font-weight: 700; color: var(--neg); letter-spacing: -.5px; margin-top: 4px; line-height: 1.1; }
+.status { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.st { padding: 8px 10px; border-radius: 8px; background: var(--tint); border: 1px solid var(--line-2); }
+.st .n { font-size: 18px; font-weight: 650; line-height: 1.1; }
+.st .t { font-size: 11.5px; color: var(--muted); display: flex; align-items: center; gap: 5px; margin-top: 2px; }
+table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+th { text-align: left; font-size: 11.5px; font-weight: 600; color: var(--muted); padding: 8px 16px; background: var(--tint); border-top: 1px solid var(--line-2); border-bottom: 1px solid var(--line-2); }
+td { padding: 9px 16px; border-bottom: 1px solid var(--line-2); vertical-align: top; overflow-wrap: anywhere; }
+tbody tr:last-child td { border-bottom: 0; }
+tbody tr:hover td { background: var(--tint); }
+.r { text-align: right; }
+.pname { font-weight: 600; line-height: 1.3; }
+.psub { font-size: 11.5px; color: var(--faint); margin-top: 1px; }
+.lab { display: block; font-size: 10.5px; font-weight: 600; margin-top: 2px; color: var(--muted); }
+.lab.over { color: var(--neg); }
+.out-v { font-weight: 650; color: var(--neg); }
+.out-bar { height: 3px; background: var(--line-2); border-radius: 2px; margin: 6px 0 0 auto; max-width: 110px; }
+.out-bar i { display: block; height: 100%; background: #e3a39f; border-radius: 2px; }
+
+/* ---------- rail: attention, actions, loans, operations ---------- */
+.att { list-style: none; margin: 0; padding: 0 16px 10px; }
+.att li { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-top: 1px solid var(--line-2); font-size: 13px; color: var(--ink-2); }
+.att li:first-child { border-top: 0; }
+.att .dot { margin-top: 1px; }
+.att .k-neg { color: var(--neg); } .att .k-amb { color: var(--amb); }
+.att a { margin-left: auto; font-size: 12px; font-weight: 600; color: var(--accent); text-decoration: none; }
+
+.acts { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 0 16px 14px; }
+.btn { display: flex; align-items: center; gap: 7px; height: 32px; padding: 0 11px; border-radius: 7px; border: 1px solid var(--line); background: #fff; color: var(--ink-2); font-size: 12.5px; font-weight: 600; text-decoration: none; }
+.btn:hover { border-color: #cfd6e0; background: var(--tint); }
+.btn svg.i { color: var(--faint); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; grid-column: 1 / -1; justify-content: center; }
+.btn.primary svg.i { color: #fff; }
+
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 0 16px 12px; }
+.fig .l { font-size: 11.5px; color: var(--muted); font-weight: 600; }
+.fig .v { font-size: 17px; font-weight: 650; margin-top: 3px; letter-spacing: -.3px; }
+.fig .s { font-size: 11px; color: var(--faint); margin-top: 2px; }
+
+.tl { list-style: none; margin: 0; padding: 0 16px 12px 16px; position: relative; }
+.tl::before { content: ""; position: absolute; left: 19.5px; top: 6px; bottom: 18px; width: 1px; background: var(--line); }
+.tl li { display: grid; grid-template-columns: 8px 1fr auto; gap: 11px; padding: 6px 0; align-items: start; position: relative; }
+.tl .nd { width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; background: #cdd4de; box-shadow: 0 0 0 3px #fff; position: relative; }
+.tl .od .nd { background: #d4605a; } .tl .up .nd { background: #e0a23b; }
+.tl .t1 { font-weight: 600; font-size: 13px; }
+.tl .t2 { font-size: 11.5px; color: var(--muted); margin-top: 1px; overflow-wrap: anywhere; }
+.tl .when { font-size: 11px; font-weight: 600; white-space: nowrap; padding-top: 2px; color: var(--muted); }
+.tl .od .when { color: var(--neg); } .tl .up .when { color: var(--amb); }
+.hr { border: 0; border-top: 1px solid var(--line-2); margin: 0 16px 8px; }
+.sub-h { padding: 4px 16px 6px; font-size: 11.5px; font-weight: 700; color: var(--muted); letter-spacing: .4px; text-transform: uppercase; }
+
+.kvl { padding: 0 16px 8px; }
+.kvl div { display: flex; justify-content: space-between; gap: 10px; padding: 6px 0; border-top: 1px solid var(--line-2); font-size: 13px; }
+.kvl div:first-child { border-top: 0; }
+.kvl span { color: var(--ink-2); } .kvl b { font-weight: 650; }
+.kvl .g { color: var(--pos); } .kvl .r2 { color: var(--neg); } .kvl .a { color: var(--amb); }
+
+.sys { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-top: 14px; font-size: 11.5px; color: var(--faint); }
+.sys .ok { color: var(--pos); font-weight: 600; } .sys a { color: var(--accent); text-decoration: none; font-weight: 600; }
+
+/* ---------- responsive ---------- */
+@media (max-width: 1250px) {                    /* ~1024px viewport / tablets */
+  .cols { grid-template-columns: 1fr; }
+  .rail { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
+  .rail .full { grid-column: 1 / -1; }
+  .position { grid-template-columns: repeat(2, 1fr); }
+  .pos-item:nth-child(3) { border-left: 0; }
+  .pos-item:nth-child(n+3) { border-top: 1px solid var(--line-2); }
+  .perf { grid-template-columns: 1fr 1fr 1fr; }
+  .perf .np { grid-column: 1 / -1; border-right: 0; border-bottom: 1px solid var(--pos-line); border-radius: 0; }
+  .perf .np + .m { border-left: 0; }
+}
+@media (max-width: 760px) {
+  .side { display: none; } .main { margin-left: 0; }
+  .rail { grid-template-columns: 1fr; }
+  .position { grid-template-columns: 1fr 1fr; }
+  .perf { grid-template-columns: 1fr; } .perf .m { border-left: 0; border-top: 1px solid var(--line-2); }
+  .coll { grid-template-columns: 1fr; gap: 12px; }
+  .ratio { grid-template-columns: 1fr; gap: 6px; }
+}
+@media (max-width: 480px) { .position { grid-template-columns: 1fr; } .pos-item { border-left: 0; border-top: 1px solid var(--line-2); } .pos-item:first-child { border-top: 0; } .status { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-home" viewBox="0 0 16 16"><path d="M2 7.5 8 2.5l6 5M3.5 6.5V13h3.5V9.5h2V13h3.5V6.5"/></symbol>
+  <symbol id="i-cash" viewBox="0 0 16 16"><rect x="1.5" y="4" width="13" height="8" rx="1.5"/><circle cx="8" cy="8" r="1.8"/></symbol>
+  <symbol id="i-bank" viewBox="0 0 16 16"><path d="M2 6.5 8 3l6 3.5M3.5 7v5M6.5 7v5M9.5 7v5M12.5 7v5M2 13h12"/></symbol>
+  <symbol id="i-in" viewBox="0 0 16 16"><path d="M8 3v8M4.5 8 8 11.5 11.5 8M3 13.5h10"/></symbol>
+  <symbol id="i-out" viewBox="0 0 16 16"><path d="M8 13V5M4.5 8 8 4.5 11.5 8M3 2.5h10"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 16 16"><path d="M8 3v10M3 8h10"/></symbol>
+  <symbol id="i-pay" viewBox="0 0 16 16"><path d="M2.5 5h11M2.5 8h11M2.5 11h6"/></symbol>
+  <symbol id="i-cart" viewBox="0 0 16 16"><path d="M2 3h2l1.5 7h6.5l1.5-5H5"/><circle cx="6.5" cy="13" r=".8"/><circle cx="11.5" cy="13" r=".8"/></symbol>
+  <symbol id="i-wallet" viewBox="0 0 16 16"><rect x="2" y="4" width="12" height="9" rx="1.5"/><path d="M2 6.5h12M10.5 9.5h1.5"/></symbol>
+  <symbol id="i-proj" viewBox="0 0 16 16"><rect x="2.5" y="3" width="11" height="10" rx="1.5"/><path d="M5.5 6.5h5M5.5 9.5h3"/></symbol>
+  <symbol id="i-list" viewBox="0 0 16 16"><path d="M3 4h10M3 8h10M3 12h10"/></symbol>
+</svg>
+
+<!-- ============ existing app shell, shown in a light treatment for context ============ -->
+<aside class="side">
+  <div class="brand"><span class="logo">A&amp;A</span> Inventory</div>
+  <a class="on" href="#"><svg class="i"><use href="#i-home"/></svg>Dashboard</a>
+  <a href="#"><svg class="i"><use href="#i-proj"/></svg>Projects</a>
+  <a href="#"><svg class="i"><use href="#i-list"/></svg>Sales</a>
+  <a href="#"><svg class="i"><use href="#i-cart"/></svg>Purchases</a>
+  <a href="#"><svg class="i"><use href="#i-pay"/></svg>Payments</a>
+  <a href="#"><svg class="i"><use href="#i-wallet"/></svg>Expenses</a>
+  <a href="#"><svg class="i"><use href="#i-bank"/></svg>Bank</a>
+  <a href="#"><svg class="i"><use href="#i-cash"/></svg>Loan Management</a>
+  <a href="#"><svg class="i"><use href="#i-list"/></svg>Reports</a>
+</aside>
+
+<div class="main">
+  <div class="top"><span>Dashboard</span><span class="ribbon">DESIGN PREVIEW · sample values only</span></div>
+
+  <div class="page">
+
+    <div class="head">
+      <div>
+        <h1>Dashboard</h1>
+        <div class="sub">Business position as of 05 Oct 2026</div>
+      </div>
+      <div class="pills" aria-label="Needs attention">
+        <a class="pill neg" href="#"><span class="dot"></span><b>1</b> bank account overdrawn</a>
+        <a class="pill neg" href="#"><span class="dot"></span><b>2</b> EMIs overdue</a>
+        <a class="pill amb" href="#"><span class="dot"></span><b>3</b> service invoices pending</a>
+      </div>
+    </div>
+
+    <!-- ============ A. FINANCIAL POSITION ============ -->
+    <section class="sheet position" aria-label="Financial position">
+      <div class="pos-item c-cash">
+        <div class="eyebrow"><span class="ico"><svg class="i"><use href="#i-cash"/></svg></span>Cash</div>
+        <div class="val num"><s>₹</s>438,844.04</div>
+        <div class="note">Cash Book closing balance</div>
+      </div>
+      <div class="pos-item c-bank">
+        <div class="eyebrow"><span class="ico"><svg class="i"><use href="#i-bank"/></svg></span>Bank</div>
+        <div class="val num"><s>₹</s>308,460.00</div>
+        <div class="note">Total across all accounts</div>
+      </div>
+      <div class="pos-item c-in">
+        <div class="eyebrow"><span class="ico"><svg class="i"><use href="#i-in"/></svg></span>Money In · Oct 2026</div>
+        <div class="val num"><s>₹</s>260,078.60</div>
+        <div class="note">Bank + cash receipts</div>
+      </div>
+      <div class="pos-item c-out">
+        <div class="eyebrow"><span class="ico"><svg class="i"><use href="#i-out"/></svg></span>Money Out · Oct 2026</div>
+        <div class="val num"><s>₹</s>71,234.56</div>
+        <div class="note">Bank + cash payments</div>
+      </div>
+      <div class="ratio">
+        <span><b>This month</b></span>
+        <div class="meter" role="img" aria-label="Money in 78.5 percent, money out 21.5 percent"><i style="width:78.5%;background:#7fc8a0"></i><i style="width:21.5%;background:#eec77d"></i></div>
+        <span>In <b>78.5%</b> · Out <b>21.5%</b> · internal transfers excluded</span>
+      </div>
+    </section>
+
+    <div class="cols">
+
+      <!-- ================= main column ================= -->
+      <div class="stack">
+
+        <!-- B. PERFORMANCE -->
+        <section class="sheet" aria-label="Business performance">
+          <div class="sec-h"><h2>Business performance</h2><a href="#">Profit &amp; Loss →</a></div>
+          <div class="perf">
+            <div class="np">
+              <div class="lbl">Net Profit</div>
+              <div class="val num">₹ 286,420.00</div>
+              <div class="note">Same basis as the P&amp;L report</div>
+            </div>
+            <div class="m">
+              <div class="lbl">Total Sales</div>
+              <div class="val num">₹ 1,284,500.00</div>
+              <div class="share"><i style="width:100%"></i></div>
+            </div>
+            <div class="m">
+              <div class="lbl">Total Purchases</div>
+              <div class="val num">₹ 742,300.00</div>
+              <div class="share"><i style="width:57.8%"></i></div>
+            </div>
+            <div class="m">
+              <div class="lbl">Total Expenses</div>
+              <div class="val num">₹ 118,450.00</div>
+              <div class="note">Paid expenses</div>
+              <div class="share"><i style="width:9.2%"></i></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- C. COLLECTIONS & PROJECTS -->
+        <section class="sheet" aria-label="Collections and projects">
+          <div class="sec-h"><h2>Collections &amp; projects</h2><a href="#">All projects →</a></div>
+          <div class="coll">
+            <div>
+              <div class="eyebrow">Outstanding Collection</div>
+              <div class="big num">₹ 412,680.50</div>
+            </div>
+            <div class="status" aria-label="Project status">
+              <div class="st"><div class="n">7</div><div class="t"><span class="dot" style="color:#4f74e0"></span>Active</div></div>
+              <div class="st"><div class="n">12</div><div class="t"><span class="dot" style="color:#4fae7f"></span>Completed</div></div>
+              <div class="st"><div class="n">2</div><div class="t"><span class="dot" style="color:#e0a23b"></span>On Hold</div></div>
+            </div>
+          </div>
+          <table>
+            <colgroup><col><col style="width:25%"><col style="width:27%"></colgroup>
+            <thead><tr><th>Top pending projects</th><th class="r">Remaining Balance</th><th class="r">Outstanding Collection</th></tr></thead>
+            <tbody>
+              <tr>
+                <td><div class="pname">Sri Lakshmi Residency — Block B Electrical &amp; Plumbing Works</div></td>
+                <td class="r num">₹ 36,921.40<span class="lab">Remaining Balance</span></td>
+                <td class="r num"><span class="out-v">₹ 148,200.00</span><div class="out-bar"><i style="width:100%"></i></div></td>
+              </tr>
+              <tr>
+                <td><div class="pname">Elite Apartments Phase 2</div></td>
+                <td class="r num">₹ 12,500.00<span class="lab">Remaining Balance</span></td>
+                <td class="r num"><span class="out-v">₹ 96,450.50</span><div class="out-bar"><i style="width:65%"></i></div></td>
+              </tr>
+              <tr>
+                <td><div class="pname">Kumar Textiles Godown Extension</div></td>
+                <td class="r num" style="color:var(--neg)">₹ 4,310.00<span class="lab over">Over Billed</span></td>
+                <td class="r num"><span class="out-v">₹ 71,030.00</span><div class="out-bar"><i style="width:48%"></i></div></td>
+              </tr>
+              <tr>
+                <td><div class="pname">Green Valley Villas</div></td>
+                <td class="r num">₹ 58,000.00<span class="lab">Remaining Balance</span></td>
+                <td class="r num"><span class="out-v">₹ 52,000.00</span><div class="out-bar"><i style="width:35%"></i></div></td>
+              </tr>
+              <tr>
+                <td><div class="pname">Anand Hospital Wing</div></td>
+                <td class="r num">₹ 0.00<span class="lab">Remaining Balance</span></td>
+                <td class="r num"><span class="out-v">₹ 45,000.00</span><div class="out-bar"><i style="width:30%"></i></div></td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+      </div>
+
+      <!-- ================= right rail ================= -->
+      <div class="stack rail">
+
+        <section class="sheet full" aria-label="Needs attention">
+          <div class="sec-h"><h2>Needs attention</h2></div>
+          <ul class="att">
+            <li><span class="dot k-neg"></span>Bank account overdrawn<a href="#">Review</a></li>
+            <li><span class="dot k-neg"></span>2 loan EMIs overdue<a href="#">View</a></li>
+            <li><span class="dot k-amb"></span>3 service invoices pending<a href="#">View</a></li>
+          </ul>
+        </section>
+
+        <section class="sheet full" aria-label="Quick actions">
+          <div class="sec-h"><h2>Quick actions</h2></div>
+          <div class="acts">
+            <a class="btn primary" href="#"><svg class="i"><use href="#i-plus"/></svg>Add Sales Invoice</a>
+            <a class="btn" href="#"><svg class="i"><use href="#i-pay"/></svg>Record Payment</a>
+            <a class="btn" href="#"><svg class="i"><use href="#i-cart"/></svg>Add Purchase</a>
+            <a class="btn" href="#"><svg class="i"><use href="#i-wallet"/></svg>Add Expense</a>
+            <a class="btn" href="#"><svg class="i"><use href="#i-proj"/></svg>Add Project</a>
+          </div>
+        </section>
+
+        <section class="sheet full" aria-label="Loans">
+          <div class="sec-h"><h2>Loans</h2><a href="#">Loan reports →</a></div>
+          <div class="pair">
+            <div class="fig"><div class="l">Outstanding Loans</div><div class="v num">₹ 2,450,000.00</div><div class="s">3 active loans</div></div>
+            <div class="fig"><div class="l">Scheduled EMI this month</div><div class="v num">₹ 64,500.00</div><div class="s">2 scheduled EMIs</div></div>
+          </div>
+          <hr class="hr">
+          <div class="sub-h">Upcoming / overdue EMIs</div>
+          <ul class="tl">
+            <li class="od"><span class="nd"></span><div><div class="t1">LN-0003 · EMI #14 · ₹ 32,250.00</div><div class="t2">Indian Overseas Bank · due 28-09-2026</div></div><span class="when">7 days overdue</span></li>
+            <li class="od"><span class="nd"></span><div><div class="t1">LN-0001 · EMI #22 · ₹ 32,250.00</div><div class="t2">State Bank of India · due 02-10-2026</div></div><span class="when">3 days overdue</span></li>
+            <li class="up"><span class="nd"></span><div><div class="t1">LN-0002 · EMI #9 · ₹ 18,400.00</div><div class="t2">HDFC Bank — Equipment Finance · due 15-10-2026</div></div><span class="when">in 10 days</span></li>
+            <li><span class="nd"></span><div><div class="t1">LN-0003 · EMI #15 · ₹ 32,250.00</div><div class="t2">Indian Overseas Bank · due 28-10-2026</div></div><span class="when">in 23 days</span></li>
+            <li><span class="nd"></span><div><div class="t1">LN-0001 · EMI #23 · ₹ 32,250.00</div><div class="t2">State Bank of India · due 02-11-2026</div></div><span class="when">in 28 days</span></li>
+          </ul>
+        </section>
+
+        <section class="sheet" aria-label="Service">
+          <div class="sec-h"><h2>Service</h2><a href="#">Receipts →</a></div>
+          <div class="kvl">
+            <div><span>Today's collection</span><b class="num g">₹ 8,500.00</b></div>
+            <div><span>Outstanding</span><b class="num r2">₹ 41,250.00</b></div>
+            <div><span>Pending invoices</span><b class="num a">3</b></div>
+            <div><span>Total service income</span><b class="num">₹ 386,900.00</b></div>
+          </div>
+        </section>
+
+        <section class="sheet" aria-label="Expenses">
+          <div class="sec-h"><h2>Expenses</h2><a href="#">Register →</a></div>
+          <div class="pair">
+            <div class="fig"><div class="l">Today</div><div class="v num">₹ 2,400.00</div><div class="s">05 Oct 2026</div></div>
+            <div class="fig"><div class="l">This month</div><div class="v num">₹ 31,780.00</div><div class="s">Oct 2026 · paid</div></div>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <div class="sys">
+      <span>Backup — <span class="ok">last taken 05-10-2026 02:00</span> · 14 stored</span>
+      <a href="#">Backup Center</a>
+    </div>
+
+  </div>
+</div>
+</body>
+</html>

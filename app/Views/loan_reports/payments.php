@@ -20,13 +20,11 @@ $count      = count($rows);
 	.dataTables_wrapper .dataTables_paginate .paginate_button:hover { background: #1e293b !important; color: #fff !important; }
 
 	.filter-toolbar .form-section { margin-bottom: 0; }
-	.filter-toolbar .form-label { font-size: .72rem; margin-bottom: 3px; }
-	.filter-toolbar .form-control { padding: 6px 10px; font-size: .82rem; height: auto; }
 	.filter-toolbar .btn-save { padding: 6px 12px; font-size: .8rem; white-space: nowrap; }
 
 	#payRegTable.table-custom th,
 	#payRegTable.table-custom td { padding: 7px 10px; font-size: .75rem; }
-	#payRegTable td:nth-child(1), #payRegTable td:nth-child(2) { white-space: nowrap; }
+	#payRegTable td:nth-child(2), #payRegTable td:nth-child(3) { white-space: nowrap; }
 
 	.sr-breadcrumb { margin-bottom: 8px; }
 	.sr-breadcrumb .breadcrumb { margin-bottom: 0; font-size: .78rem; padding: 0; background: transparent; }
@@ -65,29 +63,11 @@ $count      = count($rows);
         </div>
     </div>
     <div class="col-6 col-lg-3">
-        <div class="kpi-card kpi-green">
-            <div class="kpi-icon"><i class="bi bi-arrow-down-circle"></i></div>
-            <div>
-                <div class="kpi-value"><?= $money($kpi_principal) ?></div>
-                <div class="kpi-label">Principal Paid</div>
-            </div>
-        </div>
-    </div>
-    <div class="col-6 col-lg-3">
-        <div class="kpi-card kpi-orange">
-            <div class="kpi-icon"><i class="bi bi-percent"></i></div>
-            <div>
-                <div class="kpi-value"><?= $money($kpi_interest) ?></div>
-                <div class="kpi-label">Interest Paid</div>
-            </div>
-        </div>
-    </div>
-    <div class="col-6 col-lg-3">
         <div class="kpi-card kpi-red">
             <div class="kpi-icon"><i class="bi bi-cash-stack"></i></div>
             <div>
                 <div class="kpi-value"><?= $money($kpi_collection) ?></div>
-                <div class="kpi-label">Total Collection</div>
+                <div class="kpi-label">Total Paid</div>
             </div>
         </div>
     </div>
@@ -97,7 +77,7 @@ $count      = count($rows);
 <div class="card-custom mb-3 ln-noprint">
     <div class="card-custom-header">Filters</div>
     <div class="card-custom-body">
-        <form method="GET" action="<?= base_url('loan-reports/payments') ?>" class="filter-toolbar" id="lnFilterForm">
+        <form method="GET" data-auto-filter action="<?= base_url('loan-reports/payments') ?>" class="filter-toolbar" id="lnFilterForm">
             <div class="row g-2 align-items-end">
                 <div class="col-6 col-md-2">
                     <div class="form-section">
@@ -139,7 +119,7 @@ $count      = count($rows);
                         <select name="payment_method" class="form-control">
                             <option value="">All Methods</option>
                             <?php foreach ($paymentMethods as $m): ?>
-                            <option value="<?= $m ?>" <?= $f['payment_method'] === $m ? 'selected' : '' ?>><?= esc(ucfirst(strtolower($m))) ?></option>
+                            <option value="<?= $m ?>" <?= $f['payment_method'] === $m ? 'selected' : '' ?>><?= esc(pm_label($m)) ?></option>
                             <?php endforeach; ?>
                         </select>
                     </div>
@@ -179,41 +159,37 @@ $count      = count($rows);
         <table id="payRegTable" class="table-custom">
             <thead>
                 <tr>
+                    <th class="sno-col">S.No.</th>
                     <th>Payment Date</th>
                     <th>Loan Number</th>
                     <th>Lender</th>
-                    <th>EMI Number / Prepayment</th>
-                    <th style="text-align:right">Principal</th>
-                    <th style="text-align:right">Interest</th>
-                    <th style="text-align:right">Total Paid</th>
+                    <th style="text-align:right">Payment Amount</th>
                     <th>Payment Method</th>
                     <th>Bank Account</th>
                     <th>Reference Number</th>
+                    <th>Remarks</th>
                 </tr>
             </thead>
             <tbody>
                 <?php foreach ($rows as $r): ?>
                 <tr>
+                    <td class="sno-col" data-label="S.No."></td>
                     <td data-order="<?= esc($r['payment_date']) ?>"><?= $fmtDate($r['payment_date']) ?></td>
                     <td><a href="<?= base_url('loans/view/' . $r['loan_id']) ?>" style="text-decoration:none;"><?= esc($r['loan_no']) ?></a></td>
                     <td><?= esc($r['lender_name']) ?></td>
-                    <td><?= ln_towards_badge($r['loan_emi_id'], $r['emi_no']) ?></td>
-                    <td style="text-align:right" data-order="<?= (float) $r['principal_paid'] ?>"><?= $money($r['principal_paid']) ?></td>
-                    <td style="text-align:right" data-order="<?= (float) $r['interest_paid'] ?>"><?= $money($r['interest_paid']) ?></td>
                     <td style="text-align:right" data-order="<?= (float) $r['total_paid'] ?>"><?= $money($r['total_paid']) ?></td>
                     <td><?= ln_method_badge($r['payment_method']) ?></td>
                     <td><?= esc($r['bank'] ?: '—') ?></td>
                     <td><?= esc($r['reference_no'] ?: '—') ?></td>
+                    <td><?= esc($r['remarks'] ?: '—') ?></td>
                 </tr>
                 <?php endforeach; ?>
             </tbody>
             <tfoot>
                 <tr style="background:#f8fafc;font-weight:700">
                     <td colspan="4">TOTAL</td>
-                    <td style="text-align:right"><?= $money($kpi_principal) ?></td>
-                    <td style="text-align:right"><?= $money($kpi_interest) ?></td>
                     <td style="text-align:right"><?= $money($kpi_collection) ?></td>
-                    <td colspan="3"></td>
+                    <td colspan="4"></td>
                 </tr>
             </tfoot>
         </table>

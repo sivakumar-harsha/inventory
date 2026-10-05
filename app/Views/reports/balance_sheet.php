@@ -123,8 +123,8 @@
     <div class="card-custom">
         <div class="card-custom-header">Filters</div>
         <div class="card-custom-body">
-            <form method="GET" action="<?= base_url('reports/balance-sheet') ?>">
-                <div class="row">
+            <form method="GET" data-auto-filter action="<?= base_url('reports/balance-sheet') ?>">
+                <div class="row fb-one-row">
                     <div class="col-md-3">
                         <div class="form-section">
                             <label class="form-label">Project</label>
@@ -149,7 +149,6 @@
                         </div>
                     </div>
                     <div class="col-md-4" style="display:flex;align-items:flex-end;gap:10px;padding-bottom:14px">
-						<button type="submit" class="btn-save"><i class="bi bi-search"></i> Filter</button>
 						<a href="<?= base_url('reports/balance-sheet') ?>" class="btn btn-sm btn-secondary">
                        <i class="bi bi-arrow-clockwise"></i> Reset
                     </a>
@@ -280,7 +279,7 @@
 					<thead><tr><th>Asset</th><th style="text-align:right;">Amount</th><th>Source</th></tr></thead>
 					<tbody>
 						<tr><td>Cash Received From Customers</td><td style="text-align:right;"><?= number_format($cash_received, 2) ?></td><td>payments.amount + project_cash_receipts.amount</td></tr>
-						<tr><td>Accounts Receivable</td><td style="text-align:right;"><?= number_format($accounts_receivable, 2) ?></td><td>sales.balance_amount (net of Project Cash)</td></tr>
+						<tr><td>Accounts Receivable</td><td style="text-align:right;"><?= number_format($accounts_receivable, 2) ?></td><td>sales.balance_amount (net of Project Receipts)</td></tr>
 						<tr><td>Inventory Value</td><td style="text-align:right;"><?= number_format($inventory_value, 2) ?></td><td>stock_ledger + purchase_items</td></tr>
 					</tbody>
 					<tfoot><tr><td>TOTAL</td><td style="text-align:right;"><?= number_format($total_assets, 2) ?></td><td></td></tr></tfoot>

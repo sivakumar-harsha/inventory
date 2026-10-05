@@ -65,7 +65,7 @@
                     <tr><td><strong>Purchase Date</strong></td><td><?= esc($purchase['purchase_date']) ?></td></tr>
                     <tr><td><strong>Bill Number</strong></td><td><?= esc($purchase['bill_no'] ?: '-') ?></td></tr>
                     <tr><td><strong>Bill Date</strong></td><td><?= esc($purchase['bill_date'] ?: '-') ?></td></tr>
-                    <tr><td><strong>Payment Method</strong></td><td><?= esc($purchase['payment_method'] ?: '-') ?></td></tr>
+                    <tr><td><strong>Payment Method</strong></td><td><?= esc(pm_label($purchase['payment_method'], '-')) ?></td></tr>
                     <?php if ($purchase['remarks']): ?>
                     <tr><td><strong>Remarks</strong></td><td><?= esc($purchase['remarks']) ?></td></tr>
                     <?php endif; ?>
@@ -99,7 +99,7 @@
                 <table class="table-custom">
                     <thead>
                         <tr>
-                            <th>#</th>
+                            <th class="sno-col">S.No.</th>
                             <th>Product</th>
                             <th>HSN</th>
                             <th>Unit</th>
@@ -113,7 +113,7 @@
                     <tbody>
                         <?php foreach ($items as $i => $item): ?>
                         <tr>
-                            <td><?= $i + 1 ?></td>
+                            <td class="sno-col"><?= $i + 1 ?></td>
                             <td><?= esc($item['product_name']) ?></td>
                             <td><?= esc($item['product_hsn'] ?: '-') ?></td>
                             <td><?= esc($item['unit']) ?></td>

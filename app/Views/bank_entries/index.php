@@ -48,7 +48,7 @@ $formatLabel = static fn ($value) => ucwords(strtolower(str_replace('_', ' ', (s
 
 <div class="card-custom mb-3 be-filter">
     <div class="card-custom-body">
-        <div class="row g-2 align-items-end">
+        <div class="row g-2 align-items-end fb-one-row">
             <div class="col-12 col-md-4">
                 <div class="custom-search-box position-relative">
                     <label class="form-label">Search</label>
@@ -73,6 +73,7 @@ $formatLabel = static fn ($value) => ucwords(strtolower(str_replace('_', ' ', (s
         <table id="beTable" class="table-custom be-table">
             <thead>
                 <tr>
+                    <th class="sno-col">S.No.</th>
                     <?php foreach ($cfg['columns'] as $column): ?>
                     <th<?= $column['type'] === 'money' ? ' class="be-num"' : '' ?>><?= esc($column['label']) ?></th>
                     <?php endforeach; ?>
@@ -82,6 +83,7 @@ $formatLabel = static fn ($value) => ucwords(strtolower(str_replace('_', ' ', (s
             <tbody>
                 <?php foreach ($entries as $entry): ?>
                 <tr data-date="<?= esc($entry['transaction_date'], 'attr') ?>">
+                    <td class="sno-col" data-label="S.No."></td>
                     <?php foreach ($cfg['columns'] as $column): ?>
                     <?php $value = $entry[$column['key']] ?? null; ?>
                     <?php if ($column['type'] === 'money'): ?>
@@ -96,9 +98,9 @@ $formatLabel = static fn ($value) => ucwords(strtolower(str_replace('_', ' ', (s
                     <?php endif; ?>
                     <?php endforeach; ?>
                     <td class="be-noprint" style="white-space:nowrap;">
-                        <a href="<?= base_url($slug . '/view/' . $entry['id']) ?>" class="btn-view" title="View"><i class="bi bi-eye"></i></a>
-                        <a href="<?= base_url($slug . '/edit/' . $entry['id']) ?>" class="btn-edit" title="Edit"><i class="bi bi-pencil"></i></a>
-                        <a href="javascript:void(0)" class="btn-delete" title="Delete" onclick="confirmDeleteEntry(<?= (int) $entry['id'] ?>)"><i class="bi bi-trash"></i></a>
+                        <a href="<?= base_url($slug . '/view/' . $entry['id']) ?>" class="btn-view table-action-btn" title="View"><i class="bi bi-eye"></i></a>
+                        <a href="<?= base_url($slug . '/edit/' . $entry['id']) ?>" class="btn-edit table-action-btn" title="Edit"><i class="bi bi-pencil"></i></a>
+                        <a href="javascript:void(0)" class="btn-delete table-action-btn" title="Delete" onclick="confirmDeleteEntry(<?= (int) $entry['id'] ?>)"><i class="bi bi-trash"></i></a>
                     </td>
                 </tr>
                 <?php endforeach; ?>

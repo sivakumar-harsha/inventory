@@ -140,7 +140,7 @@
                     <span class="pay-chip-value text-pending" id="detPending">0.00</span>
                 </div>
                 <div class="pay-chip">
-                    <span class="pay-chip-label">Project Cash Received</span>
+                    <span class="pay-chip-label">Project Receipts Received</span>
                     <span class="pay-chip-value text-cash" id="detCashReceived">0.00</span>
                 </div>
                 <div class="pay-chip">
@@ -167,11 +167,29 @@
                 <div class="col-md-4">
                     <div class="form-section">
                         <label class="form-label">Method <span class="text-danger">*</span></label>
-                        <select name="method" class="form-control" required>
+                        <select name="method" id="invoicePayMethod" class="form-control" required>
                             <option value="CASH" <?= ($payment['method']=='CASH')?'selected':'' ?>>Cash</option>
                             <option value="BANK_TRANSFER" <?= ($payment['method']=='BANK_TRANSFER')?'selected':'' ?>>Bank Transfer</option>
                             <option value="CHECK" <?= ($payment['method']=='CHECK')?'selected':'' ?>>Check</option>
                             <option value="OTHER" <?= ($payment['method']=='OTHER')?'selected':'' ?>>Other</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+            <!-- Release 4.9.0I: shown only for Bank Transfer/Check — the
+                 selected account receives the automatic DEPOSIT for this
+                 invoice payment. -->
+            <div class="row pcr-hidden" id="invoiceBankAccountRow">
+                <div class="col-md-4">
+                    <div class="form-section">
+                        <label class="form-label">Bank Account <span class="text-danger">*</span></label>
+                        <select name="bank_account_id" id="invoiceBankAccount" class="form-control">
+                            <option value="">-- Select Bank Account --</option>
+                            <?php foreach ($bankAccounts as $b): ?>
+                            <option value="<?= $b['id'] ?>" <?= (!empty($payment['bank_account_id']) && (int) $payment['bank_account_id'] === (int) $b['id']) ? 'selected' : '' ?>>
+                                <?= esc($b['bank_name'] . ' - ' . $b['account_name']) ?> (<?= esc($b['account_number']) ?>)
+                            </option>
+                            <?php endforeach; ?>
                         </select>
                     </div>
                 </div>
@@ -221,6 +239,10 @@
 .pay-chip-label { display: block; font-size: 0.65rem; text-transform: uppercase; letter-spacing: .03em; color: #64748b; }
 .pay-chip-value { display: block; font-size: 0.95rem; font-weight: 700; color: #1e293b; }
 .pay-notes { min-height: 38px !important; }
+
+/* Release 4.9.0I: same !important guard as create.php's Invoice Payment /
+   Cash Receipt mode toggle, here for the Bank Account row. */
+.pcr-hidden { display: none !important; }
 </style>
 
 <?= $this->section('scripts') ?>
@@ -239,7 +261,10 @@
 // figures as Dashboard/Statement/Balance Sheet.
 var PROJECT_FINANCIALS_MAP = <?= json_encode($project_financials) ?>;
 </script>
-<script src="<?= base_url('assets/js/payments-workflow.js') ?>"></script>
+<!-- Release 4.9.0M: cache-busted with the file's own mtime — see create.php
+     for why (heuristic browser caching of this shared script can otherwise
+     mask the Bank Account toggle indefinitely). -->
+<script src="<?= base_url('assets/js/payments-workflow.js') ?>?v=<?= @filemtime(FCPATH . 'assets/js/payments-workflow.js') ?: time() ?>"></script>
 <script>
 $(document).ready(function() {
     // Release 2.1F (Phase 4): Create and Edit now share one implementation
@@ -248,6 +273,8 @@ $(document).ready(function() {
     // which is what lets the edit screen's own preselected invoice/project
     // survive page load without being cleared by the project-change reset.
     initPaymentsWorkflow();
+    // Release 4.9.0I: Invoice Payment form's own Bank Account show/hide.
+    initInvoicePayBankToggle();
 });
 </script>
 <?= $this->endSection() ?>

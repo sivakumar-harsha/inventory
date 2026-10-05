@@ -47,6 +47,11 @@
 		  padding-right: 10px;
 		}
 
+	/* Release 4.9.0EE: Projects table fits the card without a horizontal scrollbar - tighter cell padding, long
+	   names wrap, the Actions column is only as wide as its three icon buttons. */
+	#projectTable th, #projectTable td { padding-left: 8px; padding-right: 8px; }
+	#projectTable td:nth-child(2), #projectTable td:nth-child(3) { white-space: normal; word-break: break-word; }
+
 	.custom-search-box {
 		max-width: 300px;
 	}
@@ -171,7 +176,7 @@
 </div>
 
 <!-- Tabs -->
-<ul class="nav nav-tabs mb-3" style="border-bottom:2px solid #e2e8f0">
+<ul class="nav nav-tabs mb-2" style="border-bottom:2px solid #e2e8f0">
     <li class="nav-item">
         <a class="nav-link <?= $tab === 'active' ? 'active' : '' ?>"
            href="<?= base_url('projects?tab=active') ?>"
@@ -193,27 +198,36 @@
         <table id="projectTable" class="table-custom">
             <thead>
                 <tr>
-                    <th>#</th>
+                    <th class="sno-col">S.No.</th>
                     <th>Project Name</th>
                     <th>Customer</th>
                     <th style="text-align:right">Contract Value</th>
-                    <!-- <th style="text-align:right">Remaining Balance</th> -->
+                    <th style="text-align:right">Remaining Balance</th>
                     <th style="text-align:right">Outstanding </th>
                     <th>Work Status</th>
                     <th>Billing Status</th>
-                    <th style="text-align:center; width: 132.75px;">Actions</th>
+                    <th style="text-align:center; width: 1%;">Actions</th>
                 </tr>
             </thead>
             <tbody>
                 <?php foreach ($projects as $i => $p): ?>
                 <tr>
-                    <td><?= $i + 1 ?></td>
+                    <td class="sno-col"><?= $i + 1 ?></td>
                     <td><strong><?= esc($p['name']) ?></strong></td>
                     <td><?= esc($p['customer_name']) ?></td>
                     <td style="text-align:right"><?= number_format($p['contract_value'], 2) ?></td>
-                    <!-- <td class="text-end fw-bold text-primary">
-                        &#8377;<?= number_format((float) $p['remaining_balance'], 2) ?>
-                    </td> -->
+                    <?php /* Release 4.9.0EB: one state per row - Over Billed or Remaining Balance. */ ?>
+                    <?php if ($p['over_billed'] > 0.004): ?>
+                    <td class="text-end fw-bold text-danger">
+                        &#8377;<?= number_format($p['over_billed'], 2) ?>
+                        <div style="font-size:10px;font-weight:600;">Over Billed</div>
+                    </td>
+                    <?php else: ?>
+                    <td class="text-end fw-bold text-primary">
+                        &#8377;<?= number_format($p['remaining_billable'], 2) ?>
+                        <div style="font-size:10px;font-weight:600;">Remaining Balance</div>
+                    </td>
+                    <?php endif; ?>
                     <td class="text-end">
                         <?php
                         // Release 4.5.2: net_outstanding_collection_balance —
@@ -264,19 +278,21 @@
                         // level flag, independent of the Outstanding Collection
                         // column which shows invoice collection money.
                         $bcs    = $p['billing_completion_status'] ?? 'ACTIVE';
-                        $bcsMap = ['ACTIVE' => 'active', 'PARTIAL' => 'partial', 'COMPLETED' => 'completed'];
+                        // Release 4.9.0K: OVER_BILLED (total_billed > contract value) — see
+                        // ProjectModel::getBillingCompletionStatus().
+                        $bcsMap = ['ACTIVE' => 'active', 'PARTIAL' => 'partial', 'COMPLETED' => 'completed', 'FULLY_BILLED' => 'completed', 'OVER_BILLED' => 'over-billed'];
                         $bcsCls = $bcsMap[$bcs] ?? 'active';
                         ?>
-                        <span class="badge-status badge-<?= $bcsCls ?>"><?= $bcs ?></span>
+                        <span class="badge-status badge-<?= $bcsCls ?>"><?= str_replace('_', ' ', $bcs) ?></span>
                     </td>
                     <td>
-                        <a href="<?= base_url('projects/view/' . $p['id']) ?>" class="btn-view">
+                        <a href="<?= base_url('projects/view/' . $p['id']) ?>" class="btn-view table-action-btn">
                             <i class="bi bi-eye"></i> 
                         </a>
-                        <a href="<?= base_url('projects/edit/' . $p['id']) ?>" class="btn-edit">
+                        <a href="<?= base_url('projects/edit/' . $p['id']) ?>" class="btn-edit table-action-btn">
                             <i class="bi bi-pencil"></i> 
                         </a>
-                        <a href="<?= base_url('projects/delete/' . $p['id']) ?>" class="btn-delete"
+                        <a href="<?= base_url('projects/delete/' . $p['id']) ?>" class="btn-delete table-action-btn"
                            onclick="return confirm('Delete this project?')">
                             <i class="bi bi-trash"></i>
                         </a>
@@ -298,7 +314,7 @@
 				searching: true,    // ❌ remove search box
 				lengthChange: false, // ❌ remove "show entries"
 				info: false,          // (optional) showing "1 to 10 of X"
-				ordering: true,      // (optional sorting)
+				ordering: true, order: [],      // (optional sorting)
 				pageLength: 10,      // default rows per page
 
 				dom: 'tp' ,// ✅ ONLY table + pagination + info

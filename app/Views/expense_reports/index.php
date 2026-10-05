@@ -5,7 +5,6 @@ $qs     = http_build_query(array_filter([
     'category_id' => $f['category_id'] ?: '', 'project_id' => $f['project_id'] ?: '', 'payment_method' => $f['payment_method'],
     'date_from' => $f['date_from'], 'date_to' => $f['date_to'], 'search' => $f['search'],
 ], static fn ($v) => $v !== ''));
-$balCls = static fn ($b) => $b > 0.004 ? 'bal-pos' : 'bal-zero';
 ?>
 <?= $this->extend('layouts/main') ?>
 <?= $this->section('content') ?>
@@ -21,23 +20,19 @@ $balCls = static fn ($b) => $b > 0.004 ? 'bal-pos' : 'bal-zero';
 	.elg-filters .form-control { height: 32px; padding: 3px 8px; font-size: .8rem; }
 	.elg-filters .btn-cancel { height: 32px; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
 
-	.elg-strip { position: sticky; top: 0; z-index: 3; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); align-items: center; gap: 2px 12px; min-height: 58px; padding: 5px 12px; margin-bottom: 8px; background: #f8fafc; border: 1px solid var(--border-color); border-radius: var(--border-radius); }
+	.elg-strip { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 2px 12px; min-height: 44px; padding: 5px 12px; margin-bottom: 8px; background: #f8fafc; border: 1px solid var(--border-color); border-radius: var(--border-radius); }
 	.elg-strip .st-item { display: flex; flex-direction: column; min-width: 0; }
 	.elg-strip .st-item > span { font-size: .62rem; line-height: 1.2; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); }
 	.elg-strip .st-item > b { font-size: .95rem; line-height: 1.3; color: var(--text-dark); font-variant-numeric: tabular-nums; white-space: nowrap; }
-	.elg-strip .st-due > b { color: #c2410c; }
 	.elg-strip .st-paid > b { color: #166534; }
-	.elg-strip .st-net > b { color: #1d4ed8; }
 
 	.elg-scroll { max-height: 62vh; overflow: auto; }
 	.elg-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: .8rem; }
-	.elg-table thead th { position: sticky; top: 0; z-index: 2; background: #f1f5f9; padding: 0 10px; height: 34px; font-size: .68rem; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); border-bottom: 1px solid var(--border-color); white-space: nowrap; }
+	.elg-table thead th { position: sticky; top: 0; z-index: 2; background: #f1f5f9; padding: 0 10px; height: 34px; font-size: .68rem; text-transform: none; letter-spacing: .03em; color: var(--text-muted); border-bottom: 1px solid var(--border-color); white-space: nowrap; }
 	.elg-table td { height: 44px; padding: 0 10px; border-bottom: 1px solid #eef2f7; vertical-align: middle; }
 	.elg-table td.num, .elg-table th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
-	.elg-table td.part { min-width: 240px; }
-	.elg-table tfoot td { position: sticky; bottom: 0; background: #f1f5f9; font-weight: 700; height: 38px; }
-	.amt-debit { color: #c2410c; } .amt-credit { color: #166534; } .amt-nil { color: #cbd5e1; }
-	.bal-pos { color: #c2410c; font-weight: 600; } .bal-zero { color: #166534; font-weight: 600; }
+	.elg-table td.part { min-width: 160px; max-width: 260px; white-space: normal; word-break: break-word; }
+	.amt-debit { color: #1e293b; } .amt-nil { color: #cbd5e1; }
 	tr.is-cancelled td { color: #94a3b8; }
 
 	.tbadge { display: inline-flex; align-items: center; height: 20px; max-height: 22px; padding: 0 8px; border-radius: 10px; font-size: .66rem; font-weight: 600; white-space: nowrap; }
@@ -50,19 +45,17 @@ $balCls = static fn ($b) => $b > 0.004 ? 'bal-pos' : 'bal-zero';
 
 	@media (max-width: 1199.98px) {
 		.elg-filters { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-		.elg-strip { position: static; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+		.elg-strip { position: static; }
 	}
 	@media (max-width: 767.98px) {
 		.elg-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-		.elg-strip { grid-template-columns: 1fr; }
 		.elg-scroll { max-height: none; overflow: visible; }
 		.elg-table thead { display: none; }
 		.elg-table, .elg-table tbody, .elg-table tfoot, .elg-table tr, .elg-table td { display: block; width: 100%; }
 		.elg-table tr { margin-bottom: 8px; border: 1px solid var(--border-color); border-radius: var(--border-radius); background: #fff; padding: 4px 0; }
 		.elg-table td { height: auto; min-height: 28px; display: flex; justify-content: space-between; gap: 12px; padding: 4px 12px; border: 0; text-align: right; }
 		.elg-table td::before { content: attr(data-label); color: var(--text-muted); font-size: .68rem; text-transform: uppercase; text-align: left; flex: none; }
-		.elg-table td.part { min-width: 0; }
-		.elg-table tfoot td { position: static; }
+		.elg-table td.part { min-width: 0; max-width: none; }
 	}
 </style>
 
@@ -99,7 +92,7 @@ $balCls = static fn ($b) => $b > 0.004 ? 'bal-pos' : 'bal-zero';
         <select name="payment_method" id="fMethod" class="form-control">
             <option value="">All</option>
             <?php foreach ($paymentMethods as $m): ?>
-            <option value="<?= esc($m) ?>" <?= $f['payment_method'] === $m ? 'selected' : '' ?>><?= esc(ucfirst(strtolower($m))) ?></option>
+            <option value="<?= esc($m) ?>" <?= $f['payment_method'] === $m ? 'selected' : '' ?>><?= esc(pm_label($m)) ?></option>
             <?php endforeach; ?>
         </select>
     </div>
@@ -119,10 +112,7 @@ $balCls = static fn ($b) => $b > 0.004 ? 'bal-pos' : 'bal-zero';
 <?php if (! empty($warning)): ?><div class="elg-warn"><?= esc($warning) ?></div><?php endif; ?>
 
 <div class="elg-strip">
-    <div class="st-item"><span>Outstanding Expense Bills</span><b><?= (int) $summary['pending_count'] ?></b></div>
-    <div class="st-item st-due"><span>Outstanding Amount</span><b>₹ <?= $fmt($summary['outstanding']) ?></b></div>
     <div class="st-item st-paid"><span>Total Expense Paid</span><b>₹ <?= $fmt($summary['paid_total']) ?></b></div>
-    <div class="st-item st-net"><span>Net Expense</span><b>₹ <?= $fmt($summary['net']) ?></b></div>
 </div>
 
 <div class="card-custom mb-3">
@@ -130,79 +120,32 @@ $balCls = static fn ($b) => $b > 0.004 ? 'bal-pos' : 'bal-zero';
         <table class="elg-table">
             <thead>
                 <tr>
-                    <th>Date</th><th>Voucher No</th><th>Category</th><th>Project</th><th>Particulars</th>
-                    <th class="num">Debit</th><th class="num">Credit</th><th class="num">Balance</th>
+                    <th class="sno-col">S.No.</th>
+                    <th>Date</th><th>Voucher No</th><th>Category</th><th>Project</th><th>Particulars</th><th>Payment</th>
+                    <th class="num">Expense Amount</th><th>Status</th>
                 </tr>
             </thead>
             <tbody>
                 <?php if (empty($ledger_rows)): ?>
-                <tr><td colspan="8" class="elg-empty" style="display:table-cell">No expenses found.</td></tr>
+                <tr><td colspan="9" class="elg-empty" style="display:table-cell">No expenses found.</td></tr>
                 <?php endif; ?>
                 <?php foreach ($ledger_rows as $r): ?>
                 <tr class="<?= $r['status'] === 'CANCELLED' ? 'is-cancelled' : '' ?>">
+                    <td class="sno-col sno-auto" data-label="S.No."></td>
                     <td data-label="Date"><?= $dmy($r['date']) ?></td>
-                    <td data-label="Voucher"><?= esc($r['voucher']) ?></td>
+                    <td data-label="Voucher"><a href="<?= base_url('expenses/view/' . $r['id']) ?>"><?= esc($r['voucher']) ?></a></td>
                     <td data-label="Category"><?= esc($r['category'] ?: '-') ?></td>
                     <td data-label="Project"><?= esc($r['project'] ?: 'General') ?></td>
                     <td data-label="Particulars" class="part"><?= esc($r['particulars']) ?></td>
-                    <td data-label="Debit" class="num <?= $r['debit'] > 0 ? 'amt-debit' : 'amt-nil' ?>"><?= $r['debit'] > 0 ? $fmt($r['debit']) : '-' ?></td>
-                    <td data-label="Credit" class="num <?= $r['credit'] > 0 ? 'amt-credit' : 'amt-nil' ?>"><?= $r['credit'] > 0 ? $fmt($r['credit']) : '-' ?></td>
-                    <td data-label="Balance" class="num <?= $balCls($r['balance']) ?>"><?= $fmt($r['balance']) ?></td>
-                </tr>
-                <?php endforeach; ?>
-            </tbody>
-            <?php if (! empty($ledger_rows)): ?>
-            <tfoot><tr><td colspan="7" class="num">Closing Balance</td><td class="num <?= $balCls($closing) ?>"><?= $fmt($closing) ?></td></tr></tfoot>
-            <?php endif; ?>
-        </table>
-    </div>
-</div>
-
-<?php
-// Compact history tables: [title, rows, empty text, columns]
-$histories = [
-    ['Pending Expenses', $pending, 'No pending expenses.'],
-    ['Paid Expenses', $paid, 'No paid expenses.'],
-    ['Payment History', $payments, 'No payments.'],
-];
-foreach ($histories as [$title, $list, $empty]):
-    $isPayments = $title === 'Payment History';
-?>
-<div class="card-custom mb-3">
-    <div class="card-custom-header"><?= esc($title) ?> <span style="font-weight:400;color:var(--text-muted)">(<?= count($list) ?>)</span></div>
-    <div class="elg-scroll" style="max-height:none">
-        <table class="elg-table">
-            <thead>
-                <tr>
-                    <th>Voucher No</th><th>Date</th><th>Category</th><th>Project</th><th>Paid To</th>
-                    <?php if ($isPayments): ?><th>Method</th><th>Bank Account</th><?php endif; ?>
-                    <th class="num">Amount</th><th>Status</th>
-                </tr>
-            </thead>
-            <tbody>
-                <?php if (empty($list)): ?>
-                <tr><td colspan="<?= $isPayments ? 9 : 7 ?>" class="elg-empty" style="display:table-cell"><?= esc($empty) ?></td></tr>
-                <?php endif; ?>
-                <?php foreach ($list as $e): ?>
-                <tr class="<?= $e['status'] === 'CANCELLED' ? 'is-cancelled' : '' ?>">
-                    <td data-label="Voucher"><a href="<?= base_url('expenses/view/' . $e['id']) ?>"><?= esc($e['voucher']) ?></a></td>
-                    <td data-label="Date"><?= $dmy($e['date']) ?></td>
-                    <td data-label="Category"><?= esc($e['category'] ?: '-') ?></td>
-                    <td data-label="Project"><?= esc($e['project'] ?: 'General') ?></td>
-                    <td data-label="Paid To"><?= esc($e['paid_to']) ?></td>
-                    <?php if ($isPayments): ?>
-                    <td data-label="Method"><?= esc(ucfirst(strtolower($e['method']))) ?></td>
-                    <td data-label="Bank"><?= esc($e['bank'] ?: '-') ?></td>
-                    <?php endif; ?>
-                    <td data-label="Amount" class="num"><?= $fmt($e['amount']) ?></td>
-                    <td data-label="Status"><span class="tbadge s-<?= strtolower($e['status']) ?>"><?= $e['status'] === 'CANCELLED' && $isPayments ? 'Reversed' : ucfirst(strtolower($e['status'])) ?></span></td>
+                    <td data-label="Payment"><?= esc(pm_label($r['payment_method'], 'Not recorded')) ?></td>
+                    <td data-label="Expense Amount" class="num <?= $r['expense_amount'] > 0 ? 'amt-debit' : 'amt-nil' ?>"><?= $r['expense_amount'] > 0 ? $fmt($r['expense_amount']) : '-' ?></td>
+                    <td data-label="Status"><span class="tbadge s-<?= strtolower($r['status']) ?>"><?= ucfirst(strtolower($r['status'])) ?></span></td>
                 </tr>
                 <?php endforeach; ?>
             </tbody>
         </table>
     </div>
 </div>
-<?php endforeach; ?>
 </div>
 
 <?= $this->endSection() ?>

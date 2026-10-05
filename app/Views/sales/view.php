@@ -65,10 +65,10 @@
             <?php if (count($allocations) > 1): ?>
             <div class="table-responsive">
                 <table class="table-custom">
-                    <thead><tr><th>Date</th><th style="text-align:right">Allocated</th><th>By</th></tr></thead>
+                    <thead><tr><th class="sno-col">S.No.</th><th>Date</th><th style="text-align:right">Allocated</th><th>By</th></tr></thead>
                     <tbody>
                         <?php foreach ($allocations as $al): ?>
-                        <tr><td><?= esc($al['allocation_date']) ?></td><td style="text-align:right"><?= number_format($al['allocated_amount'], 2) ?></td><td><?= esc($al['created_by_name'] ?? '-') ?></td></tr>
+                        <tr><td class="sno-col sno-auto" data-label="S.No."></td><td><?= esc($al['allocation_date']) ?></td><td style="text-align:right"><?= number_format($al['allocated_amount'], 2) ?></td><td><?= esc($al['created_by_name'] ?? '-') ?></td></tr>
                         <?php endforeach; ?>
                     </tbody>
                 </table>
@@ -80,16 +80,17 @@
             <div class="card-custom-header">Payments Received</div>
             <div class="table-responsive">
                 <table class="table-custom">
-                    <thead><tr><th>Date</th><th>Amount</th><th>Method</th></tr></thead>
+                    <thead><tr><th class="sno-col">S.No.</th><th>Date</th><th>Amount</th><th>Method</th></tr></thead>
                     <tbody>
                         <?php if (empty($payments)): ?>
-                        <tr><td colspan="3" class="text-center text-muted">No payments</td></tr>
+                        <tr><td colspan="4" class="text-center text-muted">No payments</td></tr>
                         <?php else: ?>
                         <?php foreach ($payments as $pay): ?>
                         <tr>
+                            <td class="sno-col sno-auto" data-label="S.No."></td>
                             <td><?= $pay['payment_date'] ?></td>
                             <td><?= number_format($pay['amount'], 2) ?></td>
-                            <td><?= $pay['method'] ?></td>
+                            <td><?= pm_badge($pay['method'] ?? '', 'Not recorded') ?></td>
                         </tr>
                         <?php endforeach; ?>
                         <?php endif; ?>
@@ -103,11 +104,11 @@
             <div class="card-custom-header">Items Sold</div>
             <div class="table-responsive">
                 <table class="table-custom">
-                    <thead><tr><th>#</th><th>Product</th><th>Unit</th><th>Qty</th><th>Unit Price</th><th>GST %</th><th>GST</th><th style="text-align:right">GST Amt</th><th style="text-align:right">Total</th><th style="text-align:right">Total + GST</th></tr></thead>
+                    <thead><tr><th class="sno-col">S.No.</th><th>Product</th><th>Unit</th><th>Qty</th><th>Unit Price</th><th>GST %</th><th>GST</th><th style="text-align:right">GST Amt</th><th style="text-align:right">Total</th><th style="text-align:right">Total + GST</th></tr></thead>
                     <tbody>
                         <?php foreach ($items as $i => $item): ?>
                         <tr>
-                            <td><?= $i + 1 ?></td>
+                            <td class="sno-col"><?= $i + 1 ?></td>
                             <td><?= esc($item['product_name']) ?></td>
                             <td><?= esc($item['unit']) ?></td>
                             <td><?= number_format($item['quantity'], 3) ?></td>

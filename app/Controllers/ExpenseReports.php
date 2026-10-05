@@ -21,15 +21,13 @@ use CodeIgniter\Controller;
  * returns an empty dataset with a warning), and search text is LIKE-escaped
  * before being bound by the Query Builder.
  *
- * Category / Project / Payment Method / Monthly Summary have no filters —
- * each is a full PAID-only breakdown of the whole expenses table, so their
- * totals always equal the Expense Register's unfiltered total. Category and
- * Project Summary reuse ExpenseModel::categoryTotals()/projectTotals()
- * directly (already PAID-only, already grouped and ordered); Payment Method
- * Summary and Monthly Summary need grouping ExpenseModel doesn't already
- * provide, so that SQL lives here instead — unfiltered, PAID-only, same
- * rule as the two reused methods. Cancelled expenses never enter any total
- * or count on any of these five pages.
+ * Category / Project / Payment Method / Monthly Summary take only an
+ * optional From/To expense_date range (Release 4.9.0F) — each is a PAID-only
+ * breakdown, so with no range their totals equal the ledger's unfiltered
+ * PAID total. Category and Project Summary reuse
+ * ExpenseModel::categoryTotals()/projectTotals(); Payment Method and Monthly
+ * Summary group here (see _summary()). Cancelled expenses never enter any
+ * total or count on any of these pages.
  */
 class ExpenseReports extends Controller
 {
@@ -68,139 +66,25 @@ class ExpenseReports extends Controller
     /** Category Summary: PAID expenses grouped by category, highest first. */
     public function categorySummary()
     {
-        if ($redirect = $this->_guard()) {
-            return $redirect;
-        }
-
-        $rows  = (new ExpenseModel())->categoryTotals();
-        $total = $this->_sum($rows, 'total');
-
-        foreach ($rows as &$r) {
-            $r['percentage'] = $total > 0 ? round(((float) $r['total'] / $total) * 100, 1) : 0.0;
-        }
-        unset($r);
-
-        $count   = count($rows);
-        $highest = $rows ? max(array_map('floatval', array_column($rows, 'total'))) : 0.0;
-
-        return view('expense_reports/category_summary', [
-            'title'               => 'Category Summary',
-            'rows'                => $rows,
-            'kpi_categories_used' => $count,
-            'kpi_highest'         => round($highest, 2),
-            'kpi_total'           => $total,
-            'kpi_average'         => $count > 0 ? round($total / $count, 2) : 0.0,
-        ]);
+        return $this->_summaryPage('category');
     }
 
     /** Project Summary: PAID expenses grouped by project (incl. "No Project"), highest first. */
     public function projectSummary()
     {
-        if ($redirect = $this->_guard()) {
-            return $redirect;
-        }
-
-        $rows  = (new ExpenseModel())->projectTotals();
-        $total = $this->_sum($rows, 'total');
-
-        foreach ($rows as &$r) {
-            $r['percentage'] = $total > 0 ? round(((float) $r['total'] / $total) * 100, 1) : 0.0;
-        }
-        unset($r);
-
-        $count   = count($rows);
-        $highest = $rows ? max(array_map('floatval', array_column($rows, 'total'))) : 0.0;
-
-        return view('expense_reports/project_summary', [
-            'title'            => 'Project Summary',
-            'rows'             => $rows,
-            'kpi_project_count' => $count,
-            'kpi_highest'      => round($highest, 2),
-            'kpi_total'        => $total,
-            'kpi_average'      => $count > 0 ? round($total / $count, 2) : 0.0,
-        ]);
+        return $this->_summaryPage('project');
     }
 
     /** Payment Method Summary: PAID expenses grouped by method, all 5 methods always shown. */
     public function paymentSummary()
     {
-        if ($redirect = $this->_guard()) {
-            return $redirect;
-        }
-
-        $db  = \Config\Database::connect();
-        $agg = $db->query("
-            SELECT payment_method, COUNT(*) AS count, COALESCE(SUM(amount), 0) AS total
-            FROM expenses
-            WHERE status = 'PAID'
-            GROUP BY payment_method
-        ")->getResultArray();
-
-        $byMethod = array_column($agg, null, 'payment_method');
-
-        $rows = [];
-        foreach (self::PAYMENT_METHODS as $m) {
-            $rows[] = [
-                'payment_method' => $m,
-                'count'          => (int) ($byMethod[$m]['count'] ?? 0),
-                'total'          => round((float) ($byMethod[$m]['total'] ?? 0), 2),
-            ];
-        }
-
-        $grandTotal = $this->_sum($rows, 'total');
-
-        foreach ($rows as &$r) {
-            $r['percentage'] = $grandTotal > 0 ? round($r['total'] / $grandTotal * 100, 1) : 0.0;
-        }
-        unset($r);
-
-        $byTotal = array_column($rows, 'total', 'payment_method');
-
-        return view('expense_reports/payment_summary', [
-            'title'       => 'Payment Method Summary',
-            'rows'        => $rows,
-            'kpi_total'   => $grandTotal,
-            'kpi_cash'    => $byTotal['CASH'] ?? 0.0,
-            'kpi_bank'    => $byTotal['BANK'] ?? 0.0,
-            'kpi_digital' => round(($byTotal['BANK'] ?? 0.0) + ($byTotal['CHEQUE'] ?? 0.0) + ($byTotal['UPI'] ?? 0.0), 2),
-        ]);
+        return $this->_summaryPage('payment');
     }
 
     /** Monthly Summary: PAID expenses grouped by calendar month, newest first. */
     public function monthlySummary()
     {
-        if ($redirect = $this->_guard()) {
-            return $redirect;
-        }
-
-        $db   = \Config\Database::connect();
-        $rows = $db->query("
-            SELECT DATE_FORMAT(expense_date, '%Y-%m') AS month_key,
-                   COUNT(*) AS count, COALESCE(SUM(amount), 0) AS total
-            FROM expenses
-            WHERE status = 'PAID'
-            GROUP BY DATE_FORMAT(expense_date, '%Y-%m')
-            ORDER BY month_key DESC
-        ")->getResultArray();
-
-        foreach ($rows as &$r) {
-            $r['total']       = round((float) $r['total'], 2);
-            $r['count']       = (int) $r['count'];
-            $r['month_label'] = date('F Y', strtotime($r['month_key'] . '-01'));
-        }
-        unset($r);
-
-        $count  = count($rows);
-        $totals = array_map('floatval', array_column($rows, 'total'));
-
-        return view('expense_reports/monthly_summary', [
-            'title'            => 'Monthly Summary',
-            'rows'             => $rows,
-            'kpi_total_months' => $count,
-            'kpi_highest'      => $totals ? max($totals) : 0.0,
-            'kpi_lowest'       => $totals ? min($totals) : 0.0,
-            'kpi_average'      => $count > 0 ? round(array_sum($totals) / $count, 2) : 0.0,
-        ]);
+        return $this->_summaryPage('monthly');
     }
 
     // =========================================================
@@ -240,144 +124,22 @@ class ExpenseReports extends Controller
 
     public function exportCategorySummaryPdf()
     {
-        if ($redirect = $this->_guard()) {
-            return $redirect;
-        }
-
-        $rows  = (new ExpenseModel())->categoryTotals();
-        $total = $this->_sum($rows, 'total');
-
-        foreach ($rows as &$r) {
-            $r['percentage'] = $total > 0 ? round(((float) $r['total'] / $total) * 100, 1) : 0.0;
-        }
-        unset($r);
-
-        $count   = count($rows);
-        $highest = $rows ? max(array_map('floatval', array_column($rows, 'total'))) : 0.0;
-
-        (new PdfReport())->render('pdf/expense_category_summary', [
-            'rows'                => $rows,
-            'kpi_categories_used' => $count,
-            'kpi_highest'         => round($highest, 2),
-            'kpi_total'           => $total,
-            'kpi_average'         => $count > 0 ? round($total / $count, 2) : 0.0,
-        ], [
-            'title'       => 'Category Summary',
-            'orientation' => 'landscape',
-        ]);
+        return $this->_summaryPdf('category');
     }
 
     public function exportProjectSummaryPdf()
     {
-        if ($redirect = $this->_guard()) {
-            return $redirect;
-        }
-
-        $rows  = (new ExpenseModel())->projectTotals();
-        $total = $this->_sum($rows, 'total');
-
-        foreach ($rows as &$r) {
-            $r['percentage'] = $total > 0 ? round(((float) $r['total'] / $total) * 100, 1) : 0.0;
-        }
-        unset($r);
-
-        $count   = count($rows);
-        $highest = $rows ? max(array_map('floatval', array_column($rows, 'total'))) : 0.0;
-
-        (new PdfReport())->render('pdf/expense_project_summary', [
-            'rows'              => $rows,
-            'kpi_project_count' => $count,
-            'kpi_highest'       => round($highest, 2),
-            'kpi_total'         => $total,
-            'kpi_average'       => $count > 0 ? round($total / $count, 2) : 0.0,
-        ], [
-            'title'       => 'Project Summary',
-            'orientation' => 'landscape',
-        ]);
+        return $this->_summaryPdf('project');
     }
 
     public function exportPaymentSummaryPdf()
     {
-        if ($redirect = $this->_guard()) {
-            return $redirect;
-        }
-
-        $db  = \Config\Database::connect();
-        $agg = $db->query("
-            SELECT payment_method, COUNT(*) AS count, COALESCE(SUM(amount), 0) AS total
-            FROM expenses
-            WHERE status = 'PAID'
-            GROUP BY payment_method
-        ")->getResultArray();
-
-        $byMethod = array_column($agg, null, 'payment_method');
-
-        $rows = [];
-        foreach (self::PAYMENT_METHODS as $m) {
-            $rows[] = [
-                'payment_method' => $m,
-                'count'          => (int) ($byMethod[$m]['count'] ?? 0),
-                'total'          => round((float) ($byMethod[$m]['total'] ?? 0), 2),
-            ];
-        }
-
-        $grandTotal = $this->_sum($rows, 'total');
-
-        foreach ($rows as &$r) {
-            $r['percentage'] = $grandTotal > 0 ? round($r['total'] / $grandTotal * 100, 1) : 0.0;
-        }
-        unset($r);
-
-        $byTotal = array_column($rows, 'total', 'payment_method');
-
-        (new PdfReport())->render('pdf/expense_payment_summary', [
-            'rows'        => $rows,
-            'kpi_total'   => $grandTotal,
-            'kpi_cash'    => $byTotal['CASH'] ?? 0.0,
-            'kpi_bank'    => $byTotal['BANK'] ?? 0.0,
-            'kpi_digital' => round(($byTotal['BANK'] ?? 0.0) + ($byTotal['CHEQUE'] ?? 0.0) + ($byTotal['UPI'] ?? 0.0), 2),
-        ], [
-            'title'       => 'Payment Method Summary',
-            'orientation' => 'landscape',
-        ]);
+        return $this->_summaryPdf('payment');
     }
 
     public function exportMonthlySummaryPdf()
     {
-        if ($redirect = $this->_guard()) {
-            return $redirect;
-        }
-
-        $db   = \Config\Database::connect();
-        $rows = $db->query("
-            SELECT DATE_FORMAT(expense_date, '%Y-%m') AS month_key,
-                   COUNT(*) AS count, COALESCE(SUM(amount), 0) AS total
-            FROM expenses
-            WHERE status = 'PAID'
-            GROUP BY DATE_FORMAT(expense_date, '%Y-%m')
-            ORDER BY month_key DESC
-        ")->getResultArray();
-
-        foreach ($rows as &$r) {
-            $r['total']       = round((float) $r['total'], 2);
-            $r['count']       = (int) $r['count'];
-            $r['month_label'] = date('F Y', strtotime($r['month_key'] . '-01'));
-        }
-        unset($r);
-
-        $count  = count($rows);
-        $totals = array_map('floatval', array_column($rows, 'total'));
-
-        (new PdfReport())->render('pdf/expense_monthly_summary', [
-            'rows'             => $rows,
-            'kpi_total_months' => $count,
-            'kpi_highest'      => $totals ? max($totals) : 0.0,
-            'kpi_lowest'       => $totals ? min($totals) : 0.0,
-            'kpi_average'      => $count > 0 ? round(array_sum($totals) / $count, 2) : 0.0,
-        ], [
-            'title'       => 'Monthly Summary',
-            'orientation' => 'landscape',
-        ]);
+        return $this->_summaryPdf('monthly');
     }
 
     // =========================================================
@@ -402,7 +164,7 @@ class ExpenseReports extends Controller
 
         $excelRows = [];
         foreach ($ledger['ledger_rows'] as $r) {
-            $excelRows[] = [$r['date'], $r['voucher'], $r['category'], $r['project'], $r['particulars'], $r['debit'], $r['credit'], $r['balance']];
+            $excelRows[] = [$r['date'], $r['voucher'], $r['category'], $r['project'], $r['particulars'], pm_label($r['payment_method'], 'Not recorded'), $r['expense_amount'], ucfirst(strtolower($r['status']))];
         }
 
         (new ExcelReport())->table(
@@ -415,144 +177,240 @@ class ExpenseReports extends Controller
                 'To'             => $f['date_to'] !== '' ? pdf_date($f['date_to']) : '',
                 'Search'         => $f['search'],
             ],
-            ['Date', 'Voucher No', 'Category', 'Project', 'Particulars', 'Debit', 'Credit', 'Balance'],
+            ['Date', 'Voucher No', 'Category', 'Project', 'Particulars', 'Payment Method', 'Expense Amount', 'Status'],
             $excelRows,
-            ['date', 'text', 'text', 'text', 'text', 'currency', 'currency', 'currency'],
-            [5, 6],
+            ['date', 'text', 'text', 'text', 'text', 'text', 'currency', 'text'],
+            [6],
             'landscape'
         )->stream('expense_ledger_' . date('Ymd_His'));
     }
 
     public function exportCategorySummaryExcel()
     {
-        if ($redirect = $this->_guard()) {
-            return $redirect;
-        }
-
-        $rows  = (new ExpenseModel())->categoryTotals();
-        $total = $this->_sum($rows, 'total');
-
-        $excelRows = [];
-        foreach ($rows as $r) {
-            $pct         = $total > 0 ? round(((float) $r['total'] / $total) * 100, 1) : 0.0;
-            $excelRows[] = [$r['category_name'] ?? '', (int) $r['count'], (float) $r['total'], $pct];
-        }
-
-        (new ExcelReport())->table(
-            'Category Summary',
-            [],
-            ['Category', 'Count', 'Total', 'Percentage'],
-            $excelRows,
-            ['text', 'int', 'currency', 'number'],
-            [2],
-            'landscape'
-        )->stream('expense_category_summary_' . date('Ymd_His'));
+        return $this->_summaryExcel('category');
     }
 
     public function exportProjectSummaryExcel()
     {
-        if ($redirect = $this->_guard()) {
-            return $redirect;
-        }
-
-        $rows  = (new ExpenseModel())->projectTotals();
-        $total = $this->_sum($rows, 'total');
-
-        $excelRows = [];
-        foreach ($rows as $r) {
-            $pct         = $total > 0 ? round(((float) $r['total'] / $total) * 100, 1) : 0.0;
-            $excelRows[] = [$r['project_name'] ?? $r['name'] ?? 'No Project', (int) $r['count'], (float) $r['total'], $pct];
-        }
-
-        (new ExcelReport())->table(
-            'Project Summary',
-            [],
-            ['Project', 'Count', 'Total', 'Percentage'],
-            $excelRows,
-            ['text', 'int', 'currency', 'number'],
-            [2],
-            'landscape'
-        )->stream('expense_project_summary_' . date('Ymd_His'));
+        return $this->_summaryExcel('project');
     }
 
     public function exportPaymentSummaryExcel()
     {
-        if ($redirect = $this->_guard()) {
-            return $redirect;
-        }
-
-        $db  = \Config\Database::connect();
-        $agg = $db->query("
-            SELECT payment_method, COUNT(*) AS count, COALESCE(SUM(amount), 0) AS total
-            FROM expenses
-            WHERE status = 'PAID'
-            GROUP BY payment_method
-        ")->getResultArray();
-
-        $byMethod = array_column($agg, null, 'payment_method');
-
-        $rows = [];
-        foreach (self::PAYMENT_METHODS as $m) {
-            $rows[] = [
-                'payment_method' => $m,
-                'count'          => (int) ($byMethod[$m]['count'] ?? 0),
-                'total'          => round((float) ($byMethod[$m]['total'] ?? 0), 2),
-            ];
-        }
-
-        $grandTotal = $this->_sum($rows, 'total');
-
-        $excelRows = [];
-        foreach ($rows as $r) {
-            $pct         = $grandTotal > 0 ? round($r['total'] / $grandTotal * 100, 1) : 0.0;
-            $excelRows[] = [$r['payment_method'], $r['count'], $r['total'], $pct];
-        }
-
-        (new ExcelReport())->table(
-            'Payment Method Summary',
-            [],
-            ['Payment Method', 'Count', 'Total', 'Percentage'],
-            $excelRows,
-            ['text', 'int', 'currency', 'number'],
-            [2],
-            'landscape'
-        )->stream('expense_payment_summary_' . date('Ymd_His'));
+        return $this->_summaryExcel('payment');
     }
 
     public function exportMonthlySummaryExcel()
+    {
+        return $this->_summaryExcel('monthly');
+    }
+
+    // =========================================================
+    // SUMMARIES (Release 4.9.0F) — one builder per summary feeds the page,
+    // the PDF and the Excel export, so all three show the same PAID-only
+    // totals for the same optional From/To expense_date range.
+    // =========================================================
+
+    private const SUMMARIES = [
+        'category' => ['title' => 'Category Summary',       'view' => 'expense_reports/category_summary', 'pdf' => 'pdf/expense_category_summary', 'file' => 'expense_category_summary'],
+        'project'  => ['title' => 'Project Summary',        'view' => 'expense_reports/project_summary',  'pdf' => 'pdf/expense_project_summary',  'file' => 'expense_project_summary'],
+        'payment'  => ['title' => 'Payment Method Summary', 'view' => 'expense_reports/payment_summary',  'pdf' => 'pdf/expense_payment_summary',  'file' => 'expense_payment_summary'],
+        'monthly'  => ['title' => 'Monthly Summary',        'view' => 'expense_reports/monthly_summary',  'pdf' => 'pdf/expense_monthly_summary',  'file' => 'expense_monthly_summary'],
+    ];
+
+    private function _summaryPage(string $kind)
     {
         if ($redirect = $this->_guard()) {
             return $redirect;
         }
 
-        $db   = \Config\Database::connect();
-        $rows = $db->query("
-            SELECT DATE_FORMAT(expense_date, '%Y-%m') AS month_key,
-                   COUNT(*) AS count, COALESCE(SUM(amount), 0) AS total
-            FROM expenses
-            WHERE status = 'PAID'
-            GROUP BY DATE_FORMAT(expense_date, '%Y-%m')
-            ORDER BY month_key DESC
-        ")->getResultArray();
+        $f = $this->_summaryFilters();
+
+        return view(self::SUMMARIES[$kind]['view'], [
+            'title'   => self::SUMMARIES[$kind]['title'],
+            'f'       => $f,
+            'warning' => $this->_warning($f),
+        ] + $this->_summary($kind, $f));
+    }
+
+    private function _summaryPdf(string $kind)
+    {
+        if ($redirect = $this->_guard()) {
+            return $redirect;
+        }
+
+        $f = $this->_summaryFilters();
+
+        (new PdfReport())->render(self::SUMMARIES[$kind]['pdf'], $this->_summary($kind, $f), [
+            'title'       => self::SUMMARIES[$kind]['title'],
+            'orientation' => 'landscape',
+            'filters'     => $this->_periodFilters($f),
+        ]);
+    }
+
+    private function _summaryExcel(string $kind)
+    {
+        if ($redirect = $this->_guard()) {
+            return $redirect;
+        }
+
+        $f    = $this->_summaryFilters();
+        $data = $this->_summary($kind, $f);
 
         $excelRows = [];
-        foreach ($rows as $r) {
-            $excelRows[] = [
-                date('F Y', strtotime($r['month_key'] . '-01')),
-                (int) $r['count'],
-                round((float) $r['total'], 2),
-            ];
+        if ($kind === 'monthly') {
+            foreach ($data['rows'] as $r) {
+                $excelRows[] = [$r['month_label'], $r['count'], $r['total']];
+            }
+            $headers = ['Month', 'Count', 'Total'];
+            $types   = ['text', 'int', 'currency'];
+        } else {
+            foreach ($data['rows'] as $r) {
+                $label = match ($kind) {
+                    'category' => $r['category_name'] ?? '',
+                    'project'  => $r['project_name'] ?? 'No Project',
+                    default    => $r['payment_method'],
+                };
+                $excelRows[] = [$label, (int) $r['count'], (float) $r['total'], $r['percentage']];
+            }
+            $headers = [['category' => 'Category', 'project' => 'Project', 'payment' => 'Payment Method'][$kind], 'Count', 'Total', 'Percentage'];
+            $types   = ['text', 'int', 'currency', 'number'];
         }
 
         (new ExcelReport())->table(
-            'Monthly Summary',
-            [],
-            ['Month', 'Count', 'Total'],
+            self::SUMMARIES[$kind]['title'],
+            $this->_periodFilters($f),
+            $headers,
             $excelRows,
-            ['text', 'int', 'currency'],
+            $types,
             [2],
             'landscape'
-        )->stream('expense_monthly_summary_' . date('Ymd_His'));
+        )->stream(self::SUMMARIES[$kind]['file'] . '_' . date('Ymd_His'));
+    }
+
+    /** Rows + KPIs for one summary. An invalid date range yields an empty summary. */
+    private function _summary(string $kind, array $f): array
+    {
+        $ok   = $f['dates_valid'];
+        $from = $f['date_from'] !== '' ? $f['date_from'] : null;
+        $to   = $f['date_to'] !== '' ? $f['date_to'] : null;
+
+        if ($kind === 'category' || $kind === 'project') {
+            $model = new ExpenseModel();
+            $rows  = ! $ok ? [] : ($kind === 'category' ? $model->categoryTotals($from, $to) : $model->projectTotals($from, $to));
+            $total = $this->_sum($rows, 'total');
+
+            foreach ($rows as &$r) {
+                $r['percentage'] = $total > 0 ? round(((float) $r['total'] / $total) * 100, 1) : 0.0;
+            }
+            unset($r);
+
+            $count   = count($rows);
+            $highest = $rows ? max(array_map('floatval', array_column($rows, 'total'))) : 0.0;
+
+            return [
+                'rows'                                                            => $rows,
+                ($kind === 'category' ? 'kpi_categories_used' : 'kpi_project_count') => $count,
+                'kpi_highest'                                                     => round($highest, 2),
+                'kpi_total'                                                       => $total,
+                'kpi_average'                                                     => $count > 0 ? round($total / $count, 2) : 0.0,
+            ];
+        }
+
+        $where  = "WHERE status = 'PAID'";
+        $params = [];
+        if ($from !== null) {
+            $where   .= ' AND expense_date >= ?';
+            $params[] = $from;
+        }
+        if ($to !== null) {
+            $where   .= ' AND expense_date <= ?';
+            $params[] = $to;
+        }
+        $db = \Config\Database::connect();
+
+        if ($kind === 'payment') {
+            $agg = ! $ok ? [] : $db->query("
+                SELECT payment_method, COUNT(*) AS count, COALESCE(SUM(amount), 0) AS total
+                FROM expenses
+                $where
+                GROUP BY payment_method
+            ", $params)->getResultArray();
+
+            $byMethod = array_column($agg, null, 'payment_method');
+
+            $rows = [];
+            foreach (self::PAYMENT_METHODS as $m) {
+                $rows[] = [
+                    'payment_method' => $m,
+                    'count'          => (int) ($byMethod[$m]['count'] ?? 0),
+                    'total'          => round((float) ($byMethod[$m]['total'] ?? 0), 2),
+                ];
+            }
+
+            $grandTotal = $this->_sum($rows, 'total');
+
+            foreach ($rows as &$r) {
+                $r['percentage'] = $grandTotal > 0 ? round($r['total'] / $grandTotal * 100, 1) : 0.0;
+            }
+            unset($r);
+
+            $byTotal = array_column($rows, 'total', 'payment_method');
+
+            return [
+                'rows'        => $rows,
+                'kpi_total'   => $grandTotal,
+                'kpi_cash'    => $byTotal['CASH'] ?? 0.0,
+                'kpi_bank'    => $byTotal['BANK'] ?? 0.0,
+                'kpi_digital' => round(($byTotal['BANK'] ?? 0.0) + ($byTotal['CHEQUE'] ?? 0.0) + ($byTotal['UPI'] ?? 0.0), 2),
+            ];
+        }
+
+        $rows = ! $ok ? [] : $db->query("
+            SELECT DATE_FORMAT(expense_date, '%Y-%m') AS month_key,
+                   COUNT(*) AS count, COALESCE(SUM(amount), 0) AS total
+            FROM expenses
+            $where
+            GROUP BY DATE_FORMAT(expense_date, '%Y-%m')
+            ORDER BY month_key DESC
+        ", $params)->getResultArray();
+
+        foreach ($rows as &$r) {
+            $r['total']       = round((float) $r['total'], 2);
+            $r['count']       = (int) $r['count'];
+            $r['month_label'] = date('F Y', strtotime($r['month_key'] . '-01'));
+        }
+        unset($r);
+
+        $count  = count($rows);
+        $totals = array_map('floatval', array_column($rows, 'total'));
+
+        return [
+            'rows'             => $rows,
+            'kpi_total_months' => $count,
+            'kpi_highest'      => $totals ? max($totals) : 0.0,
+            'kpi_lowest'       => $totals ? min($totals) : 0.0,
+            'kpi_average'      => $count > 0 ? round(array_sum($totals) / $count, 2) : 0.0,
+        ];
+    }
+
+    private function _summaryFilters(): array
+    {
+        $ok = true;
+
+        return $this->_rangeCheck([
+            'date_from'   => $this->_date('date_from', $ok),
+            'date_to'     => $this->_date('date_to', $ok),
+            'dates_valid' => $ok,
+        ]);
+    }
+
+    private function _periodFilters(array $f): array
+    {
+        return [
+            'From' => $f['date_from'] !== '' ? pdf_date($f['date_from']) : '',
+            'To'   => $f['date_to'] !== '' ? pdf_date($f['date_to']) : '',
+        ];
     }
 
     // =========================================================
@@ -609,77 +467,54 @@ class ExpenseReports extends Controller
     }
 
     /**
-     * Release 4.9.0C: the running Expense Ledger, from the same filtered rows the
-     * old register used. Read-only; no posting, numbering or schema is touched.
+     * Release 4.9.0AK: single-table consolidation of the 4.9.0AJ Expense
+     * Ledger. One row per expense — no separate Pending/Paid/Payment-History
+     * arrays, since those were always the same rows filtered by status, not
+     * distinct data.
      *
-     * An expense is recognised (Debit) and, being posted PAID at entry, settled
-     * in the same voucher (Credit) — so the running balance is the unsettled
-     * amount, which is 0 for every PAID expense. A CANCELLED expense is a
-     * zero-value memo row (its cash/bank reversal is already posted by the
-     * Expenses module). Any other status would be an unpaid bill: debit only,
-     * so it lands in Pending Expenses / Outstanding. No such status can be
-     * written today (ExpenseModel allows PAID / CANCELLED only).
+     * Release 4.9.0AL audited the actual lifecycle: ExpenseModel allows only
+     * PAID / CANCELLED and Expenses::store() always posts payment in the same
+     * transaction as creation, so there is no unpaid/partial expense state
+     * today. Release 4.9.0AM removed the Outstanding/Net Expense figures that
+     * followed from that never-reachable state — Total Expense Paid is the
+     * only authoritative total.
      */
     private function _ledger(array $f): array
     {
         $rows = array_reverse($this->_registerRows($f)); // ASC: oldest first, ties by id
 
-        $ledger = $pending = $paid = $payments = [];
-        $balance = 0.0;
+        $ledger    = [];
+        $paidTotal = 0.0;
 
         foreach ($rows as $r) {
-            $amount    = round((float) $r['amount'], 2);
-            $status    = $r['status'];
-            $method    = $r['payment_method'];
-            $bank      = trim(($r['bank_name'] ?? '') . ' ' . ($r['account_name'] ?? ''));
-            $via       = $method . ($bank !== '' ? ' — ' . $bank : '');
-            $isPaid    = $status === 'PAID';
-            $isPending = ! $isPaid && $status !== 'CANCELLED';
+            $amount = round((float) $r['amount'], 2);
+            $status = $r['status'];
+            $method = $r['payment_method'];
+            $bank   = trim(($r['bank_name'] ?? '') . ' ' . ($r['account_name'] ?? ''));
+            $via    = ucfirst(strtolower($method)) . ($bank !== '' ? ' — ' . $bank : '');
 
-            $debit  = $status === 'CANCELLED' ? 0.0 : $amount;
-            $credit = $isPaid ? $amount : 0.0;
-            $balance = round($balance + $debit - $credit, 2);
+            $expenseAmount = $status === 'CANCELLED' ? 0.0 : $amount;
 
-            $what = trim($r['paid_to'] . ($r['remarks'] !== null && $r['remarks'] !== '' ? ' — ' . $r['remarks'] : ''));
-            $particulars = $status === 'CANCELLED'
-                ? 'Cancelled: ' . $what
-                : ($isPaid ? $what . ' (paid by ' . $via . ')' : $what . ' (unpaid)');
+            if ($status === 'PAID') {
+                $paidTotal += $amount;
+            }
+
+            $particulars = trim($r['paid_to'] . ($r['remarks'] !== null && $r['remarks'] !== '' ? ' — ' . $r['remarks'] : ''));
+            if ($status === 'CANCELLED') {
+                $particulars = 'Cancelled: ' . $particulars;
+            }
 
             $ledger[] = [
-                'date' => $r['expense_date'], 'voucher' => $r['expense_no'], 'category' => (string) ($r['category_name'] ?? ''),
-                'project' => (string) ($r['project_name'] ?? ''), 'particulars' => $particulars,
-                'debit' => $debit, 'credit' => $credit, 'balance' => $balance, 'status' => $status,
-            ];
-
-            $entry = [
                 'id' => (int) $r['id'], 'date' => $r['expense_date'], 'voucher' => $r['expense_no'], 'category' => (string) ($r['category_name'] ?? ''),
-                'project' => (string) ($r['project_name'] ?? ''), 'paid_to' => $r['paid_to'], 'method' => $method, 'bank' => $bank,
-                'amount' => $amount, 'status' => $status, 'remarks' => (string) ($r['remarks'] ?? ''),
+                'project' => (string) ($r['project_name'] ?? ''), 'particulars' => $particulars,
+                'payment_method' => $via, 'expense_amount' => $expenseAmount, 'status' => $status,
             ];
-            if ($isPending) {
-                $pending[] = $entry;
-            } elseif ($isPaid) {
-                $paid[] = $entry;
-            }
-            if ($isPaid || $status === 'CANCELLED') {
-                $payments[] = $entry; // payment made, or payment reversed
-            }
         }
 
-        $paidTotal        = $this->_sum($paid, 'amount');
-        $outstandingTotal = $this->_sum($pending, 'amount');
-
         return [
-            'ledger_rows'  => $ledger,
-            'closing'      => $balance,
-            'pending'      => array_reverse($pending),
-            'paid'         => array_reverse($paid),
-            'payments'     => array_reverse($payments),
-            'summary'      => [
-                'pending_count' => count($pending),
-                'outstanding'   => $outstandingTotal,
-                'paid_total'    => $paidTotal,
-                'net'           => round($paidTotal + $outstandingTotal, 2),
+            'ledger_rows' => $ledger,
+            'summary'     => [
+                'paid_total' => round($paidTotal, 2),
             ],
         ];
     }

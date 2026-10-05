@@ -2,8 +2,10 @@
 
 namespace App\Controllers;
 
+use App\Libraries\CashMovements;
 use App\Libraries\ExcelReport;
 use App\Libraries\PdfReport;
+use App\Models\CashOpeningBalanceModel;
 use CodeIgniter\Controller;
 
 /**
@@ -20,7 +22,9 @@ use CodeIgniter\Controller;
  * The running balance is walked once over the full history up to the To date, then
  * the From date splits it into the Opening row and the listed rows. Type and Search
  * only hide rows: every balance stays the true cash balance. There is no stored
- * opening cash, so cash starts at 0 with the first movement.
+ * opening cash unless one is stored (Release 4.9.0CC, CashOpeningBalanceModel): from its
+ * date the walk starts at that amount and earlier movements are ignored; without one, cash
+ * starts at 0 with the first movement.
  * Exports use the same route with ?export=excel|pdf.
  */
 class CashBook extends Controller
@@ -67,8 +71,11 @@ class CashBook extends Controller
 
         usort($moves, static fn ($a, $b) => [$a['date'], $a['seq']] <=> [$b['date'], $b['seq']]);
 
-        $balance = 0.0;
-        $opening = 0.0;
+        // Release 4.9.0CC: a stored opening cash applies to a report that reaches its date.
+        $ob      = CashOpeningBalanceModel::effective((new CashOpeningBalanceModel())->current(), $to);
+        $balance = $ob ? $ob['amount'] : 0.0;
+        $opening = $balance;
+        $effFrom = ($ob && ($from === null || $from < $ob['opening_date'])) ? $ob['opening_date'] : $from;
         $in      = 0.0;
         $out     = 0.0;
         $rows    = [];
@@ -77,10 +84,13 @@ class CashBook extends Controller
             if ($to !== null && $m['date'] > $to) {
                 continue;
             }
+            if ($ob && $m['date'] < $ob['opening_date']) {
+                continue;
+            }
 
             $balance = round($balance + $m['in'] - $m['out'], 2);
 
-            if ($from !== null && $m['date'] < $from) {
+            if ($effFrom !== null && $m['date'] < $effFrom) {
                 $opening = $balance;
                 continue;
             }
@@ -93,6 +103,15 @@ class CashBook extends Controller
 
         return [
             'opening'  => $opening,
+            // The Opening Cash row: the stored opening's own date/remarks when the period starts at it.
+            'opening_date'       => $effFrom,
+            'opening_is_setting' => $ob !== null && $effFrom === $ob['opening_date'],
+            'opening_remarks'    => $ob['remarks'] ?? null,
+            'before_opening_hidden' => $ob !== null && $from !== null && $from < $ob['opening_date'],
+            // Release 4.9.0CF: display only. The permanent opening that this report starts from, and how many
+            // recorded cash movements dated before it are left out (they stay in their own ledgers).
+            'locked_opening'     => $ob,
+            'excluded_before_opening' => $ob ? CashOpeningBalanceModel::excludedBy($ob['opening_date'])['count'] : 0,
             'cash_in'  => round($in, 2),
             'cash_out' => round($out, 2),
             'closing'  => $balance,
@@ -100,161 +119,10 @@ class CashBook extends Controller
         ];
     }
 
-    /** Every cash movement, oldest first is decided by the caller: date, ttype, voucher, particulars, in, out, search, seq. */
+    /** Every cash movement (rules now live in App\Libraries\CashMovements, shared with the Monthly Statement): date, ttype, voucher, particulars, in, out, search, seq. */
     private function _movements(): array
     {
-        $db  = \Config\Database::connect();
-        $out = [];
-        $seq = 0;
-
-        $add = static function (string $date, string $voucher, string $ttype, string $particulars, float $in, float $outAmt, array $search) use (&$out, &$seq): void {
-            $in    = round($in, 2);
-            $outAmt = round($outAmt, 2);
-            if ($date === '' || ($in <= 0 && $outAmt <= 0)) {
-                return;
-            }
-            $out[] = [
-                'date' => substr($date, 0, 10), 'voucher' => $voucher, 'ttype' => $ttype, 'particulars' => $particulars,
-                'in' => $in, 'out' => $outAmt, 'seq' => ++$seq,
-                'search' => mb_strtolower(implode(' ', array_merge([$voucher, $ttype, $particulars], $search))),
-            ];
-        };
-        $has = static fn (string $t): bool => $db->tableExists($t);
-
-        // Customer payment vouchers taken in cash.
-        if ($has('customer_payments') && $has('customers')) {
-            $docs = $has('customer_payment_allocations') && $has('service_receipts')
-                ? '(SELECT GROUP_CONCAT(sr.receipt_no ORDER BY sr.id SEPARATOR ", ") FROM customer_payment_allocations a INNER JOIN service_receipts sr ON sr.id = a.service_receipt_id WHERE a.customer_payment_id = cp.id)'
-                : "''";
-            foreach ($db->query(
-                "SELECT cp.payment_no, cp.payment_date, cp.total_amount, cp.remarks, cp.reference_no, c.name AS party, $docs AS docs
-                 FROM customer_payments cp INNER JOIN customers c ON c.id = cp.customer_id
-                 WHERE cp.payment_method = 'CASH'"
-            )->getResultArray() as $r) {
-                $add($r['payment_date'], (string) $r['payment_no'], 'Customer Receipt',
-                    'Customer: ' . $r['party'] . ($r['docs'] ? ' — Invoice ' . $r['docs'] : ''),
-                    (float) $r['total_amount'], 0.0, [(string) $r['party'], (string) $r['docs'], (string) $r['remarks'], (string) $r['reference_no']]);
-            }
-        }
-
-        // Service receipts taken in cash: only the counter share (the rest arrived through payment vouchers).
-        if ($has('service_receipts')) {
-            $alloc = $has('customer_payment_allocations')
-                ? 'COALESCE((SELECT SUM(a.paid_amount) FROM customer_payment_allocations a WHERE a.service_receipt_id = sr.id), 0)'
-                : '0';
-            foreach ($db->query(
-                "SELECT sr.receipt_no, sr.receipt_date, sr.received_amount - $alloc AS own, sr.remarks, COALESCE(c.name, sr.customer_name) AS party
-                 FROM service_receipts sr LEFT JOIN customers c ON c.id = sr.customer_id
-                 WHERE sr.payment_mode = 'CASH'"
-            )->getResultArray() as $r) {
-                $add($r['receipt_date'], (string) $r['receipt_no'], 'Customer Receipt',
-                    'Customer: ' . $r['party'] . ' — Invoice ' . $r['receipt_no'],
-                    max(0.0, (float) $r['own']), 0.0, [(string) $r['party'], (string) $r['remarks']]);
-            }
-        }
-
-        // Supplier payment vouchers paid in cash (GPA- vouchers only mirror a General Purchase advance, counted below).
-        if ($has('supplier_payments') && $has('suppliers')) {
-            $docs = $has('supplier_payment_allocations') && $has('general_purchases')
-                ? '(SELECT GROUP_CONCAT(COALESCE(gp.purchase_no, CONCAT("PUR-", LPAD(a.purchase_id, 6, "0"))) ORDER BY a.id SEPARATOR ", ")
-                    FROM supplier_payment_allocations a LEFT JOIN general_purchases gp ON a.purchase_type = "GENERAL" AND gp.id = a.purchase_id
-                    WHERE a.supplier_payment_id = sp.id)'
-                : "''";
-            foreach ($db->query(
-                "SELECT sp.payment_no, sp.payment_date, sp.total_amount, sp.remarks, sp.reference_no, s.name AS party, $docs AS docs
-                 FROM supplier_payments sp INNER JOIN suppliers s ON s.id = sp.supplier_id
-                 WHERE LOWER(TRIM(sp.payment_method)) = 'cash' AND sp.payment_no NOT LIKE 'GPA-%'"
-            )->getResultArray() as $r) {
-                $add($r['payment_date'], (string) $r['payment_no'], 'Supplier Payment',
-                    'Supplier: ' . $r['party'] . ($r['docs'] ? ' — ' . $r['docs'] : ''),
-                    0.0, (float) $r['total_amount'], [(string) $r['party'], (string) $r['docs'], (string) $r['remarks'], (string) $r['reference_no']]);
-            }
-        }
-
-        // General Purchase advances paid in cash.
-        if ($has('general_purchases') && $has('suppliers')) {
-            foreach ($db->query(
-                "SELECT gp.purchase_no, gp.purchase_date, gp.advance_paid, gp.bill_no, gp.remarks, s.name AS party
-                 FROM general_purchases gp INNER JOIN suppliers s ON s.id = gp.supplier_id
-                 WHERE gp.advance_paid > 0 AND LOWER(TRIM(gp.payment_method)) = 'cash'"
-            )->getResultArray() as $r) {
-                $add($r['purchase_date'], (string) $r['purchase_no'], 'Supplier Payment',
-                    'Supplier: ' . $r['party'] . ' — Advance on ' . $r['purchase_no'],
-                    0.0, (float) $r['advance_paid'], [(string) $r['party'], (string) $r['bill_no'], (string) $r['remarks']]);
-            }
-        }
-
-        // Expenses paid in cash (cancelled ones are already reversed).
-        if ($has('expenses')) {
-            foreach ($db->query(
-                "SELECT e.expense_no, e.expense_date, e.amount, e.paid_to, e.remarks, c.category_name, p.name AS project
-                 FROM expenses e
-                 LEFT JOIN expense_categories c ON c.id = e.category_id
-                 LEFT JOIN projects p ON p.id = e.project_id
-                 WHERE e.payment_method = 'CASH' AND e.status = 'PAID'"
-            )->getResultArray() as $r) {
-                $add($r['expense_date'], (string) $r['expense_no'], 'Expense Payment',
-                    'Expense: ' . ($r['category_name'] ?: 'General') . ($r['paid_to'] ? ' — ' . $r['paid_to'] : ''),
-                    0.0, (float) $r['amount'], [(string) $r['category_name'], (string) $r['paid_to'], (string) $r['project'], (string) $r['remarks']]);
-            }
-        }
-
-        // Project cash receipts and project advances received in cash.
-        if ($has('project_cash_receipts') && $has('projects')) {
-            foreach ($db->query(
-                "SELECT r.receipt_no, r.receipt_date, r.amount, r.reference, r.notes, p.name AS project, c.name AS party
-                 FROM project_cash_receipts r
-                 INNER JOIN projects p ON p.id = r.project_id
-                 LEFT JOIN customers c ON c.id = COALESCE(r.customer_id, p.customer_id)
-                 WHERE r.payment_method = 'CASH'"
-            )->getResultArray() as $r) {
-                $add($r['receipt_date'], (string) $r['receipt_no'], 'Project Transaction',
-                    'Project: ' . $r['project'] . ($r['party'] ? ' — ' . $r['party'] : ''),
-                    (float) $r['amount'], 0.0, [(string) $r['project'], (string) $r['party'], (string) $r['reference'], (string) $r['notes']]);
-            }
-        }
-        if ($has('projects') && $db->fieldExists('advance_payment_method', 'projects')) {
-            foreach ($db->query(
-                "SELECT p.id, COALESCE(p.advance_date, DATE(p.created_at)) AS d, p.advance_amount, p.advance_notes, p.name AS project, c.name AS party
-                 FROM projects p LEFT JOIN customers c ON c.id = p.customer_id
-                 WHERE p.advance_amount > 0 AND UPPER(p.advance_payment_method) = 'CASH'"
-            )->getResultArray() as $r) {
-                $add((string) $r['d'], 'PRJ-' . str_pad((string) $r['id'], 6, '0', STR_PAD_LEFT), 'Project Transaction',
-                    'Project: ' . $r['project'] . ($r['party'] ? ' — ' . $r['party'] : ' — Advance'),
-                    (float) $r['advance_amount'], 0.0, [(string) $r['project'], (string) $r['party'], 'advance', (string) $r['advance_notes']]);
-            }
-        }
-
-        // Loan instalments paid in cash.
-        if ($has('loan_payments') && $has('loans')) {
-            foreach ($db->query(
-                "SELECT lp.payment_date, lp.total_paid, lp.reference_no, lp.remarks, l.loan_no, l.lender_name
-                 FROM loan_payments lp INNER JOIN loans l ON l.id = lp.loan_id
-                 WHERE lp.payment_method = 'CASH'"
-            )->getResultArray() as $r) {
-                $add($r['payment_date'], (string) ($r['reference_no'] ?: $r['loan_no']), 'Manual Entry',
-                    'Loan: ' . $r['lender_name'] . ' — Instalment',
-                    0.0, (float) $r['total_paid'], [(string) $r['loan_no'], (string) $r['lender_name'], (string) $r['remarks']]);
-            }
-        }
-
-        // Cash taken to a bank (deposit made in cash) or brought from one (withdrawal in cash).
-        if ($has('bank_transactions') && $has('bank_accounts') && $db->fieldExists('payment_mode', 'bank_transactions')) {
-            foreach ($db->query(
-                "SELECT bt.transaction_date, bt.transaction_type, bt.amount, bt.reference_no, bt.remarks, bt.party_name, ba.bank_name, ba.account_name
-                 FROM bank_transactions bt INNER JOIN bank_accounts ba ON ba.id = bt.bank_account_id
-                 WHERE (bt.reference_type IN ('MANUAL_DEPOSIT', 'MANUAL_WITHDRAWAL') AND UPPER(bt.payment_mode) = 'CASH')
-                    OR (bt.reference_type = 'BANK_DAYBOOK' AND UPPER(bt.category) IN ('CASH DEPOSIT', 'CASH WITHDRAWAL'))"
-            )->getResultArray() as $r) {
-                $toBank = $r['transaction_type'] === 'DEPOSIT';
-                $add($r['transaction_date'], (string) $r['reference_no'], 'Cash Transfer',
-                    'Cash Transfer: ' . ($toBank ? 'Cash → ' . $r['bank_name'] : $r['bank_name'] . ' → Cash'),
-                    $toBank ? 0.0 : (float) $r['amount'], $toBank ? (float) $r['amount'] : 0.0,
-                    [(string) $r['bank_name'], (string) $r['account_name'], (string) $r['party_name'], (string) $r['remarks']]);
-            }
-        }
-
-        return $out;
+        return (new CashMovements())->all();
     }
 
     private function _filter(array $rows, string $type, string $q): array
@@ -291,7 +159,7 @@ class CashBook extends Controller
 
         $excelRows = [];
         foreach ($rows as $r) {
-            $excelRows[] = [$r['date'], $r['voucher'], $r['ttype'], $r['particulars'], $r['in'], $r['out'], $r['balance']];
+            $excelRows[] = [$r['date'], $r['voucher'], $r['ttype'], $r['particulars'], pm_label($r['method'] ?? '', 'Not recorded'), $r['in'], $r['out'], $r['balance']];
         }
 
         (new ExcelReport())->ledger(
@@ -302,12 +170,12 @@ class CashBook extends Controller
                 'Cash Paid'     => number_format($statement['cash_out'], 2),
             ],
             $statement['opening'],
-            ['Date', 'Voucher No', 'Type', 'Particulars', 'Cash In', 'Cash Out', 'Balance'],
+            ['Date', 'Voucher No', 'Type', 'Particulars', 'Method', 'Cash In', 'Cash Out', 'Balance'],
             $excelRows,
-            ['date', 'text', 'text', 'text', 'currency', 'currency', 'currency'],
-            6,
+            ['date', 'text', 'text', 'text', 'text', 'currency', 'currency', 'currency'],
+            7,
             $statement['closing'],
-            [4, 5],
+            [5, 6],
             'landscape'
         )->stream($file);
 

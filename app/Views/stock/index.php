@@ -92,7 +92,7 @@
         <table id="stockTable" class="table-custom">
             <thead>
                 <tr>
-                    <th>#</th>
+                    <th class="sno-col">S.No.</th>
                     <th>Product</th>
 					<th style="text-align:center">Current Stock</th>
                     <th>Action</th>
@@ -101,11 +101,11 @@
             <tbody>
                 <?php foreach($stocks as $i => $s): ?>
                 <tr>
-                    <td><?= $i+1 ?></td>
+                    <td class="sno-col"><?= $i+1 ?></td>
                     <td><?= esc($s['product_name']) ?></td>
 					<td style="text-align:center"><?= $s['current_stock'] ?></td>
                    <td>
-						<a href="<?= base_url('stock-entry/edit/'.$s['id']) ?>" class="btn-edit">
+						<a href="<?= base_url('stock-entry/edit/'.$s['id']) ?>" class="btn-edit table-action-btn">
 							<i class="bi bi-pencil"></i>
 						</a>
 					</td>
@@ -126,7 +126,7 @@
 				searching: true,    // ❌ remove search box
 				lengthChange: false, // ❌ remove "show entries"
 				info: false,          // (optional) showing "1 to 10 of X"
-				ordering: true,      // (optional sorting)
+				ordering: true, order: [],      // (optional sorting)
 				pageLength: 10,      // default rows per page
 
 				dom: 'tp' ,// ✅ ONLY table + pagination + info

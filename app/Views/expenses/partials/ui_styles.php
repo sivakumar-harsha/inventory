@@ -21,7 +21,7 @@
 	.exp-badge-category { background: #fef3c7; color: #92400e; border-color: #fde68a; }
 
 	/* ---------- Header toolbar (Filter / Reset | Print / Export placeholders) ---------- */
-	.exp-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; margin: 8px 0 12px; }
+	.exp-toolbar { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 8px 24px; margin: 8px 0 12px; }
 	.exp-toolbar-group { display: flex; flex-wrap: wrap; gap: 8px; }
 	.exp-toolbar button { font-family: inherit; }
 

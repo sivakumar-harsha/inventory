@@ -2,6 +2,7 @@
 
 namespace App\Controllers;
 
+use App\Libraries\TransactionMethods;
 use App\Models\BankAccountModel;
 use App\Models\BankTransactionModel;
 use CodeIgniter\Controller;
@@ -64,35 +65,19 @@ class BankTransactions extends Controller
         'BANK_DAYBOOK'      => 'bank-accounts/manual-entry',
     ];
 
-    /** reference_type values the app writes; anything else found in the table is added to the filter as well. */
-    private const KNOWN_REFERENCE_TYPES = [
-        'MANUAL_DEPOSIT', 'MANUAL_WITHDRAWAL', 'BANK_TRANSFER', 'BANK_DAYBOOK',
-        'SUPPLIER_PAYMENT', 'SUPPLIER_ADVANCE', 'CUSTOMER_PAYMENT', 'SERVICE_RECEIPT', 'SERVICE_RECEIPT_PAYMENT',
-        'EXPENSE', 'LOAN_PAYMENT', 'PROJECT_ADVANCE',
-    ];
-
-    /** Reference Type filter value for rows that carry no reference_type (the 4.8.3B quick-entry form writes those). */
-    private const NO_REFERENCE = 'NONE';
-
     public function index()
     {
-        $accounts       = (new BankAccountModel())->orderBy('bank_name', 'ASC')->orderBy('account_number', 'ASC')->findAll();
-        $referenceTypes = $this->_referenceTypes();
+        $accounts = (new BankAccountModel())->orderBy('bank_name', 'ASC')->orderBy('account_number', 'ASC')->findAll();
 
-        // Filters. Anything unrecognised is dropped rather than turned into an empty page.
+        // Release 4.9.3: a bank account is always selected (no "All Accounts" state).
+        // Default is the first active account in the list above, or the first account
+        // of any kind if none are active.
+        $activeAccounts   = array_values(array_filter($accounts, static fn (array $a) => (int) $a['is_active'] === 1));
+        $defaultAccountId = (int) ($activeAccounts[0]['id'] ?? $accounts[0]['id'] ?? 0);
+
         $accountId = (int) $this->_param('bank_account_id');
         if (! in_array($accountId, array_map('intval', array_column($accounts, 'id')), true)) {
-            $accountId = 0;
-        }
-
-        $type = strtoupper($this->_param('transaction_type'));
-        if (! isset(self::TYPES[$type])) {
-            $type = '';
-        }
-
-        $referenceType = $this->_param('reference_type');
-        if ($referenceType !== self::NO_REFERENCE && ! in_array($referenceType, $referenceTypes, true)) {
-            $referenceType = '';
+            $accountId = $defaultAccountId;
         }
 
         $voucher = strtolower($this->_param('voucher'));
@@ -100,21 +85,19 @@ class BankTransactions extends Controller
             $voucher = '';
         }
 
-        $from = $this->_dateParam('from');
-        $to   = $this->_dateParam('to');
-        if ($from !== null && $to !== null && $from > $to) {
-            [$from, $to] = [$to, $from];
-        }
+        // Release 4.9.2: the three filters collapsed to Voucher Type / Bank Account / Month.
+        // Month defaults to the current month so the page opens already scoped to it.
+        $month      = $this->_monthParam('month');
+        $currentMonth = date('Y-m');
+        [$from, $to] = $this->_monthRange($month);
 
-        $search = mb_substr($this->_param('q'), 0, 100);
-
-        // Every line of every (or the selected) account, with its running balance.
+        // Every line of the selected account, with its running balance.
         $model       = new BankTransactionModel();
         $lines       = [];
         $transferIds = $this->_transferIds();
 
         foreach ($accounts as $account) {
-            if ($accountId > 0 && (int) $account['id'] !== $accountId) {
+            if ((int) $account['id'] !== $accountId) {
                 continue;
             }
 
@@ -123,44 +106,52 @@ class BankTransactions extends Controller
             }
         }
 
-        $lines = array_values(array_filter($lines, function (array $line) use ($type, $voucher, $referenceType, $from, $to, $search) {
-            if ($type !== '' && $line['type_key'] !== $type) {
-                return false;
-            }
+        $lines = array_values(array_filter($lines, function (array $line) use ($voucher, $from, $to) {
             if ($voucher !== '' && $line['voucher_key'] !== $voucher) {
                 return false;
             }
-            if ($referenceType === self::NO_REFERENCE ? $line['reference_type'] !== '' : ($referenceType !== '' && $line['reference_type'] !== $referenceType)) {
-                return false;
-            }
-            if (($from !== null && $line['date'] < $from) || ($to !== null && $line['date'] > $to)) {
-                return false;
-            }
 
-            return $search === '' || $this->_matches($line, $search);
+            return $line['date'] >= $from && $line['date'] <= $to;
         }));
 
-        // Newest first; the two lines of one legacy TRANSFER share date and id, so the account breaks the tie.
-        usort($lines, static fn (array $a, array $b) => [$b['date'], $b['id'], $b['account_id']] <=> [$a['date'], $a['id'], $a['account_id']]);
+        // Release 4.9.0CB: payment method (HOW it was paid) read from the owning record, and the
+        // wording of Unallocated Project Receipts. Display only; no amount or filter reads these.
+        $ids       = array_column($lines, 'id');
+        $methods   = TransactionMethods::forBankTransactions($ids);
+        $projRecpt = TransactionMethods::unallocatedProjectReceipts($ids);
+        foreach ($lines as &$line) {
+            $line['method'] = $methods[$line['id']] ?? '';
+            if (isset($projRecpt[$line['id']])) {
+                // Rows posted before 4.9.0CB store "Project Advance - <project>"; newer ones "Unallocated Project Receipt — <project>".
+                $project = (string) preg_replace('/^(Project Advance - |Unallocated Project Receipt — )/u', '', $line['remarks']);
+                $line['remarks_display'] = implode(' - ', array_filter(['Unallocated Project Receipt', $line['reference'], $line['reference_sub'], $project], static fn (string $p) => $p !== ''));
+            }
+        }
+        unset($line);
+
+        // Release 4.9.4: oldest first (display order only — statementFor() already computed
+        // each row's running balance in this same ascending posting order). The two lines of
+        // one legacy TRANSFER share date and id, so the account breaks the tie.
+        usort($lines, static fn (array $a, array $b) => [$a['date'], $a['id'], $a['account_id']] <=> [$b['date'], $b['id'], $b['account_id']]);
+
+        // Release 4.9.1: the right-side "Bank Transaction Entry" panel embeds the same
+        // voucher forms the standalone New Transaction screen (create()) uses.
+        $entryVoucher = $voucher !== '' ? $voucher : 'deposit';
 
         return view('bank_transactions/index', [
-            'accounts'       => $accounts,
-            'typeOptions'    => self::TYPES,
-            'vouchers'       => self::VOUCHERS,
-            'referenceLabels' => array_combine($referenceTypes, array_map([self::class, 'referenceLabel'], $referenceTypes)),
-            'referenceTypes' => $referenceTypes,
-            'noReference'    => self::NO_REFERENCE,
-            'filters'        => [
+            'accounts'         => $accounts,
+            'vouchers'         => self::VOUCHERS,
+            'filters'          => [
                 'bank_account_id' => $accountId,
-                'transaction_type' => $type,
                 'voucher'         => $voucher,
-                'reference_type'  => $referenceType,
-                'from'            => $from,
-                'to'              => $to,
-                'q'               => $search,
+                'month'           => $month,
             ],
-            'isFiltered'     => $accountId > 0 || $type !== '' || $voucher !== '' || $referenceType !== '' || $from !== null || $to !== null || $search !== '',
-            'lines'          => $lines,
+            'defaultAccountId' => $defaultAccountId,
+            'currentMonth'     => $currentMonth,
+            'isFiltered'       => $accountId !== $defaultAccountId || $voucher !== '' || $month !== $currentMonth,
+            'lines'            => $lines,
+            'entryVoucher'     => $entryVoucher,
+            'forms'            => $this->_entryForms(),
         ]);
     }
 
@@ -172,16 +163,22 @@ class BankTransactions extends Controller
             $voucher = 'deposit';
         }
 
+        return view('bank_transactions/entry', [
+            'vouchers' => self::VOUCHERS,
+            'voucher'  => $voucher,
+            'forms'    => $this->_entryForms(),
+        ]);
+    }
+
+    /** Voucher key => entryFormData() of its controller (cfg + active accounts) — shared by index() and create(). */
+    private function _entryForms(): array
+    {
         $forms = [];
         foreach (self::ENTRY_CONTROLLERS as $key => $class) {
             $forms[$key] = (new $class())->entryFormData();
         }
 
-        return view('bank_transactions/entry', [
-            'vouchers' => self::VOUCHERS,
-            'voucher'  => $voucher,
-            'forms'    => $forms,
-        ]);
+        return $forms;
     }
 
     /** Old per-voucher list URLs (bank-deposits, bank-accounts/withdrawal, ...) land on Transactions with that voucher tab selected. */
@@ -195,6 +192,10 @@ class BankTransactions extends Controller
     /** "Manual Deposit", "Supplier Payment", "Manual Entry" ... the readable form of a bank_transactions.reference_type. */
     public static function referenceLabel(string $referenceType): string
     {
+        if ($referenceType === 'LOAN_DISBURSEMENT') {
+            return 'Loan Received'; // display label only (Release 4.9.0BB); the stored reference_type is unchanged
+        }
+
         return $referenceType === BankTransactionModel::REF_BANK_DAYBOOK
             ? 'Manual Entry'
             : ucwords(strtolower(str_replace('_', ' ', $referenceType)));
@@ -236,12 +237,43 @@ class BankTransactions extends Controller
         $entryId = $referenceType === BankTransactionModel::REF_BANK_TRANSFER ? ($transferIds[$row['id']] ?? null) : $row['id'];
         $viewUrl = isset(self::ENTRY_SLUGS[$referenceType]) && $entryId !== null ? self::ENTRY_SLUGS[$referenceType] . '/view/' . (int) $entryId : '';
 
+        $referenceLabel = $referenceType !== '' ? self::referenceLabel($referenceType) : '';
+        $referenceValue = (string) $row['reference'];
+        $remarksText    = (string) $row['remarks'];
+        if ($referenceType === 'LOAN_DISBURSEMENT') {
+            $remarksText = str_replace('Loan Disbursement', 'Loan Received', $remarksText); // display only (Release 4.9.0BB)
+        }
+
+        // Several posting modules already bake the reference label / number into their own
+        // remarks text (e.g. remarks "Expense - Utilities" next to reference_type EXPENSE).
+        // Strip an exact repeat of what we're already showing so the combined Remarks column
+        // reads "Expense - EXP-000006 - Utilities" rather than repeating "Expense" or the
+        // reference number a second time. This only removes text byte-for-byte identical to
+        // data already displayed — nothing here is invented or reworded.
+        if ($referenceLabel !== '' && str_starts_with($remarksText, $referenceLabel . ' - ')) {
+            $remarksText = substr($remarksText, strlen($referenceLabel) + 3);
+        }
+        if ($referenceValue !== '' && str_ends_with($remarksText, ' - ' . $referenceValue)) {
+            $remarksText = substr($remarksText, 0, -(strlen($referenceValue) + 3));
+        }
+
+        // Release 4.9.3: the Reference Type / Reference No columns were dropped from the
+        // table; their information is folded into one Remarks string instead, e.g.
+        // "Service Receipt - SRV-000001 - Vinayaga". Nothing here changes reference_type
+        // or reference_id — this is a display string only.
+        $remarksDisplay = implode(' - ', array_filter([
+            $referenceLabel,
+            $referenceValue,
+            (string) $row['reference_sub'],
+            $remarksText,
+        ], static fn (string $part) => $part !== ''));
+
         return [
             'id'             => (int) $row['id'],
             'voucher_key'    => $voucherKey,
             'voucher_label'  => $voucherLabel,
             'view_url'       => $viewUrl,
-            'reference_label' => $referenceType !== '' ? self::referenceLabel($referenceType) : '',
+            'reference_label' => $referenceLabel,
             'account_id'     => (int) $account['id'],
             'date'           => $row['date'],
             'bank_name'      => (string) $account['bank_name'],
@@ -257,39 +289,9 @@ class BankTransactions extends Controller
             'credit'         => (float) $row['deposit'],
             'debit'          => (float) $row['withdrawal'],
             'balance'        => (float) $row['balance'],
-            'remarks'        => (string) $row['remarks'],
+            'remarks'        => $referenceType === 'LOAN_DISBURSEMENT' ? str_replace('Loan Disbursement', 'Loan Received', (string) $row['remarks']) : (string) $row['remarks'],
+            'remarks_display' => $remarksDisplay,
         ];
-    }
-
-    /** Free-text search over what the list shows: bank, type, reference type/no, remarks, category, counterparty and the amount. */
-    private function _matches(array $line, string $needle): bool
-    {
-        $amount = $line['credit'] > 0 ? $line['credit'] : $line['debit'];
-
-        $haystack = implode("\n", [
-            $line['bank_name'], $line['account_name'], $line['account_number'], $line['type_label'], $line['voucher_label'], $line['reference_label'],
-            $line['reference_type'], $line['reference'], $line['reference_sub'], $line['remarks'],
-            $line['category'], $line['counterparty'],
-            number_format($amount, 2, '.', ''), number_format($amount, 2),
-        ]);
-
-        return mb_stripos($haystack, $needle) !== false;
-    }
-
-    /** The reference types the app writes plus any other value actually present in bank_transactions, sorted. */
-    private function _referenceTypes(): array
-    {
-        $found = \Config\Database::connect()->table('bank_transactions')
-            ->select('reference_type')
-            ->distinct()
-            ->where('reference_type IS NOT NULL')
-            ->where('reference_type !=', '')
-            ->get()->getResultArray();
-
-        $types = array_unique(array_merge(self::KNOWN_REFERENCE_TYPES, array_column($found, 'reference_type')));
-        sort($types);
-
-        return $types;
     }
 
     /** A query-string parameter as a trimmed string; '' when it is absent or not a plain string (e.g. ?q[]=x). */
@@ -300,12 +302,20 @@ class BankTransactions extends Controller
         return is_string($value) ? trim($value) : '';
     }
 
-    /** A valid Y-m-d query parameter, or null. */
-    private function _dateParam(string $name): ?string
+    /** A valid "Y-m" (month + year) query parameter, or the current month when absent/invalid. */
+    private function _monthParam(string $name): string
     {
         $value = $this->_param($name);
-        $date  = \DateTime::createFromFormat('Y-m-d', $value);
+        $date  = \DateTime::createFromFormat('Y-m', $value);
 
-        return ($date && $date->format('Y-m-d') === $value) ? $value : null;
+        return ($date && $date->format('Y-m') === $value) ? $value : date('Y-m');
+    }
+
+    /** The first and last calendar date ("Y-m-d") of a "Y-m" month. */
+    private function _monthRange(string $month): array
+    {
+        $from = $month . '-01';
+
+        return [$from, date('Y-m-t', strtotime($from))];
     }
 }

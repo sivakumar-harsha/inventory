@@ -70,7 +70,7 @@
                     <tr><td><strong>Source</strong></td><td><a href="<?= base_url('general-purchases/view/' . (int) $gpAdvanceId) ?>">General Purchase <?= esc($payment['reference_no'] ?: '#' . (int) $gpAdvanceId) ?></a></td></tr>
                     <?php endif; ?>
                     <tr><td><strong>Payment Date</strong></td><td><?= esc($payment['payment_date']) ?></td></tr>
-                    <tr><td><strong>Payment Method</strong></td><td><?= esc($payment['payment_method'] ?: '-') ?></td></tr>
+                    <tr><td><strong>Payment Method</strong></td><td><?= esc(pm_label($payment['payment_method'], '-')) ?></td></tr>
                     <tr><td><strong>Reference No</strong></td><td><?= esc($payment['reference_no'] ?: '-') ?></td></tr>
                     <?php if ($payment['remarks']): ?>
                     <tr><td><strong>Remarks</strong></td><td><?= esc($payment['remarks']) ?></td></tr>
@@ -113,7 +113,7 @@
                 <table class="table-custom">
                     <thead>
                         <tr>
-                            <th>#</th>
+                            <th class="sno-col">S.No.</th>
                             <th>Bill Type</th>
                             <th>Purchase No</th>
                             <th>Bill No</th>
@@ -129,7 +129,7 @@
                         <?php endif; ?>
                         <?php foreach ($allocations as $i => $a): ?>
                         <tr>
-                            <td><?= $i + 1 ?></td>
+                            <td class="sno-col"><?= $i + 1 ?></td>
                             <td><span class="badge-bill-type type-<?= strtolower($a['purchase_type']) ?>"><?= esc($a['purchase_type']) ?></span></td>
                             <td><?= esc($a['purchase_no'] ?: '-') ?></td>
                             <td><?= esc($a['bill_no'] ?: '-') ?></td>

@@ -20,8 +20,6 @@ $count      = count($rows);
 	.dataTables_wrapper .dataTables_paginate .paginate_button:hover { background: #1e293b !important; color: #fff !important; }
 
 	.filter-toolbar .form-section { margin-bottom: 0; }
-	.filter-toolbar .form-label { font-size: .72rem; margin-bottom: 3px; }
-	.filter-toolbar .form-control { padding: 6px 10px; font-size: .82rem; height: auto; }
 	.filter-toolbar .btn-save { padding: 6px 12px; font-size: .8rem; white-space: nowrap; }
 
 	#lenderTable.table-custom th,
@@ -85,8 +83,8 @@ $count      = count($rows);
         <div class="kpi-card kpi-orange">
             <div class="kpi-icon"><i class="bi bi-percent"></i></div>
             <div>
-                <div class="kpi-value"><?= $money($kpi_interest_paid) ?></div>
-                <div class="kpi-label">Total Interest Paid</div>
+                <div class="kpi-value"><?= $money($kpi_total_paid) ?></div>
+                <div class="kpi-label">Total Paid</div>
             </div>
         </div>
     </div>
@@ -96,7 +94,7 @@ $count      = count($rows);
 <div class="card-custom mb-3 ln-noprint">
     <div class="card-custom-header">Filters</div>
     <div class="card-custom-body">
-        <form method="GET" action="<?= base_url('loan-reports/lender-summary') ?>" class="filter-toolbar" id="lnFilterForm">
+        <form method="GET" data-auto-filter action="<?= base_url('loan-reports/lender-summary') ?>" class="filter-toolbar" id="lnFilterForm">
             <div class="row g-2 align-items-end">
                 <div class="col-12 col-md-5">
                     <div class="form-section">
@@ -124,12 +122,12 @@ $count      = count($rows);
         <table id="lenderTable" class="table-custom">
             <thead>
                 <tr>
+                    <th class="sno-col">S.No.</th>
                     <th>Lender</th>
                     <th style="text-align:right">Loan Count</th>
                     <th style="text-align:right">Borrowed Amount</th>
-                    <th style="text-align:right">Principal Paid</th>
-                    <th style="text-align:right">Interest Paid</th>
-                    <th style="text-align:right">Outstanding Principal</th>
+                    <th style="text-align:right">Total Paid</th>
+                    <th style="text-align:right">Outstanding Amount</th>
                     <th style="text-align:right">Active Loans</th>
                     <th style="text-align:right">Closed Loans</th>
                 </tr>
@@ -137,11 +135,11 @@ $count      = count($rows);
             <tbody>
                 <?php foreach ($rows as $r): ?>
                 <tr>
+                    <td class="sno-col" data-label="S.No."></td>
                     <td><a href="<?= base_url('loan-reports?lender=' . rawurlencode($r['lender_name'])) ?>" style="text-decoration:none;" title="Loans of this lender"><?= esc($r['lender_name']) ?></a></td>
                     <td style="text-align:right"><?= (int) $r['loan_count'] ?></td>
                     <td style="text-align:right" data-order="<?= (float) $r['borrowed'] ?>"><?= $money($r['borrowed']) ?></td>
-                    <td style="text-align:right" data-order="<?= (float) $r['principal_paid'] ?>"><?= $money($r['principal_paid']) ?></td>
-                    <td style="text-align:right" data-order="<?= (float) $r['interest_paid'] ?>"><?= $money($r['interest_paid']) ?></td>
+                    <td style="text-align:right" data-order="<?= (float) $r['total_paid'] ?>"><?= $money($r['total_paid']) ?></td>
                     <td style="text-align:right" data-order="<?= (float) $r['outstanding'] ?>"><?= $money($r['outstanding']) ?></td>
                     <td style="text-align:right"><?= (int) $r['active_loans'] ?></td>
                     <td style="text-align:right"><?= (int) $r['closed_loans'] ?></td>
@@ -150,11 +148,11 @@ $count      = count($rows);
             </tbody>
             <tfoot>
                 <tr style="background:#f8fafc;font-weight:700">
+                    <td class="sno-col" data-label="S.No."></td>
                     <td>TOTAL</td>
                     <td style="text-align:right"><?= (int) $sum('loan_count') ?></td>
                     <td style="text-align:right"><?= $money($kpi_borrowed) ?></td>
-                    <td style="text-align:right"><?= $money($sum('principal_paid')) ?></td>
-                    <td style="text-align:right"><?= $money($kpi_interest_paid) ?></td>
+                    <td style="text-align:right"><?= $money($kpi_total_paid) ?></td>
                     <td style="text-align:right"><?= $money($kpi_outstanding) ?></td>
                     <td style="text-align:right"><?= (int) $sum('active_loans') ?></td>
                     <td style="text-align:right"><?= (int) $sum('closed_loans') ?></td>

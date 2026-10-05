@@ -14,15 +14,13 @@
             <th>Loan No</th>
             <th>Lender</th>
             <th>Type</th>
-            <th class="pdf-right">Outstanding</th>
+            <th class="pdf-right">Outstanding Amount</th>
             <th>Status</th>
-            <th>Next EMI Date</th>
-            <th class="pdf-right">Next EMI Amount</th>
         </tr>
     </thead>
     <tbody>
         <?php if (empty($rows)): ?>
-        <tr><td colspan="7" class="pdf-center">No loans match the applied filters.</td></tr>
+        <tr><td colspan="5" class="pdf-center">No loans match the applied filters.</td></tr>
         <?php else: ?>
         <?php $total = 0.0; foreach ($rows as $r): $total += (float) $r['outstanding_principal']; ?>
         <tr>
@@ -31,8 +29,6 @@
             <td><?= esc(pdf_text($r['loan_type'])) ?></td>
             <td class="pdf-right"><?= pdf_currency($r['outstanding_principal']) ?></td>
             <td><?= esc(pdf_text($r['status'])) ?></td>
-            <td><?= esc(pdf_date($r['next_emi_date'] ?? null)) ?></td>
-            <td class="pdf-right"><?= $r['next_emi_amount'] !== null ? pdf_currency($r['next_emi_amount']) : '-' ?></td>
         </tr>
         <?php endforeach; ?>
         <?php endif; ?>
@@ -42,7 +38,7 @@
         <tr>
             <td colspan="3" class="pdf-right">Total</td>
             <td class="pdf-right"><?= pdf_currency($total) ?></td>
-            <td colspan="3"></td>
+            <td></td>
         </tr>
     </tfoot>
     <?php endif; ?>

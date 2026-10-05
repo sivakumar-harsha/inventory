@@ -25,19 +25,6 @@
 		color: #fff !important;
 	}
 
-	.custom-search-box { max-width: 300px; }
-	.custom-search-box input {
-		border-radius: 8px;
-		border: 1px solid #e2e8f0;
-		padding: 6px 12px;
-		font-size: 13px;
-	}
-	.custom-search-box input:focus {
-		border-color: #2F7E8A;
-		box-shadow: 0 0 0 2px rgba(47,126,138,0.15);
-	}
-	.search-icon { position: absolute; top: 34px; left: 9px; color: #94a3b8; font-size: 12px; }
-
 	#baTable.table-custom th,
 	#baTable.table-custom td { padding: 7px 10px; font-size: .78rem; }
 
@@ -114,25 +101,12 @@
     </div>
 </div>
 
-<div class="card-custom mb-3">
-    <div class="card-custom-body">
-        <div class="row g-2 align-items-end">
-            <div class="col-12 col-md-4">
-                <div class="custom-search-box position-relative">
-                    <label class="form-label">Search</label>
-                    <i class="bi bi-search search-icon"></i>
-                    <input type="text" id="customSearch" class="form-control ps-4" placeholder="Search bank, account no...">
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
 <div class="card-custom">
     <div class="table-responsive">
         <table id="baTable" class="table-custom">
             <thead>
                 <tr>
+                    <th class="sno-col">S.No.</th>
                     <th>Bank Name</th>
                     <th>Account Name</th>
                     <th>Account Number</th>
@@ -145,10 +119,11 @@
             </thead>
             <tbody>
                 <?php if (empty($accounts)): ?>
-                <tr><td colspan="8" style="text-align:center; color:#94a3b8;">No bank accounts found.</td></tr>
+                <tr><td colspan="9" style="text-align:center; color:#94a3b8;">No bank accounts found.</td></tr>
                 <?php endif; ?>
                 <?php foreach ($accounts as $a): ?>
                 <tr>
+                    <td class="sno-col" data-label="S.No."></td>
                     <td><a href="<?= base_url('bank-accounts/view/' . $a['id']) ?>" style="color:#2F7E8A; text-decoration:none;"><?= esc($a['bank_name']) ?></a></td>
                     <td><?= esc($a['account_name']) ?></td>
                     <td><?= esc($a['account_number']) ?></td>
@@ -157,10 +132,10 @@
                     <td style="text-align:right"><?= number_format((float) $a['current_balance'], 2) ?></td>
                     <td><span class="badge-status <?= $a['is_active'] ? 'status-active' : 'status-inactive' ?>"><?= $a['is_active'] ? 'Active' : 'Inactive' ?></span></td>
                     <td>
-                        <a href="<?= base_url('bank-statement?bank_account_id=' . (int) $a['id']) ?>" class="btn-view" title="View Statement"><i class="bi bi-journal-text"></i></a>
-                        <a href="<?= base_url('bank-accounts/transactions?bank_account_id=' . (int) $a['id']) ?>" class="btn-view" title="View Transactions"><i class="bi bi-list-ul"></i></a>
-                        <a href="<?= base_url('bank-accounts/edit/' . $a['id']) ?>" class="btn-edit" title="Edit"><i class="bi bi-pencil"></i></a>
-                        <a href="javascript:void(0)" class="btn-delete" title="Delete" onclick="confirmDeleteAccount(<?= (int) $a['id'] ?>)"><i class="bi bi-trash"></i></a>
+                        <a href="<?= base_url('bank-statement?bank_account_id=' . (int) $a['id']) ?>" class="btn-view table-action-btn" title="View Statement"><i class="bi bi-journal-text"></i></a>
+                        <a href="<?= base_url('bank-accounts/transactions?bank_account_id=' . (int) $a['id']) ?>" class="btn-view table-action-btn" title="View Transactions"><i class="bi bi-list-ul"></i></a>
+                        <a href="<?= base_url('bank-accounts/edit/' . $a['id']) ?>" class="btn-edit table-action-btn" title="Edit"><i class="bi bi-pencil"></i></a>
+                        <a href="javascript:void(0)" class="btn-delete table-action-btn" title="Delete" onclick="confirmDeleteAccount(<?= (int) $a['id'] ?>)"><i class="bi bi-trash"></i></a>
                     </td>
                 </tr>
                 <?php endforeach; ?>
@@ -193,12 +168,13 @@
 	}
 
 	$(document).ready(function () {
-		var table = $('#baTable').DataTable({
+		$('#baTable').DataTable({
 			paging: true,
 			searching: true,
 			lengthChange: false,
 			info: false,
 			ordering: true,
+			order: [[1, 'asc']],
 			pageLength: 10,
 			dom: 'tp',
 			language: {
@@ -208,10 +184,6 @@
 				},
 				emptyTable: 'No bank accounts found.'
 			}
-		});
-
-		$('#customSearch').on('keyup', function () {
-			table.search(this.value).draw();
 		});
 	});
 </script>

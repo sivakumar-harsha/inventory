@@ -3,7 +3,7 @@
 
 <?php
 helper('loan_ui');
-$typeLabels = ['BANK' => 'Bank Loan', 'PERSONAL' => 'Personal', 'VEHICLE' => 'Vehicle', 'OD' => 'Overdraft', 'OTHER' => 'Other'];
+$typeLabels = \App\Models\LoanTypeModel::labels();
 ?>
 <?= $this->include('loans/partials/ui_styles') ?>
 
@@ -32,19 +32,18 @@ $typeLabels = ['BANK' => 'Bank Loan', 'PERSONAL' => 'Personal', 'VEHICLE' => 'Ve
 	}
 
 	.filter-toolbar .form-section { margin-bottom: 0; }
-	.filter-toolbar .form-label { font-size: .72rem; margin-bottom: 3px; }
-	.filter-toolbar .form-control { padding: 6px 10px; font-size: .82rem; height: auto; }
 	.filter-toolbar .btn-cancel { padding: 6px 12px; font-size: .8rem; white-space: nowrap; }
 
 	#loanTable.table-custom th,
-	#loanTable.table-custom td { padding: 7px 10px; font-size: .78rem; }
-	/* five row actions sit on one line (they used to stack, one per row of the cell); the loan number never
-	   breaks at its hyphen, and the long money headings may wrap so the table fits a laptop screen */
-	#loanTable.table-custom thead th { white-space: normal; }
-	#loanTable.table-custom td:first-child { white-space: nowrap; }
+	#loanTable.table-custom td { padding: 6px 5px; font-size: .78rem; }
+	#loanTable.table-custom thead th.sorting, #loanTable.table-custom thead th.sorting_asc, #loanTable.table-custom thead th.sorting_desc { padding-right: 16px; }
+	/* compact single-line table: no header or data cell wraps, so every row keeps one height; when the columns
+	   need more room than the card has, the .table-responsive wrapper scrolls (never the page) */
+	#loanTable.table-custom thead th,
+	#loanTable.table-custom tbody td { white-space: nowrap; }
+	#loanTable.table-custom tbody td { vertical-align: middle; }
+	#loanTable .badge-status, #loanTable td .badge { white-space: nowrap; }
 	#loanTable td.ln-actions { white-space: nowrap; }
-	#loanTable td.ln-actions a { margin-right: 2px; padding: 0 9px; }
-	#loanTable td.ln-actions a:last-child { margin-right: 0; }
 
 	.ln-breadcrumb { margin-bottom: 8px; }
 	.ln-breadcrumb .breadcrumb { margin-bottom: 0; font-size: .78rem; padding: 0; background: transparent; }
@@ -52,7 +51,7 @@ $typeLabels = ['BANK' => 'Bank Loan', 'PERSONAL' => 'Personal', 'VEHICLE' => 'Ve
 	.ln-breadcrumb .breadcrumb-item a:hover { text-decoration: underline; }
 	.ln-breadcrumb .breadcrumb-item.active { color: #64748b; }
 
-	.ln-sub { display: block; color: #94a3b8; font-size: .68rem; }
+	.ln-sub { display: inline; margin-left: 2px; color: #94a3b8; font-size: .7rem; }
 </style>
 
 <nav aria-label="breadcrumb" class="ln-breadcrumb">
@@ -105,7 +104,7 @@ $typeLabels = ['BANK' => 'Bank Loan', 'PERSONAL' => 'Personal', 'VEHICLE' => 'Ve
             <div class="kpi-icon"><i class="bi bi-calendar-event"></i></div>
             <div>
                 <div class="kpi-value"><?= number_format($kpi_emi_due_month, 2) ?></div>
-                <div class="kpi-label">EMI Due This Month<?= $kpi_emi_due_count > 0 ? ' (' . $kpi_emi_due_count . ')' : '' ?></div>
+                <div class="kpi-label">Scheduled EMI This Month (ref.)<?= $kpi_emi_due_count > 0 ? ' (' . $kpi_emi_due_count . ')' : '' ?></div>
             </div>
         </div>
     </div>
@@ -178,14 +177,12 @@ $typeLabels = ['BANK' => 'Bank Loan', 'PERSONAL' => 'Personal', 'VEHICLE' => 'Ve
         <table id="loanTable" class="table-custom">
             <thead>
                 <tr>
+                    <th class="sno-col">S.No.</th>
                     <th>Loan No</th>
                     <th>Lender</th>
                     <th>Loan Type</th>
                     <th style="text-align:right">Sanctioned Amount</th>
                     <th style="text-align:right">Outstanding Principal</th>
-                    <th style="text-align:right">EMI Amount</th>
-                    <th style="text-align:right">Interest %</th>
-                    <th style="text-align:right">Tenure</th>
                     <th>Status</th>
                     <th>Actions</th>
                 </tr>
@@ -196,24 +193,22 @@ $typeLabels = ['BANK' => 'Bank Loan', 'PERSONAL' => 'Personal', 'VEHICLE' => 'Ve
                     data-type="<?= esc($l['loan_type']) ?>"
                     data-status="<?= esc($l['status']) ?>"
                     data-start="<?= esc($l['start_date']) ?>">
+                    <td class="sno-col"></td>
                     <td data-order="<?= (int) $l['id'] ?>">
                         <a href="<?= base_url('loans/view/' . $l['id']) ?>"><strong><?= esc($l['loan_no']) ?></strong></a>
-                        <span class="ln-sub">Start <?= date('d-m-Y', strtotime($l['start_date'])) ?></span>
+                        <span class="ln-sub" title="Start date">&middot; <?= date('d-m-Y', strtotime($l['start_date'])) ?></span>
                     </td>
                     <td><?= esc($l['lender_name']) ?></td>
                     <td><?= esc($typeLabels[$l['loan_type']] ?? $l['loan_type']) ?></td>
                     <td style="text-align:right" data-order="<?= (float) $l['sanctioned_amount'] ?>"><?= number_format((float) $l['sanctioned_amount'], 2) ?></td>
                     <td style="text-align:right" data-order="<?= (float) $l['outstanding_principal'] ?>"><?= number_format((float) $l['outstanding_principal'], 2) ?></td>
-                    <td style="text-align:right" data-order="<?= (float) $l['emi_amount'] ?>"><?= number_format((float) $l['emi_amount'], 2) ?></td>
-                    <td style="text-align:right" data-order="<?= (float) $l['interest_rate'] ?>"><?= rtrim(rtrim(number_format((float) $l['interest_rate'], 3), '0'), '.') ?>%</td>
-                    <td style="text-align:right" data-order="<?= (int) $l['tenure_months'] ?>"><?= (int) $l['tenure_months'] ?> mo</td>
                     <td><?= ln_loan_status_badge($l['status']) ?></td>
                     <td class="ln-actions">
-                        <a href="<?= base_url('loans/view/' . $l['id']) ?>" class="btn-view" title="View"><i class="bi bi-eye"></i></a>
-                        <a href="<?= base_url('loans/edit/' . $l['id']) ?>" class="btn-edit" title="Edit"><i class="bi bi-pencil"></i></a>
-                        <a href="javascript:void(0)" class="btn-delete" title="Delete" onclick="confirmDeleteLoan(<?= (int) $l['id'] ?>)"><i class="bi bi-trash"></i></a>
-                        <a href="<?= base_url('loans/payments/' . $l['id']) ?>" class="btn-pay" title="Payments"><i class="bi bi-wallet2"></i></a>
-                        <a href="<?= base_url('loans/ledger/' . $l['id']) ?>" class="btn-save" title="Ledger"><i class="bi bi-journal-text"></i></a>
+                        <a href="<?= base_url('loans/view/' . $l['id']) ?>" class="btn-view table-action-btn" title="View"><i class="bi bi-eye"></i></a>
+                        <a href="<?= base_url('loans/edit/' . $l['id']) ?>" class="btn-edit table-action-btn" title="Edit"><i class="bi bi-pencil"></i></a>
+                        <a href="javascript:void(0)" class="btn-delete table-action-btn" title="Delete" onclick="confirmDeleteLoan(<?= (int) $l['id'] ?>)"><i class="bi bi-trash"></i></a>
+                        <a href="<?= base_url('loans/payments/' . $l['id']) ?>" class="btn-pay table-action-btn" title="Payments"><i class="bi bi-wallet2"></i></a>
+                        <a href="<?= base_url('loans/ledger/' . $l['id']) ?>" class="btn-save table-action-btn" title="Ledger"><i class="bi bi-journal-text"></i></a>
                     </td>
                 </tr>
                 <?php endforeach; ?>
@@ -252,10 +247,10 @@ $typeLabels = ['BANK' => 'Bank Loan', 'PERSONAL' => 'Personal', 'VEHICLE' => 'Ve
 			lengthChange: false,
 			info: false,
 			ordering: true,
-			order: [[0, 'desc']],
+			order: [[1, 'desc']],
 			pageLength: 10,
 			dom: 'tp',
-			columnDefs: [{ orderable: false, targets: 9 }],
+			columnDefs: [{ orderable: false, targets: 7 }],
 			language: {
 				paginate: {
 					previous: '<i class="bi bi-chevron-left"></i>',

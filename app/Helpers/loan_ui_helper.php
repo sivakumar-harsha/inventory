@@ -140,10 +140,13 @@ if (! function_exists('ln_method_badge')) {
     /** Payment method: CASH · BANK · CHEQUE · UPI · OTHER. */
     function ln_method_badge(string $method): string
     {
-        $method = strtoupper(trim($method));
-        $known  = ['CASH', 'BANK', 'CHEQUE', 'UPI', 'OTHER'];
+        // Release 4.9.0CB: label from the shared payment-method mapping (CHEQUE -> Cheque, BANK_TRANSFER -> Bank Transfer);
+        // a blank stored method is shown as "Not recorded", never guessed as Other. Badge colour classes are unchanged.
+        $key   = pm_key($method);
+        $known = ['CASH', 'BANK', 'CHEQUE', 'UPI', 'OTHER'];
+        $cls   = $key === 'CHECK' ? 'CHEQUE' : $key;
 
-        return ln_badge($method !== '' ? $method : 'OTHER', 'm-' . strtolower(in_array($method, $known, true) ? $method : 'OTHER'));
+        return ln_badge(pm_label($method, 'Not recorded'), 'm-' . strtolower(in_array($cls, $known, true) ? $cls : 'other'));
     }
 }
 
@@ -177,11 +180,11 @@ if (! function_exists('ln_empty_message')) {
 }
 
 if (! function_exists('ln_towards_badge')) {
-    /** What a payment went towards: "EMI #n", or the Prepayment badge when it has no instalment. */
+    /** A payment is simply "Payment"; an old EMI link is shown only as reference information. */
     function ln_towards_badge($emiId, $emiNo): string
     {
         return $emiId === null || (int) $emiId === 0
-            ? ln_badge('Prepayment', 'prepay')
-            : ln_badge('EMI #' . (int) $emiNo, 'emi');
+            ? ln_badge('Payment', 'emi')
+            : ln_badge('Payment', 'emi') . ' <small class="text-muted">(old EMI ref. #' . (int) $emiNo . ')</small>';
     }
 }

@@ -4,6 +4,7 @@ namespace App\Controllers;
 
 use App\Models\CustomerModel;
 use App\Models\ExpenseCategoryModel;
+use App\Models\LoanTypeModel;
 use App\Models\ProjectModel;
 use App\Models\SupplierModel;
 use CodeIgniter\Controller;
@@ -27,7 +28,6 @@ class DashboardExportController extends Controller
 {
     private const EXPENSE_PAYMENT_METHODS = ['CASH', 'BANK', 'CHEQUE', 'UPI', 'OTHER'];
     private const EXPENSE_STATUSES        = ['PAID', 'CANCELLED'];
-    private const LOAN_TYPES              = ['BANK', 'PERSONAL', 'VEHICLE', 'OD', 'OTHER'];
     private const LOAN_STATUSES           = ['ACTIVE', 'CLOSED'];
     private const SERVICE_RECEIPT_TYPES   = ['INVOICE', 'DIRECT'];
     private const SERVICE_STATUSES        = ['PENDING', 'PARTIAL', 'PAID'];
@@ -64,7 +64,7 @@ class DashboardExportController extends Controller
             'banks'                 => $banks,
             'expensePaymentMethods' => self::EXPENSE_PAYMENT_METHODS,
             'expenseStatuses'       => self::EXPENSE_STATUSES,
-            'loanTypes'             => self::LOAN_TYPES,
+            'loanTypes'             => LoanTypeModel::codes(),
             'loanStatuses'          => self::LOAN_STATUSES,
             'serviceReceiptTypes'   => self::SERVICE_RECEIPT_TYPES,
             'serviceStatuses'       => self::SERVICE_STATUSES,

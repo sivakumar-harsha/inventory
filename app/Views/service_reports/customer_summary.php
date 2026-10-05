@@ -11,8 +11,6 @@
 	.dataTables_wrapper .dataTables_paginate .paginate_button:hover { background: #1e293b !important; color: #fff !important; }
 
 	.filter-toolbar .form-section { margin-bottom: 0; }
-	.filter-toolbar .form-label { font-size: .72rem; margin-bottom: 3px; }
-	.filter-toolbar .form-control { padding: 6px 10px; font-size: .82rem; height: auto; }
 	.filter-toolbar .btn-save { padding: 6px 12px; font-size: .8rem; white-space: nowrap; }
 
 	#csTable.table-custom th,
@@ -89,7 +87,7 @@
 <div class="card-custom mb-3">
     <div class="card-custom-header">Filters</div>
     <div class="card-custom-body">
-        <form method="GET" action="<?= base_url('service-reports/customer-summary') ?>" class="filter-toolbar">
+        <form method="GET" data-auto-filter action="<?= base_url('service-reports/customer-summary') ?>" class="filter-toolbar">
             <div class="row g-2 align-items-end">
                 <div class="col-6 col-md-4">
                     <div class="form-section">
@@ -115,7 +113,6 @@
                     </div>
                 </div>
                 <div class="col-12" style="display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap">
-                    <button type="submit" class="btn-save"><i class="bi bi-search"></i> Filter</button>
                     <a href="<?= base_url('service-reports/customer-summary') ?>" class="btn-save" style="background:#6c757d;"><i class="bi bi-arrow-clockwise"></i> Reset</a>
                     <a href="<?= base_url('service-reports/export/pdf/customer-summary') . (($qs = $_SERVER['QUERY_STRING'] ?? '') !== '' ? '?' . $qs : '') ?>" class="btn-save" style="background:#16a34a;"><i class="bi bi-file-earmark-pdf"></i> Export PDF</a>
                     <a href="<?= base_url('service-reports/export/excel/customer-summary') . (($qs = $_SERVER['QUERY_STRING'] ?? '') !== '' ? '?' . $qs : '') ?>" class="btn-save" style="background:#16a34a;"><i class="bi bi-file-earmark-excel"></i> Export Excel</a>
@@ -130,6 +127,7 @@
         <table id="csTable" class="table-custom">
             <thead>
                 <tr>
+                    <th class="sno-col">S.No.</th>
                     <th>Customer</th>
                     <th>Mobile</th>
                     <th style="text-align:right">Invoice Amount</th>
@@ -142,11 +140,12 @@
             <tbody>
                 <?php foreach ($rows as $r): ?>
                 <tr>
+                    <td class="sno-col" data-label="S.No."></td>
                     <td><?= esc($r['name']) ?></td>
                     <td><?= esc($r['phone'] ?: '-') ?></td>
                     <td style="text-align:right" data-order="<?= $r['invoice'] ?>"><?= number_format($r['invoice'], 2) ?></td>
                     <td style="text-align:right" data-order="<?= $r['received'] ?>"><?= number_format($r['received'], 2) ?></td>
-                    <td style="text-align:right" data-order="<?= $r['outstanding'] ?>" class="<?= $r['outstanding'] > 0.004 ? 'text-danger-amt' : 'text-muted-amt' ?>"><?= number_format($r['outstanding'], 2) ?></td>
+                    <td style="text-align:right" data-order="<?= $r['net'] ?>" class="<?= $r['outstanding'] > 0.004 ? 'text-danger-amt' : 'text-muted-amt' ?>"><?= $r['credit'] > 0.004 ? number_format($r['credit'], 2) . ' Cr' : number_format($r['outstanding'], 2) ?></td>
                     <td style="text-align:right" data-order="<?= $r['advance'] ?>"><?= number_format($r['advance'], 2) ?></td>
                     <td><a href="<?= base_url('customer-ledger/view/' . $r['id']) ?>" class="btn-view"><i class="bi bi-journal-text"></i> View Ledger</a></td>
                 </tr>
@@ -154,7 +153,7 @@
             </tbody>
             <tfoot>
                 <tr style="background:#f8fafc;font-weight:700">
-                    <td colspan="2">TOTAL</td>
+                    <td colspan="3">TOTAL</td>
                     <td style="text-align:right"><?= number_format($kpi_invoice_amount, 2) ?></td>
                     <td style="text-align:right"><?= number_format($kpi_received, 2) ?></td>
                     <td style="text-align:right"><?= number_format($kpi_outstanding, 2) ?></td>
@@ -164,7 +163,7 @@
         </table>
     </div>
     <div style="padding:8px 14px;font-size:.72rem;color:#94a3b8;">
-        Same figures as each customer's ledger: Received includes any unallocated advance, and Outstanding is never negative.
+        Same figures as each customer's ledger (sales and service invoices, payments, project receipts and advances). Outstanding = invoices minus everything received; Cr marks customer credit and is not counted in the total. Advance Balance is advance received minus advance applied.
     </div>
 </div>
 

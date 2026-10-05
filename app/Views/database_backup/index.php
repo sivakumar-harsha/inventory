@@ -105,6 +105,7 @@ $statusBadge = static function (?string $status): string {
         <table id="dbBackupTable" class="table-custom db-table">
             <thead>
                 <tr>
+                    <th class="sno-col">S.No.</th>
                     <th>Date</th>
                     <th>Backup Name</th>
                     <th>Type</th>
@@ -116,11 +117,9 @@ $statusBadge = static function (?string $status): string {
                 </tr>
             </thead>
             <tbody>
-                <?php if ($count === 0): ?>
-                <tr><td colspan="8" style="text-align:center;padding:20px;color:#94a3b8;"><i class="bi bi-inbox"></i> No backups have been taken yet.</td></tr>
-                <?php endif; ?>
                 <?php foreach ($rows as $r): ?>
                 <tr>
+                    <td class="sno-col" data-label="S.No."></td>
                     <td data-order="<?= esc($r['created_at']) ?>"><?= $fmtDateTime($r['created_at']) ?></td>
                     <td><?= esc($r['backup_name']) ?></td>
                     <td><?= $typeBadge($r['backup_type']) ?></td>
@@ -227,7 +226,7 @@ $(document).ready(function () {
         order: [],
         pageLength: 15,
         dom: 'tp',
-        columnDefs: [{ orderable: false, targets: 7 }],
+        columnDefs: [{ orderable: false, targets: 8 }],
         language: {
             paginate: {
                 previous: '<i class="bi bi-chevron-left"></i>',

@@ -24,29 +24,23 @@ $modeLabels = ['CASH' => 'Cash', 'BANK' => 'Bank', 'CHEQUE' => 'Cheque', 'UPI' =
 .quick-add-toast.show { opacity: 1; transform: translateY(0); }
 .quick-add-toast.error { background: #dc2626; }
 
-/* Customer information card (same design as the Supplier Info Card) */
-.customer-info-card {
-    background: #f8fafc;
-    border: 1px solid #e2e8f0;
-    border-radius: 8px;
-    padding: 10px 14px;
-    font-size: .8rem;
-    color: #334155;
-}
-.customer-info-card .info-row { margin-bottom: 3px; }
-.customer-info-card .info-label { color: #64748b; display:inline-block; min-width:90px; }
-
-/* Payment status badge — Pending orange / Partial blue / Paid green */
-.badge-sr {
-    display: inline-block;
-    padding: 4px 12px;
-    border-radius: 20px;
-    font-size: .78rem;
-    font-weight: 600;
-}
-.badge-sr.badge-pending { background:#ffedd5; color:#c2410c; }
-.badge-sr.badge-partial { background:#dbeafe; color:#1d4ed8; }
-.badge-sr.badge-paid    { background:#dcfce7; color:#166534; }
+/* Release 4.9.0AD: compact New Service Receipt screen. The separate "Customer
+   Information" card was a read-only duplicate of the Customer dropdown's own
+   data (never posted to the server — customer_name/customer_address are
+   derived server-side from customer_id), so it and the auto-filled
+   Name/Address display fields were dropped rather than made compact. */
+.sr-page .page-title { margin-bottom: 10px; }
+.sr-page .card-custom { margin-bottom: 10px; }
+.sr-page .card-custom-header { padding: 7px 12px; }
+.sr-page .card-custom-body { padding: 10px 12px; }
+.sr-page .form-label { margin-bottom: 3px; }
+.sr-page .form-section { margin-bottom: 8px; }
+.sr-page { --bs-gutter-y: .5rem; }
+/* Bootstrap's .row is a flex container; without this, a flex column can't
+   shrink below the intrinsic width of the item table inside it, and the
+   whole page gains a horizontal scrollbar instead of just the table. */
+.sr-page > .row > [class^="col-"],
+.sr-page > .row > [class*=" col-"] { min-width: 0; }
 
 .sr-breadcrumb { margin-bottom: 8px; }
 .sr-breadcrumb .breadcrumb { margin-bottom: 0; font-size: .78rem; padding: 0; background: transparent; }
@@ -54,13 +48,17 @@ $modeLabels = ['CASH' => 'Cash', 'BANK' => 'Bank', 'CHEQUE' => 'Cheque', 'UPI' =
 .sr-breadcrumb .breadcrumb-item a:hover { text-decoration: underline; }
 .sr-breadcrumb .breadcrumb-item.active { color: #64748b; }
 
-/* Service items table (Section 3) */
-.sr-item-toolbar { display:flex; justify-content:flex-end; margin-bottom:10px; }
-.sr-item-table { min-width: 760px; }
+/* Release 4.9.0AE: Add Service moves into the Service Items card header. */
+.sr-item-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.sr-item-header .btn-save { padding: 3px 10px; font-size: .78rem; }
+
+/* Service items table (Section 3) — compact fixed columns, flexible description,
+   sized to fit inside the left column without page-level horizontal scroll. */
+.sr-item-table { width: 100%; min-width: 600px; table-layout: fixed; }
 .sr-item-table th, .sr-item-table td { vertical-align: middle; }
-.sr-item-table .desc-cell { min-width: 240px; }
+.sr-item-table .desc-cell { width: auto; min-width: 160px; }
 .sr-item-table input.form-control,
-.sr-item-table select.form-control { font-size: .8rem; padding: 5px 8px; height:auto; }
+.sr-item-table select.form-control { font-size: .8rem; padding: 5px 6px; height:auto; }
 .sr-remove-row { background:none; border:none; color:#dc2626; cursor:pointer; font-size:1rem; }
 .sr-remove-row:hover { color:#7f1d1d; }
 .sr-empty-row td { text-align:center; color:#94a3b8; padding: 24px 12px; font-size:.85rem; }
@@ -83,6 +81,18 @@ $modeLabels = ['CASH' => 'Cash', 'BANK' => 'Bank', 'CHEQUE' => 'Cheque', 'UPI' =
 .field-error.show { display:block; }
 #saveHint { font-size:.72rem; color:#94a3b8; margin-top:8px; }
 .btn-save:disabled { opacity:.55; cursor:not-allowed; }
+
+/* Release 4.9.0BJ: simplified service rows (Description + Amount) and the quick-add customer button. */
+.sr-item-table { min-width: 0 !important; }
+.sr-item-table .amount-input { text-align: right; }
+.sr-legacy-note { font-size: .7rem; color: #94a3b8; margin-top: 2px; }
+.customer-select-row { display: flex; align-items: flex-start; gap: 6px; }
+.customer-select-row .select2-container { flex: 1 1 auto; min-width: 0; width: auto !important; }
+.customer-select-row > select { flex: 1 1 auto; min-width: 0; }
+.btn-quick-add-customer { width: 34px; height: 34px; flex-shrink: 0; border: none; border-radius: 6px; background: var(--primary); color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.btn-quick-add-customer:hover { background: var(--primary-dark); }
+#quickAddCustomerModal .invalid-feedback-text { font-size: .8rem; }
+#quickAddCustomerModal .qc-existing { font-size: .8rem; }
 </style>
 
 <nav aria-label="breadcrumb" class="sr-breadcrumb">
@@ -103,7 +113,7 @@ $modeLabels = ['CASH' => 'Cash', 'BANK' => 'Bank', 'CHEQUE' => 'Cheque', 'UPI' =
 
 <form id="receiptForm" novalidate>
 
-<div class="row g-3">
+<div class="sr-page row g-3">
     <div class="col-lg-8">
 
         <!-- Section 1 — Receipt Information -->
@@ -126,67 +136,48 @@ $modeLabels = ['CASH' => 'Cash', 'BANK' => 'Bank', 'CHEQUE' => 'Cheque', 'UPI' =
                     <div class="col-md-3">
                         <div class="form-section">
                             <label class="form-label">Receipt Type <span class="text-danger">*</span></label>
-                            <select id="receiptType" class="form-control no-search">
-                                <option value="INVOICE" selected>Invoice</option>
-                                <option value="DIRECT">Direct Receipt</option>
-                            </select>
+                            <!-- Release 4.9.0BQ: a new receipt is always a Direct Receipt (the server forces it); no choice to offer. -->
+                            <input type="text" id="receiptType" class="form-control" value="Direct Receipt" readonly>
                         </div>
                     </div>
                     <div class="col-md-3">
                         <div class="form-section">
-                            <label class="form-label">Payment Mode</label>
+                            <label class="form-label">Payment Mode <span class="text-danger">*</span></label>
                             <select id="paymentMode" class="form-control no-search">
+                                <option value="">-- Select --</option>
                                 <?php foreach ($payment_modes as $m): ?>
-                                <option value="<?= esc($m) ?>" <?= $m === 'CASH' ? 'selected' : '' ?>><?= esc($modeLabels[$m] ?? $m) ?></option>
+                                <option value="<?= esc($m) ?>"><?= esc($modeLabels[$m] ?? $m) ?></option>
                                 <?php endforeach; ?>
                             </select>
+                            <div class="field-error" id="err-payment-mode">Payment mode is required.</div>
                         </div>
                     </div>
                 </div>
 
                 <div class="row">
-                    <div class="col-md-4">
+                    <div class="col-md-5">
                         <div class="form-section">
                             <label class="form-label">Customer <span class="text-danger">*</span></label>
-                            <select id="customerSelect" class="form-control">
-                                <option value="">-- Select Customer --</option>
-                                <?php foreach ($customers as $c): ?>
-                                <option value="<?= (int) $c['id'] ?>"
-                                    data-name="<?= esc($c['name'] ?? '') ?>"
-                                    data-gst="<?= esc($c['gst'] ?? '') ?>"
-                                    data-phone="<?= esc($c['phone'] ?? '') ?>"
-                                    data-email="<?= esc($c['email'] ?? '') ?>"
-                                    data-address="<?= esc($c['address'] ?? '') ?>">
-                                    <?= esc($c['name']) ?>
-                                </option>
-                                <?php endforeach; ?>
-                            </select>
+                            <div class="customer-select-row">
+                                <select id="customerSelect" class="form-control">
+                                    <option value="">-- Select Customer --</option>
+                                    <?php foreach ($customers as $c): ?>
+                                    <option value="<?= (int) $c['id'] ?>"><?= esc($c['name']) ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                                <button type="button" class="btn-quick-add-customer" data-bs-toggle="modal" data-bs-target="#quickAddCustomerModal" title="Add New Customer"><i class="bi bi-plus-lg"></i></button>
+                            </div>
                             <div class="field-error" id="err-customer">Customer is required.</div>
                         </div>
                     </div>
-                    <div class="col-md-4">
-                        <div class="form-section">
-                            <label class="form-label">Customer Name</label>
-                            <input type="text" id="customerNameDisplay" class="form-control" readonly placeholder="Auto-filled">
-                        </div>
-                    </div>
-                    <div class="col-md-4">
-                        <div class="form-section">
-                            <label class="form-label">Customer Address</label>
-                            <input type="text" id="customerAddressDisplay" class="form-control" readonly placeholder="Auto-filled">
-                        </div>
-                    </div>
-                </div>
-
-                <div class="row">
-                    <div class="col-md-6">
+                    <div class="col-md-3">
                         <div class="form-section">
                             <label class="form-label">Attended Person <span class="text-danger">*</span></label>
                             <input type="text" id="attendedPerson" class="form-control" maxlength="150">
                             <div class="field-error" id="err-attended">Attended person is required.</div>
                         </div>
                     </div>
-                    <div class="col-md-6 d-none" id="bankAccountSection">
+                    <div class="col-md-4 d-none" id="bankAccountSection">
                         <div class="form-section">
                             <label class="form-label">Bank Account <span class="text-danger">*</span></label>
                             <select id="bankAccountId" class="form-control">
@@ -211,43 +202,25 @@ $modeLabels = ['CASH' => 'Cash', 'BANK' => 'Bank', 'CHEQUE' => 'Cheque', 'UPI' =
             </div>
         </div>
 
-        <!-- Section 2 — Customer Information (shown after a customer is selected) -->
-        <div class="card-custom mb-3 d-none" id="customerInfoCard">
-            <div class="card-custom-header">Customer Information</div>
-            <div class="card-custom-body">
-                <div class="customer-info-card">
-                    <div class="info-row"><span class="info-label">Name:</span> <span id="infoName">-</span></div>
-                    <div class="info-row"><span class="info-label">Mobile:</span> <span id="infoPhone">-</span></div>
-                    <div class="info-row"><span class="info-label">Email:</span> <span id="infoEmail">-</span></div>
-                    <div class="info-row"><span class="info-label">GST Number:</span> <span id="infoGst">-</span></div>
-                    <div class="info-row"><span class="info-label">Address:</span> <span id="infoAddress">-</span></div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Section 3 — Service Items -->
+        <!-- Section 2 — Service Items -->
         <div class="card-custom mb-3">
-            <div class="card-custom-header">Service Items</div>
+            <div class="card-custom-header sr-item-header">
+                <span>Service Items</span>
+                <button type="button" class="btn-save" id="addItemBtn"><i class="bi bi-plus"></i> Add Service</button>
+            </div>
             <div class="card-custom-body">
-                <div class="sr-item-toolbar">
-                    <button type="button" class="btn-save" id="addItemBtn"><i class="bi bi-plus"></i> Add Service</button>
-                </div>
                 <div class="table-responsive">
                     <table class="table-custom sr-item-table">
                         <thead>
                             <tr>
                                 <th class="desc-cell">Description</th>
-                                <th style="width:100px">Qty</th>
-                                <th style="width:110px">Rate</th>
-                                <th style="width:90px">GST %</th>
-                                <th style="width:100px">GST Amount</th>
-                                <th style="width:110px">Line Total</th>
-                                <th style="width:36px"></th>
+                                <th style="width:140px;text-align:right">Amount</th>
+                                <th style="width:48px"></th>
                             </tr>
                         </thead>
                         <tbody id="itemsContainer">
                             <tr class="sr-empty-row" id="emptyItemsRow">
-                                <td colspan="7">No service items added yet.</td>
+                                <td colspan="3">No service items added yet.</td>
                             </tr>
                         </tbody>
                     </table>
@@ -256,31 +229,17 @@ $modeLabels = ['CASH' => 'Cash', 'BANK' => 'Bank', 'CHEQUE' => 'Cheque', 'UPI' =
         </div>
     </div>
 
-    <!-- Section 4 — Payment Summary -->
+    <!-- Section 3 — Payment Summary -->
     <div class="col-lg-4">
         <div class="card-custom sr-sticky">
             <div class="card-custom-header">Payment Summary</div>
             <div class="card-custom-body">
                 <table class="sr-summary-table">
                     <tr><td>Subtotal</td><td class="amt">₹<span id="sumSubtotal">0.00</span></td></tr>
-                    <tr><td>GST Total</td><td class="amt">₹<span id="sumGstTotal">0.00</span></td></tr>
-                    <tr><td>Round Off</td><td class="amt" id="sumRoundOff">0.00</td></tr>
+                    <tr id="sumGstRow" class="d-none"><td>GST Total</td><td class="amt">₹<span id="sumGstTotal">0.00</span></td></tr>
                     <tr class="grand"><td>Grand Total</td><td class="amt">₹<span id="sumGrandTotal">0.00</span></td></tr>
+                    <tr><td>Amount Received</td><td class="amt">₹<span id="sumReceived">0.00</span></td></tr>
                 </table>
-
-                <div class="form-section mt-3">
-                    <label class="form-label">Received Amount</label>
-                    <input type="number" id="receivedAmount" class="form-control" step="0.01" min="0" value="0">
-                    <div class="field-error" id="err-received"></div>
-                </div>
-
-                <table class="sr-summary-table mt-2">
-                    <tr><td>Outstanding Amount</td><td class="amt">₹<span id="sumOutstanding">0.00</span></td></tr>
-                </table>
-
-                <div class="mt-2">
-                    <span class="badge-sr badge-pending" id="paymentStatusBadge">Pending</span>
-                </div>
 
                 <div class="mt-3">
                     <button type="button" class="btn-save w-100" id="saveBtn" data-after="list" disabled>
@@ -301,83 +260,94 @@ $modeLabels = ['CASH' => 'Cash', 'BANK' => 'Bank', 'CHEQUE' => 'Cheque', 'UPI' =
 
 </form>
 
+<!-- Quick Add Customer (uses the existing customers/ajax-store endpoint: auth filter, name + mobile required) -->
+<div class="modal fade" id="quickAddCustomerModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-person-plus me-2"></i>Add Customer</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="quickAddCustomerError" class="alert alert-danger d-none" role="alert"></div>
+                <div id="quickAddCustomerExisting" class="alert alert-warning qc-existing d-none" role="alert"></div>
+                <form id="quickAddCustomerForm" onsubmit="return false;">
+                    <div class="form-section">
+                        <label class="form-label">Customer Name <span class="text-danger">*</span></label>
+                        <input type="text" name="name" id="qc_name" class="form-control" maxlength="200" autocomplete="off">
+                        <div class="invalid-feedback-text text-danger d-none" id="qc_name_error"></div>
+                    </div>
+                    <div class="form-section">
+                        <label class="form-label">Mobile / Contact <span class="text-danger">*</span></label>
+                        <input type="text" name="mobile" id="qc_mobile" class="form-control" maxlength="50" autocomplete="off">
+                        <div class="invalid-feedback-text text-danger d-none" id="qc_mobile_error"></div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-cancel" data-bs-dismiss="modal"><i class="bi bi-x"></i> Cancel</button>
+                <button type="button" class="btn-save" id="quickAddCustomerSaveBtn">
+                    <span id="quickAddCustomerSpinner" class="spinner-border spinner-border-sm d-none"></span>
+                    <i class="bi bi-save"></i> Save Customer
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <?= $this->endSection() ?>
 
 <?= $this->section('scripts') ?>
-<script src="<?= base_url('assets/js/gst-calc.js') ?>"></script>
 <script>
 var baseUrl   = "<?= base_url() ?>";
 var BANK_MODES = <?= json_encode($bank_modes) ?>;
-var GST_RATES  = [0, 5, 12, 18, 28];
 var SAVE_URL   = baseUrl + 'service-receipts/store';
-// gst-calc.js does not round, so the totals shown here can differ from the saved (server-rounded)
-// totals by a few paise. The page only warns about clearly excessive amounts; the server enforces the exact cap.
-var RECEIVED_TOLERANCE = 1;
 var itemCount  = 0;
 var saving     = false;
 var touched    = {};
 
 // ---------- calculation ----------
 
-// One service row, calculated by the shared helper (assets/js/gst-calc.js) exactly as
-// General Purchase does it. GST applies only when the GST % is above zero.
-function calcLine(qty, rate, pct) {
-    pct = parseFloat(pct) || 0;
-    return gstCalculateLine(qty, rate, pct, pct > 0);
-}
+// Release 4.9.0BJ: a service row is just Description + Amount (the final amount for that service).
+// Rows opened from a historical receipt that really used qty x rate and/or GST keep those figures
+// (shown read-only, submitted unchanged), so editing never silently flattens old accounting data.
+var AMOUNT_RE = /^\d+(\.\d{1,2})?$/;
 
-// Same rule as ServiceReceipts::_recalculateStatus() / Supplier Payment.
-function statusFor(grand, outstanding, hasItems) {
-    if (!hasItems) return 'Pending';
-    if (outstanding <= 0.004) return 'Paid';
-    if (Math.abs(outstanding - grand) <= 0.004) return 'Pending';
-    return 'Partial';
-}
+function cents(v) { return Math.round((parseFloat(v) || 0) * 100); }
 
 function isBankMode(mode) {
     return BANK_MODES.indexOf(mode) !== -1;
 }
 
-function isDirect() {
-    return $('#receiptType').val() === 'DIRECT';
-}
-
 // ---------- service rows ----------
-
-function gstOptions(selected) {
-    var rates = GST_RATES.slice();
-    var sel = parseFloat(selected);
-    // keep an unusual saved rate (e.g. 2.5) selectable so editing never silently changes it
-    if (!isNaN(sel) && rates.indexOf(sel) === -1) { rates.push(sel); rates.sort(function (a, b) { return a - b; }); }
-    return rates.map(function (r) {
-        return '<option value="' + r + '"' + (r === (isNaN(sel) ? 0 : sel) ? ' selected' : '') + '>' + r + '</option>';
-    }).join('');
-}
 
 function toggleEmptyRow() {
     $('#emptyItemsRow').toggle($('.item-row').length === 0);
 }
 
+// data: {description, amount} for a simple row, or {description, legacy: {qty, rate, gst_percent, gst_amount, line_total}}.
 function addItem(data) {
     data = data || {};
     itemCount++;
 
     var $row = $(
         '<tr class="item-row" id="item-' + itemCount + '">' +
-            '<td class="desc-cell"><input type="text" class="form-control desc-input" maxlength="500" placeholder="Service description"></td>' +
-            '<td><input type="number" class="form-control qty-input" min="0.001" step="0.001"></td>' +
-            '<td><input type="number" class="form-control rate-input" min="0" step="0.01"></td>' +
-            '<td><select class="form-control gst-select no-search">' + gstOptions(data.gst_percent) + '</select></td>' +
-            '<td><input type="text" class="form-control gst-amount" readonly value="0.00"></td>' +
-            '<td><input type="text" class="form-control line-total" readonly value="0.00"></td>' +
+            '<td class="desc-cell"><input type="text" class="form-control desc-input" maxlength="500" placeholder="Service description">' +
+                '<div class="sr-legacy-note d-none">Earlier receipt line (qty &times; rate + GST). Remove and re-add it to change the amount.</div></td>' +
+            '<td><input type="number" class="form-control amount-input" min="0.01" step="0.01" placeholder="0.00"></td>' +
             '<td><button type="button" class="sr-remove-row" title="Remove row"><i class="bi bi-x-circle-fill"></i></button></td>' +
         '</tr>'
     );
 
     // values are set through .val() (never string-concatenated into HTML)
     if (data.description !== undefined) $row.find('.desc-input').val(data.description);
-    if (data.qty  !== undefined) $row.find('.qty-input').val(data.qty);
-    if (data.rate !== undefined) $row.find('.rate-input').val(data.rate);
+    if (data.legacy) {
+        $row.data('legacy', data.legacy);
+        $row.find('.amount-input').val(parseFloat(data.legacy.line_total).toFixed(2)).prop('readonly', true);
+        $row.find('.sr-legacy-note').removeClass('d-none');
+    } else if (data.amount !== undefined) {
+        $row.find('.amount-input').val(data.amount);
+    }
 
     $('#itemsContainer').append($row);
     toggleEmptyRow();
@@ -397,98 +367,66 @@ function showError(id, show, message) {
 }
 
 function recalc() {
-    var lines = [];
     var rowsOk = true;
+    var taxableC = 0, gstC = 0, count = 0;
 
     $('.item-row').each(function () {
-        var $r   = $(this);
-        var desc = $.trim($r.find('.desc-input').val());
-        var qty  = parseFloat($r.find('.qty-input').val());
-        var rate = parseFloat($r.find('.rate-input').val());
-        var pct  = $r.find('.gst-select').val();
+        var $r      = $(this);
+        var desc    = $.trim($r.find('.desc-input').val());
+        var legacy  = $r.data('legacy');
+        var amtText = $.trim($r.find('.amount-input').val());
+        count++;
 
-        var c = calcLine(qty, rate, pct);
-        $r.find('.gst-amount').val(c.gstAmount.toFixed(2));
-        $r.find('.line-total').val(c.total.toFixed(2));
-        lines.push(c);
+        var amtBad = false;
+        if (legacy) {
+            taxableC += cents(legacy.line_total) - cents(legacy.gst_amount);
+            gstC     += cents(legacy.gst_amount);
+        } else {
+            amtBad = !(AMOUNT_RE.test(amtText) && parseFloat(amtText) > 0);
+            if (!amtBad) taxableC += cents(amtText);
+        }
 
         var descBad = desc === '';
-        var qtyBad  = !(qty > 0);
-        var rateBad = !(rate >= 0);
-        if (descBad || qtyBad || rateBad) rowsOk = false;
+        if (descBad || amtBad) rowsOk = false;
 
         markInvalid($r.find('.desc-input'), descBad);
-        markInvalid($r.find('.qty-input'), qtyBad);
-        markInvalid($r.find('.rate-input'), rateBad);
+        markInvalid($r.find('.amount-input'), amtBad);
     });
 
-    var hasItems = lines.length > 0;
-    var sum      = gstSummarize(lines);
-    var subtotal = sum.taxable;
-    var gstTotal = sum.gst;
-    var grand    = sum.grandTotal;
-
-    // Round Off is display-only (as in General Purchase) and is never submitted.
-    var roundOff    = Math.round(grand) - grand;
-    var roundOffTxt = roundOff.toFixed(2);
-    if (roundOffTxt === '-0.00') roundOffTxt = '0.00';   // float dust, not a real adjustment
+    var hasItems = count > 0;
+    var subtotal = taxableC / 100;
+    var gstTotal = gstC / 100;
+    var grand    = (taxableC + gstC) / 100;
 
     $('#sumSubtotal').text(subtotal.toFixed(2));
     $('#sumGstTotal').text(gstTotal.toFixed(2));
-    $('#sumRoundOff').text((roundOff >= 0 || roundOffTxt === '0.00' ? '+' : '') + roundOffTxt);
+    $('#sumGstRow').toggleClass('d-none', gstC === 0);   // only a historical GST line has any to show
     $('#sumGrandTotal').text(grand.toFixed(2));
 
-    // Received / outstanding
-    var receivedOk = true;
-    var receivedMsg = '';
-    var received, outstanding;
-
-    if (isDirect()) {
-        // Direct: paid in full on the spot — received follows the grand total.
-        received = grand;
-        outstanding = 0;
-        $('#receivedAmount').val(grand.toFixed(2)).prop('readonly', true);
-    } else {
-        $('#receivedAmount').prop('readonly', false);
-        var raw = $('#receivedAmount').val();
-        received = raw === '' ? 0 : parseFloat(raw);
-
-        if (isNaN(received) || received < 0) {
-            receivedOk = false;
-            receivedMsg = 'Received amount must be zero or more.';
-            received = 0;
-        } else if (received > grand + RECEIVED_TOLERANCE) {
-            receivedOk = false;
-            receivedMsg = 'Received amount cannot exceed the grand total of ' + grand.toFixed(2) + '.';
-        }
-        outstanding = Math.max(0, grand - received);
-    }
-
-    $('#sumOutstanding').text(outstanding.toFixed(2));
-
-    var status = statusFor(grand, outstanding, hasItems);
-    $('#paymentStatusBadge').text(status).attr('class', 'badge-sr badge-' + status.toLowerCase());
+    // Release 4.9.0BM: a service receipt is money received in full — Amount Received is always the Grand Total.
+    $('#sumReceived').text(grand.toFixed(2));
 
     // Required fields
-    var customerOk  = !!$('#customerSelect').val();
-    var attendedOk  = $.trim($('#attendedPerson').val()) !== '';
-    var dateOk      = !!$('#receiptDate').val();
-    var bankNeeded  = isBankMode($('#paymentMode').val());
-    var bankOk      = !bankNeeded || !!$('#bankAccountId').val();
+    var customerOk    = !!$('#customerSelect').val();
+    var attendedOk    = $.trim($('#attendedPerson').val()) !== '';
+    var dateOk        = !!$('#receiptDate').val();
+    var paymentModeOk = !!$('#paymentMode').val();
+    var bankNeeded    = isBankMode($('#paymentMode').val());
+    var bankOk        = !bankNeeded || !!$('#bankAccountId').val();
 
     showError('err-customer', touched.customer && !customerOk);
     showError('err-attended', touched.attended && !attendedOk);
+    showError('err-payment-mode', touched.paymentMode && !paymentModeOk);
     showError('err-bank', bankNeeded && touched.bank && !bankOk);
-    showError('err-received', !receivedOk, receivedMsg);
 
     var missing = [];
     if (!customerOk) missing.push('customer');
     if (!dateOk) missing.push('receipt date');
     if (!attendedOk) missing.push('attended person');
+    if (!paymentModeOk) missing.push('payment mode');
     if (!bankOk) missing.push('bank account');
-    if (!hasItems) missing.push('at least one service item');
-    else if (!rowsOk) missing.push('description, qty and rate on every row');
-    if (!receivedOk) missing.push('a valid received amount');
+    if (!hasItems) missing.push('at least one service');
+    else if (!rowsOk) missing.push('a description and an amount above zero on every row');
 
     var canSave = missing.length === 0 && !saving;
     $('#saveBtn, #saveViewBtn').prop('disabled', !canSave);
@@ -508,22 +446,6 @@ function toggleBankAccount() {
     }
 }
 
-function fillCustomer() {
-    var $opt = $('#customerSelect').find(':selected');
-    var has  = !!$('#customerSelect').val();
-
-    $('#customerNameDisplay').val(has ? ($opt.attr('data-name') || '') : '');
-    $('#customerAddressDisplay').val(has ? ($opt.attr('data-address') || '') : '').attr('title', has ? ($opt.attr('data-address') || '') : '');
-
-    $('#infoName').text(($opt.attr('data-name') || '') || '-');
-    $('#infoPhone').text(($opt.attr('data-phone') || '') || '-');
-    $('#infoEmail').text(($opt.attr('data-email') || '') || '-');
-    $('#infoGst').text(($opt.attr('data-gst') || '') || '-');
-    $('#infoAddress').text(($opt.attr('data-address') || '') || '-');
-
-    $('#customerInfoCard').toggleClass('d-none', !has);
-}
-
 function showToast(message, isError) {
     var toast = $('<div class="quick-add-toast"></div>').addClass(isError ? 'error' : '').text(message);
     $('body').append(toast);
@@ -540,13 +462,12 @@ function saveReceipt(after) {
 
     var items = [];
     $('.item-row').each(function () {
-        var $r = $(this);
-        items.push({
-            description: $.trim($r.find('.desc-input').val()),
-            qty:         $r.find('.qty-input').val(),
-            rate:        $r.find('.rate-input').val(),
-            gst_percent: $r.find('.gst-select').val()
-        });
+        var $r = $(this), legacy = $r.data('legacy');
+        if (legacy) {
+            items.push({ description: $.trim($r.find('.desc-input').val()), qty: legacy.qty, rate: legacy.rate, gst_percent: legacy.gst_percent });
+        } else {
+            items.push({ description: $.trim($r.find('.desc-input').val()), amount: $.trim($r.find('.amount-input').val()) });
+        }
     });
 
     var bank = isBankMode($('#paymentMode').val());
@@ -563,11 +484,9 @@ function saveReceipt(after) {
         type: 'POST',
         dataType: 'json',
         data: {
-            receipt_type:    $('#receiptType').val(),
-            customer_id:     $('#customerSelect').val(),
+            customer_id:    $('#customerSelect').val(),
             receipt_date:    $('#receiptDate').val(),
             attended_person: $.trim($('#attendedPerson').val()),
-            received_amount: $('#receivedAmount').val(),
             payment_mode:    $('#paymentMode').val(),
             bank_account_id: bank ? $('#bankAccountId').val() : '',
             remarks:         $('#remarks').val(),
@@ -610,20 +529,104 @@ $('#itemsContainer').on('focusout', 'input', function () {
     recalc();
 });
 
-$('#receiptType').on('change', recalc);
-$('#paymentMode').on('change', function () { toggleBankAccount(); recalc(); });
-$('#receivedAmount').on('input', recalc);
+$('#paymentMode').on('change', function () { touched.paymentMode = true; toggleBankAccount(); recalc(); });
 $('#receiptDate').on('input change', recalc);
-$('#customerSelect').on('change', function () { touched.customer = true; fillCustomer(); recalc(); });
+$('#customerSelect').on('change', function () { touched.customer = true; recalc(); });
 $('#attendedPerson').on('input', recalc).on('blur', function () { touched.attended = true; recalc(); });
 $('#bankAccountId').on('change', function () { touched.bank = true; recalc(); });
 
 $('#saveBtn, #saveViewBtn').on('click', function () { saveReceipt($(this).data('after')); });
 $('#receiptForm').on('submit', function (e) { e.preventDefault(); });
 
+
+// ---------- quick add customer ----------
+(function () {
+    var modalEl = document.getElementById('quickAddCustomerModal');
+    var $modal  = $(modalEl);
+
+    function clearErrors() {
+        $modal.find('.invalid-feedback-text').addClass('d-none').text('');
+        $modal.find('.form-control').removeClass('is-invalid');
+        $('#quickAddCustomerError, #quickAddCustomerExisting').addClass('d-none').empty();
+    }
+
+    function selectCustomer(id, name) {
+        var $sel = $('#customerSelect');
+        if (!$sel.find('option[value="' + id + '"]').length) {
+            $sel.append($('<option></option>').val(id).text(name));
+        }
+        $sel.val(String(id)).trigger('change');   // select2 + the page's own change handler (nothing else is reset)
+    }
+
+    // Client-side duplicate hint against the customers already in the dropdown. The server's
+    // customers/ajax-store has no duplicate rule of its own (the Customer Master does not either),
+    // so this only offers the existing customer; it does not change the shared endpoint.
+    function findExisting(name) {
+        var n = $.trim(name).toLowerCase(), hit = null;
+        $('#customerSelect option').each(function () {
+            if (this.value && $.trim($(this).text()).toLowerCase() === n) { hit = { id: this.value, name: $(this).text() }; return false; }
+        });
+        return hit;
+    }
+
+    $modal.on('hidden.bs.modal', function () { document.getElementById('quickAddCustomerForm').reset(); clearErrors(); });
+    $modal.on('shown.bs.modal', function () { $('#qc_name').trigger('focus'); });
+    $modal.on('keydown', 'input', function (e) { if (e.key === 'Enter') { e.preventDefault(); $('#quickAddCustomerSaveBtn').trigger('click'); } });
+
+    $('#quickAddCustomerSaveBtn').on('click', function () {
+        var btn = this;
+        clearErrors();
+
+        var existing = findExisting($('#qc_name').val());
+        if (existing) {
+            $('#quickAddCustomerExisting')
+                .text('A customer named "' + existing.name + '" already exists. ')
+                .append($('<a href="#" class="alert-link">Use existing customer</a>').on('click', function (ev) {
+                    ev.preventDefault();
+                    selectCustomer(existing.id, existing.name);
+                    bootstrap.Modal.getInstance(modalEl).hide();
+                }))
+                .removeClass('d-none');
+            return;
+        }
+
+        btn.disabled = true;
+        $('#quickAddCustomerSpinner').removeClass('d-none');
+
+        $.ajax({
+            url: baseUrl + 'customers/ajax-store',
+            type: 'POST',
+            dataType: 'json',
+            // gst/email/address are sent empty: customers.gst is NOT NULL and ajax-store inserts whatever it receives
+            data: { name: $.trim($('#qc_name').val()), mobile: $.trim($('#qc_mobile').val()), gst: '', email: '', address: '' }
+        }).done(function (data) {
+            if (data.status) {
+                selectCustomer(data.customer.id, data.customer.name);
+                bootstrap.Modal.getInstance(modalEl).hide();
+                showToast(data.message || 'Customer created successfully.');
+            } else {
+                $('#quickAddCustomerError').text(data.message || 'Unable to save customer.').removeClass('d-none');
+            }
+        }).fail(function (xhr) {
+            var data = xhr.responseJSON || {};
+            if (data.errors) {
+                Object.keys(data.errors).forEach(function (field) {
+                    $('#qc_' + field).addClass('is-invalid');
+                    $('#qc_' + field + '_error').text(data.errors[field]).removeClass('d-none');
+                });
+            } else {
+                $('#quickAddCustomerError').text(data.message || 'A network error occurred. Please try again.').removeClass('d-none');
+            }
+        }).always(function () {
+            btn.disabled = false;
+            $('#quickAddCustomerSpinner').addClass('d-none');
+        });
+    });
+})();
+
 // ---------- initial state ----------
-fillCustomer();
 toggleBankAccount();
+addItem();   // start with one blank service row
 toggleEmptyRow();
 recalc();
 </script>

@@ -314,7 +314,7 @@ class ServiceReports extends Controller
         foreach ($rows as $r) {
             $excelRows[] = [
                 $r['date'], $r['reference'], $r['source'], $r['customer'],
-                $r['mode'] ?? '', $r['bank'] ?? '', (float) $r['amount'], $r['remarks'] ?? '',
+                pm_label($r['mode'] ?? '', '-'), $r['bank'] ?? '', (float) $r['amount'], $r['remarks'] ?? '',
             ];
         }
 
@@ -460,11 +460,15 @@ class ServiceReports extends Controller
     {
         $db = \Config\Database::connect();
 
-        // Same figures as CustomerLedger::index(): invoices minus everything
-        // received (amount taken at invoice time + allocations + advances).
+        // Release 4.9.0BH: same sources and signs as CustomerLedger::_statement(), so the two reconcile.
+        //   debits  = service INVOICE receipts + sales.total_amount
+        //   credits = service amount taken at invoice + service allocations + sales payments
+        //             + CUSTOMER_PROJECT_CASH + voucher advances + projects.advance_amount
+        // Advance applied (sales.advance_applied) is NOT a credit: it only spends advance already counted once.
+        // DIRECT service receipts are not in the ledger either, so they are not here.
         $b = $db->table('customers c')->select("c.id, c.name, c.phone, c.gst,
             COALESCE((SELECT SUM(sr.grand_total) FROM service_receipts sr
-                      WHERE sr.customer_id = c.id AND sr.receipt_type = 'INVOICE'), 0) AS invoice_total,
+                      WHERE sr.customer_id = c.id AND sr.receipt_type = 'INVOICE'), 0) AS service_invoice,
             COALESCE((SELECT SUM(GREATEST(0, sr2.received_amount - COALESCE(
                           (SELECT SUM(cpa0.paid_amount) FROM customer_payment_allocations cpa0 WHERE cpa0.service_receipt_id = sr2.id), 0)))
                       FROM service_receipts sr2
@@ -472,7 +476,13 @@ class ServiceReports extends Controller
             COALESCE((SELECT SUM(cpa.paid_amount) FROM customer_payment_allocations cpa
                         INNER JOIN customer_payments cp ON cp.id = cpa.customer_payment_id
                       WHERE cp.customer_id = c.id), 0) AS allocation_paid,
-            COALESCE((SELECT SUM(cp2.advance_amount) FROM customer_payments cp2 WHERE cp2.customer_id = c.id), 0) AS advance_total", false);
+            COALESCE((SELECT SUM(cp2.advance_amount) FROM customer_payments cp2 WHERE cp2.customer_id = c.id), 0) AS voucher_advance,
+            COALESCE((SELECT SUM(s.total_amount) FROM sales s WHERE s.customer_id = c.id), 0) AS sales_total,
+            COALESCE((SELECT SUM(s2.advance_applied) FROM sales s2 WHERE s2.customer_id = c.id), 0) AS advance_applied,
+            COALESCE((SELECT SUM(p.amount) FROM payments p INNER JOIN sales s3 ON s3.id = p.sale_id WHERE s3.customer_id = c.id), 0) AS sales_paid,
+            COALESCE((SELECT SUM(pcr.amount) FROM project_cash_receipts pcr
+                      WHERE pcr.customer_id = c.id AND pcr.receipt_type = 'CUSTOMER_PROJECT_CASH'), 0) AS project_cash,
+            COALESCE((SELECT SUM(pr.advance_amount) FROM projects pr WHERE pr.customer_id = c.id AND pr.advance_amount > 0), 0) AS project_advance", false);
 
         if ($f['customer_id'] > 0) {
             $b->where('c.id', $f['customer_id']);
@@ -487,11 +497,13 @@ class ServiceReports extends Controller
 
         $rows = [];
         foreach ($b->get()->getResultArray() as $r) {
-            $invoice     = round((float) $r['invoice_total'], 2);
-            $received    = round((float) $r['initial_received'] + (float) $r['allocation_paid'] + (float) $r['advance_total'], 2);
-            $outstanding = max(0.0, round($invoice - $received, 2));
+            $advanceReceived = (float) $r['voucher_advance'] + (float) $r['project_advance'];
+            $invoice  = round((float) $r['service_invoice'] + (float) $r['sales_total'], 2);
+            $received = round((float) $r['initial_received'] + (float) $r['allocation_paid'] + (float) $r['sales_paid']
+                + (float) $r['project_cash'] + $advanceReceived, 2);
+            $net      = round($invoice - $received, 2);   // ledger closing balance: > 0 owed, < 0 customer credit
 
-            if ($f['outstanding_only'] && $outstanding <= 0.004) {
+            if ($f['outstanding_only'] && $net <= 0.004) {
                 continue;
             }
 
@@ -501,8 +513,10 @@ class ServiceReports extends Controller
                 'phone'       => $r['phone'],
                 'invoice'     => $invoice,
                 'received'    => $received,
-                'outstanding' => $outstanding,
-                'advance'     => round((float) $r['advance_total'], 2),
+                'outstanding' => max(0.0, $net),
+                'credit'      => max(0.0, -$net),
+                'net'         => $net,
+                'advance'     => max(0.0, round($advanceReceived - (float) $r['advance_applied'], 2)),
             ];
         }
 

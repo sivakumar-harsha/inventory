@@ -2,6 +2,7 @@
 
 namespace App\Controllers;
 
+use App\Libraries\CashOpeningGuard;
 use App\Models\BankAccountModel;
 use App\Models\BankTransactionModel;
 use App\Models\GeneralPurchaseModel;
@@ -85,8 +86,8 @@ class GeneralPurchases extends Controller
     {
         $rules = [
             'supplier_id'   => 'required|is_natural_no_zero',
-            'purchase_date' => 'required|valid_date',
-            'bill_date'     => 'required|valid_date',
+            'purchase_date' => 'required|valid_date[Y-m-d]',
+            'bill_date'     => 'required|valid_date[Y-m-d]',
             'bill_no'       => 'permit_empty|string|max_length[100]',
             'remarks'       => 'permit_empty|string',
             'advance_paid'  => 'permit_empty|numeric|greater_than_equal_to[0]',
@@ -94,6 +95,11 @@ class GeneralPurchases extends Controller
 
         if (! $this->validate($rules)) {
             return redirect()->back()->withInput()->with('error', implode(' ', $this->validator->getErrors()));
+        }
+
+        // Release 4.9.0CF: CI's valid_date[Y-m-d] still accepts 2026-6-5; both dates must be exactly YYYY-MM-DD.
+        if (! CashOpeningGuard::isValidDate((string) $this->request->getPost('purchase_date')) || ! CashOpeningGuard::isValidDate((string) $this->request->getPost('bill_date'))) {
+            return redirect()->back()->withInput()->with('error', 'Enter valid purchase and bill dates.');
         }
 
         $items = $this->request->getPost('items');
@@ -109,6 +115,11 @@ class GeneralPurchases extends Controller
             return $this->_paymentRejected($paymentErrors, null);
         }
         $pay = $this->_normalizePayment($pay);
+
+        // Release 4.9.0CF: a CASH advance dated before the Cash Opening Date is warned about, never blocked.
+        if ($pay['advance'] > 0 && ($warn = CashOpeningGuard::gate($this->request, 'general-purchase-advance', 0, $pay['method'], trim((string) $this->request->getPost('purchase_date'))))) {
+            return $warn;
+        }
 
         $db = \Config\Database::connect();
         $db->transStart();
@@ -205,8 +216,8 @@ class GeneralPurchases extends Controller
 
         $rules = [
             'supplier_id'   => 'required|is_natural_no_zero',
-            'purchase_date' => 'required|valid_date',
-            'bill_date'     => 'required|valid_date',
+            'purchase_date' => 'required|valid_date[Y-m-d]',
+            'bill_date'     => 'required|valid_date[Y-m-d]',
             'bill_no'       => 'permit_empty|string|max_length[100]',
             'remarks'       => 'permit_empty|string',
             'advance_paid'  => 'permit_empty|numeric|greater_than_equal_to[0]',
@@ -214,6 +225,11 @@ class GeneralPurchases extends Controller
 
         if (! $this->validate($rules)) {
             return redirect()->back()->withInput()->with('error', implode(' ', $this->validator->getErrors()));
+        }
+
+        // Release 4.9.0CF: CI's valid_date[Y-m-d] still accepts 2026-6-5; both dates must be exactly YYYY-MM-DD.
+        if (! CashOpeningGuard::isValidDate((string) $this->request->getPost('purchase_date')) || ! CashOpeningGuard::isValidDate((string) $this->request->getPost('bill_date'))) {
+            return redirect()->back()->withInput()->with('error', 'Enter valid purchase and bill dates.');
         }
 
         $items = $this->request->getPost('items');
@@ -230,6 +246,11 @@ class GeneralPurchases extends Controller
             return $this->_paymentRejected($paymentErrors, $purchase);
         }
         $pay = $this->_normalizePayment($pay);
+
+        // Release 4.9.0CF: a CASH advance dated before the Cash Opening Date is warned about, never blocked.
+        if ($pay['advance'] > 0 && ($warn = CashOpeningGuard::gate($this->request, 'general-purchase-advance', (int) $id, $pay['method'], trim((string) $this->request->getPost('purchase_date'))))) {
+            return $warn;
+        }
 
         $db = \Config\Database::connect();
         $db->transStart();

@@ -28,6 +28,13 @@ foreach ($forms as $key => $form) {
 
 <?= $this->include('bank_entries/partials/styles') ?>
 
+<style>
+	/* Release 4.9.5: force full width — some of these selects sit inside a
+	   voucher form hidden with display:none at page load, and select2 can't
+	   measure a hidden element's width otherwise. */
+	.entry-form .select2-container { width: 100% !important; }
+</style>
+
 <nav aria-label="breadcrumb" class="ba-breadcrumb">
     <ol class="breadcrumb">
         <li class="breadcrumb-item"><a href="<?= base_url('dashboard') ?>">Home</a></li>
@@ -47,7 +54,7 @@ foreach ($forms as $key => $form) {
         <div class="row g-3 mb-3">
             <div class="col-md-6">
                 <label class="form-label" for="voucherType">Voucher Type *</label>
-                <select id="voucherType" class="form-control no-search">
+                <select id="voucherType" class="form-control">
                     <?php foreach ($vouchers as $key => $label): ?>
                     <option value="<?= esc($key, 'attr') ?>"<?= $key === $voucher ? ' selected' : '' ?>><?= esc($label) ?></option>
                     <?php endforeach; ?>
@@ -161,6 +168,42 @@ foreach ($forms as $key => $form) {
 		}
 	}
 
+	// Release 4.9.0AO: duplicate warning text, built from the server's plain-data summary.
+	function duplicateMessage(w) {
+		w = w || {};
+		return (w.message || 'Possible duplicate bank transaction found.') + '\n\n'
+			+ (w.date || '') + '   ' + (w.amount != null ? fmtMoney(w.amount) : '') + '\n'
+			+ (w.bank_account || '') + '\n'
+			+ (w.transaction_type || '') + (w.reference_type ? ' — ' + w.reference_type : '') + (w.reference_no ? ' ' + w.reference_no : '') + '\n\n'
+			+ 'Click OK only if this is a separate, genuine transaction.';
+	}
+
+	function submitEntry(key, serialized, confirmDuplicate) {
+		var data = serialized + (confirmDuplicate ? '&confirm_duplicate=1' : '');
+
+		$.ajax({
+			url: BE.forms[key].saveUrl,
+			type: 'POST',
+			dataType: 'json',
+			data: data
+		}).done(function (resp) {
+			if (resp.status) {
+				window.location.href = BE.listUrl + '?voucher=' + encodeURIComponent(key);
+			} else if (resp.duplicate) {
+				if (confirm(duplicateMessage(resp.warning))) {
+					submitEntry(key, serialized, true);
+				} else {
+					$('#saveBtn_' + key).prop('disabled', false);
+				}
+			} else {
+				showErrors(key, resp.errors || ['Failed to save.']);
+			}
+		}).fail(function (xhr) {
+			var data2 = xhr.responseJSON;
+			showErrors(key, (data2 && data2.errors) || ['A network error occurred.']);
+		});
+	}
+
 	$('.entry-form').on('submit', function (e) {
 		e.preventDefault();
 
@@ -170,21 +213,7 @@ foreach ($forms as $key => $form) {
 		$('#saveBtn_' + key).prop('disabled', true);
 		$('#formErrors_' + key).hide();
 
-		$.ajax({
-			url: BE.forms[key].saveUrl,
-			type: 'POST',
-			dataType: 'json',
-			data: $(this).serialize()
-		}).done(function (resp) {
-			if (resp.status) {
-				window.location.href = BE.listUrl + '?voucher=' + encodeURIComponent(key);
-			} else {
-				showErrors(key, resp.errors || ['Failed to save.']);
-			}
-		}).fail(function (xhr) {
-			var data = xhr.responseJSON;
-			showErrors(key, (data && data.errors) || ['A network error occurred.']);
-		});
+		submitEntry(key, $(this).serialize(), false);
 	});
 
 	$(document).ready(function () {

@@ -2,6 +2,7 @@
 
 namespace App\Controllers;
 
+use App\Libraries\CashOpeningGuard;
 use App\Models\BankAccountModel;
 use App\Models\BankTransactionModel;
 use App\Models\ProjectCashReceiptModel;
@@ -27,17 +28,22 @@ class ProjectCashReceipts extends Controller
     {
         $projectId   = (int) $this->request->getPost('project_id');
         $amount      = (float) $this->request->getPost('amount');
-        $recDate     = $this->request->getPost('receipt_date');
+        $recDate     = trim((string) $this->request->getPost('receipt_date'));
         $method      = $this->request->getPost('payment_method');
         $reference   = $this->request->getPost('reference');
         $notes       = $this->request->getPost('notes');
 
         // Release 4.6.5: Direct Project Income — ADVANCE (default, existing
         // behavior) vs DIRECT_INCOME (recognized as revenue immediately,
-        // since by definition no invoice will ever be raised for it). Any
-        // unrecognized value falls back to ADVANCE rather than being trusted.
+        // since by definition no invoice will ever be raised for it).
+        // Release 4.9.0T: CUSTOMER_PROJECT_CASH — genuine customer money
+        // received for the project without selecting an invoice; reduces
+        // Outstanding Collection directly (ProjectModel::getFinancialSummary())
+        // without ever touching sales.balance_amount or auto-selecting an
+        // invoice. Any unrecognized value falls back to ADVANCE rather than
+        // being trusted.
         $receiptType = $this->request->getPost('receipt_type');
-        if (!in_array($receiptType, ['ADVANCE', 'DIRECT_INCOME'], true)) {
+        if (!in_array($receiptType, ['ADVANCE', 'DIRECT_INCOME', 'CUSTOMER_PROJECT_CASH'], true)) {
             $receiptType = 'ADVANCE';
         }
 
@@ -50,12 +56,22 @@ class ProjectCashReceipts extends Controller
             return redirect()->back()->withInput()->with('error', 'Amount must be greater than zero.');
         }
 
+        // Release 4.9.0CF: a real calendar date is required (a blank or 0000-00-00 date used to be stored).
+        if (! CashOpeningGuard::isValidDate($recDate)) {
+            return redirect()->back()->withInput()->with('error', 'Enter a valid receipt date.');
+        }
+
         // Release 4.8.3C: money received by bank must land in a real, active
         // bank account. Cash (and Other) never touches the bank tables.
         $bankAccountId = (int) $this->request->getPost('bank_account_id');
         $bankError     = $this->_validateBankAccount($method, $bankAccountId);
         if ($bankError) {
             return redirect()->back()->withInput()->with('error', $bankError);
+        }
+
+        // Release 4.9.0CF: a CASH receipt dated before the Cash Opening Date is warned about, never blocked.
+        if ($warn = CashOpeningGuard::gate($this->request, 'project-receipt', 0, $method, $recDate)) {
+            return $warn;
         }
 
         $db = \Config\Database::connect();
@@ -79,19 +95,19 @@ class ProjectCashReceipts extends Controller
                 'bank_account_id' => BankTransactionModel::isBankMethod($method) ? $bankAccountId : null,
             ]);
 
-            $this->_createBankTransaction((int) $receiptId, $receiptNo, $bankAccountId, $project['name'], $amount, (string) $recDate, $method);
+            $this->_createBankTransaction((int) $receiptId, $receiptNo, $bankAccountId, $project['name'], $amount, (string) $recDate, $method, $receiptType);
         } catch (\Throwable $e) {
             $db->transRollback();
-            return redirect()->back()->withInput()->with('error', 'Failed to record project cash receipt: ' . $e->getMessage());
+            return redirect()->back()->withInput()->with('error', 'Failed to record project receipt: ' . $e->getMessage());
         }
 
         $db->transComplete();
 
         if ($db->transStatus() === false) {
-            return redirect()->back()->withInput()->with('error', 'Failed to record project cash receipt due to a database error.');
+            return redirect()->back()->withInput()->with('error', 'Failed to record project receipt due to a database error.');
         }
 
-        return redirect()->to('/payments')->with('success', 'Project cash receipt recorded successfully.');
+        return redirect()->to('/payments')->with('success', 'Project receipt recorded successfully.');
     }
 
     // =========================================================
@@ -123,11 +139,16 @@ class ProjectCashReceipts extends Controller
     }
 
     /** Posts the DEPOSIT for one receipt; no-op unless received through a bank. */
-    private function _createBankTransaction(int $receiptId, string $receiptNo, int $bankAccountId, string $projectName, float $amount, string $date, ?string $method): void
+    private function _createBankTransaction(int $receiptId, string $receiptNo, int $bankAccountId, string $projectName, float $amount, string $date, ?string $method, string $receiptType = 'ADVANCE'): void
     {
         if (! BankTransactionModel::isBankMethod($method)) {
             return;
         }
+
+        // Release 4.9.0CB: wording only. The row is still reference_type PROJECT_ADVANCE with the same
+        // reference_id, amount, account and posting; an Unallocated Project Receipt (CUSTOMER_PROJECT_CASH)
+        // is no longer described as an "advance" in the bank remark.
+        $remarks = ($receiptType === 'CUSTOMER_PROJECT_CASH' ? 'Unallocated Project Receipt — ' : 'Project Advance - ') . $projectName;
 
         (new BankTransactionModel())->createBankTransaction([
             'bank_account_id'  => $bankAccountId,
@@ -137,7 +158,7 @@ class ProjectCashReceipts extends Controller
             'reference_type'   => 'PROJECT_ADVANCE',
             'reference_id'     => $receiptId,
             'reference_no'     => $receiptNo,
-            'remarks'          => 'Project Advance - ' . $projectName,
+            'remarks'          => $remarks,
             'created_by'       => session()->get('user_id'),
         ]);
     }

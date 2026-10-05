@@ -74,7 +74,7 @@ class ProjectModel extends Model
 
     /**
      * Shared project financial summary: value, advance, billing, and collection figures.
-     * Remaining Billable Value and Outstanding Collection Balance are independent figures
+     * Remaining Balance (remaining_billable_value = Contract - Advance Received - Total Invoiced) and Outstanding Collection Balance are independent figures
      * and are intentionally not clamped to zero (a negative value is meaningful).
      */
     public function getFinancialSummary(int $projectId, ?int $excludeSaleId = null): array
@@ -133,21 +133,43 @@ class ProjectModel extends Model
         // projects.advance_amount. No allocation table exists, so
         // total_cash_available is simply the receipt total, not netted
         // against any specific invoice here. total_billed/total_paid/
-        // total_advance_applied/outstanding_collection_balance/
-        // remaining_billable_value above are all unchanged.
+        // total_advance_applied/remaining_billable_value above are all
+        // unchanged.
         $cashReceiptModel  = new ProjectCashReceiptModel();
         $totalCashReceived = $cashReceiptModel->totalForProject($projectId);
         $totalInvoicePayments = $totalPaid;
-        $totalCashAvailable   = $totalCashReceived;
 
         // Release 4.6.5 (Direct Project Income): split the same receipt total
         // above by receipt_type — ADVANCE (money held against a future
         // invoice, not yet revenue) vs DIRECT_INCOME (cash that will never be
         // invoiced, recognized as revenue immediately). Both are still part
-        // of total_cash_received above; this split only feeds the two new
-        // fields below, nothing existing is recalculated from it.
+        // of total_cash_received above; this split only feeds fields below,
+        // nothing existing is recalculated from it.
         $totalAdvanceReceipts = $cashReceiptModel->totalForProject($projectId, null, null, 'ADVANCE');
         $totalDirectIncome    = $cashReceiptModel->totalForProject($projectId, null, null, 'DIRECT_INCOME');
+
+        // Release 4.9.0T / 4.9.0U (correction): CUSTOMER_PROJECT_CASH —
+        // genuine customer money received for the project without selecting
+        // an invoice. 4.9.0T subtracted it directly from
+        // outstanding_collection_balance, but that field also drives
+        // getPaymentStatus() (PARTIAL/PAID) and the Dashboard/Projects List
+        // "still pending" filters — reducing it let an unallocated cash
+        // receipt make a project (and, via customer_balance_status below,
+        // an invoice) LOOK settled/paid while the invoice's own
+        // sales.balance_amount was still genuinely outstanding. 4.9.0U
+        // restores outstanding_collection_balance / invoice_outstanding /
+        // total_cash_available to their pre-4.9.0T, invoice-only meaning
+        // (Release 4.5.6's "never netted against Project Cash Receipts"
+        // rule, now applied uniformly to all three receipt types again) and
+        // instead exposes the CUSTOMER_PROJECT_CASH-aware figure as a
+        // separate field, project_outstanding_collection (below), which is
+        // the only thing the Outstanding Collection card's NUMBER reads —
+        // its branch/label decision still reads the untouched
+        // invoice_outstanding, so the card can never claim "Settled" while a
+        // real invoice balance remains.
+        $totalCustomerProjectCash = $cashReceiptModel->totalForProject($projectId, null, null, 'CUSTOMER_PROJECT_CASH');
+
+        $totalCashAvailable = $totalCashReceived;
 
         // net_outstanding_collection_balance: presentation-only figure combining
         // outstanding_collection_balance (invoice pending, net of advance) with
@@ -174,7 +196,23 @@ class ProjectModel extends Model
         //   Income. total_cash_received (above) keeps its original meaning
         //   (Project Cash Receipts only, both types) for the internal chips
         //   that already depend on it (Payments create/edit summary cards).
-        $remainingBalanceDisplay = $totalProjectValue - $advanceAmount - $totalBilled - $totalAdvanceReceipts - $totalDirectIncome;
+        //
+        // Release 4.9.0H (bug fix): advance_amount is NOT subtracted here
+        // any more. Once a project's advance is applied to an invoice
+        // (sales.advance_applied), that invoice's own total_amount already
+        // reflects it — total_billed is the full invoice value, not "invoice
+        // value on top of the advance". Subtracting advance_amount again on
+        // top of total_billed double-counted the same rupee twice and could
+        // report a project as "Over Billed" while it was genuinely still
+        // under contract value (e.g. Vinayaga Builders: contract ₹200,000,
+        // invoiced ₹151,925 — 76% billed, ₹48,075 still billable — was
+        // wrongly showing "Over Billed ₹26,925"). total_advance_receipts and
+        // total_direct_income are untouched: both come from the independent
+        // Project Cash Receipts ledger (Release 4.5 Phase 5), never applied
+        // to a sales.advance_applied, so they never overlap with total_billed
+        // and still correctly reduce how much of the contract remains to be
+        // invoiced.
+        $remainingBalanceDisplay = $totalProjectValue - $totalBilled - $totalAdvanceReceipts - $totalDirectIncome;
         $cashReceivedCombined    = $totalPaid + $totalAdvanceReceipts + $totalDirectIncome;
 
         // Release 4.8.6A-1: Total Customer Paid = everything the customer actually paid us — the
@@ -184,7 +222,10 @@ class ProjectModel extends Model
         $customerPaidAdvance = $advanceAmount + $totalAdvanceReceipts;
         // Final patch: Direct Income is NOT a customer collection, so it is left out here
         // (it stays available as total_direct_income and inside cash_received_combined).
-        $totalCustomerPaid   = $advanceAmount + $totalAdvanceReceipts + $totalPaid;
+        // Release 4.9.0T: CUSTOMER_PROJECT_CASH is genuine customer money
+        // received for the project, so it is added to Total Customer Paid
+        // the same as an invoice payment or an advance receipt.
+        $totalCustomerPaid   = $advanceAmount + $totalAdvanceReceipts + $totalPaid + $totalCustomerProjectCash;
 
         // Release 4.8.6A-2 Final Patch: TWO independent customer figures, never one shared balance.
         //   unused_customer_advance = Advance Received - Advance Allocated (sales.advance_applied)
@@ -195,8 +236,26 @@ class ProjectModel extends Model
         // Receipts are not part of either. Without the allocation table (old automatic FIFO) the two
         // are never both above zero, so the old single card is reproduced.
         $unusedCustomerAdvance = max(0.0, round($advanceAmount - $totalAdvanceApplied, 2));
+        // Release 4.9.0U: reverted to the pre-4.9.0T, invoice-only formula —
+        // see the CUSTOMER_PROJECT_CASH comment above. This is the TRUE
+        // invoice-level outstanding figure: it drives customer_balance_status
+        // below (Outstanding/Advance/Settled) and the Outstanding Collection
+        // card's branch decision in Project Detail/Statement, so neither may
+        // ever report "Settled" from an unallocated cash receipt alone.
         $invoiceOutstanding    = max(0.0, round($totalBilled - $totalAdvanceApplied - $totalPaid, 2));
         $hasInvoices           = $totalBilled > 0.004;
+
+        // Release 4.9.0U: the actual CUSTOMER_PROJECT_CASH-aware number —
+        // "how much of the true invoice_outstanding above is left after the
+        // customer's unallocated project cash is counted against it".
+        // Never negative (a receipt bigger than invoice_outstanding shows as
+        // Available Project Cash/credit instead — see
+        // net_outstanding_collection_balance above — never as a negative
+        // here, and never as "Settled": invoice_outstanding itself, which
+        // still governs the branch/status decision, is untouched by
+        // CUSTOMER_PROJECT_CASH). This is the only field the Outstanding
+        // Collection card's NUMBER should read from now on.
+        $projectOutstandingCollection = max(0.0, round($invoiceOutstanding - $totalCustomerProjectCash, 2));
 
         // Headline status for exports / summaries (the cards themselves use the two values above).
         if ($invoiceOutstanding > 0.004) {
@@ -215,7 +274,12 @@ class ProjectModel extends Model
             $customerCards[] = ['type' => 'ADVANCE', 'label' => 'Customer Advance Balance', 'amount' => $unusedCustomerAdvance];
         }
         if ($invoiceOutstanding > 0.004) {
-            $customerCards[] = ['type' => 'OUTSTANDING', 'label' => 'Outstanding Collection', 'amount' => $invoiceOutstanding];
+            // Release 4.9.0U: card is shown/hidden based on the TRUE invoice
+            // outstanding (invoiceOutstanding, above) so it never disappears
+            // into "Settled" from unallocated cash alone, but the number
+            // itself is the CUSTOMER_PROJECT_CASH-aware figure — same split
+            // used by the Project Detail/Statement views.
+            $customerCards[] = ['type' => 'OUTSTANDING', 'label' => 'Outstanding Collection', 'amount' => $projectOutstandingCollection];
         } elseif ($hasInvoices || ! $customerCards) {
             $customerCards[] = ['type' => 'SETTLED', 'label' => 'Settled', 'amount' => 0.0];
         }
@@ -229,6 +293,23 @@ class ProjectModel extends Model
             'total_advance_applied'          => $totalAdvanceApplied,
             'total_pending_collection'       => $totalPendingCollection,
             'unused_advance'                 => $unusedAdvance,
+            // Release 4.9.0H (bug fix): same double-count as
+            // remaining_balance_display above — advance_amount is already
+            // inside total_billed once applied to an invoice, so it is no
+            // longer subtracted a second time here. This field drives
+            // getPaymentStatus()/getBillingCompletionStatus() (PARTIAL vs
+            // PAID/ACTIVE) and the Project list / Dashboard "Remaining
+            // Balance" columns; Sales Create/Edit's own invoice-eligibility
+            // check does not read this field (it compares total_billed to
+            // total_project_value directly), so it is unaffected either way.
+            // Release 4.9.0EC: confirmed business rule — the customer advance is
+            // PART OF the contract value, so BOTH Advance Received and Total
+            // Invoiced consume it: Contract - Advance Received - Total Invoiced.
+            // This supersedes the 4.9.0H comment above. It is the ONE
+            // authoritative project Remaining Balance: signed (negative = Over
+            // Billed, shown as -value by every consumer), clamped only at display.
+            // total_billed, advance_amount, advance applied, invoice outstanding
+            // and unused advance are all unchanged.
             'remaining_billable_value'       => $totalProjectValue - $advanceAmount - $totalBilled,
             'outstanding_collection_balance' => $outstandingCollectionBalance,
             'billing_progress_percent'       => $totalProjectValue > 0
@@ -241,6 +322,8 @@ class ProjectModel extends Model
             'available_project_cash'           => $availableProjectCash,
             'total_advance_receipts'           => $totalAdvanceReceipts,
             'total_direct_income'              => $totalDirectIncome,
+            'total_customer_project_cash'      => $totalCustomerProjectCash,
+            'project_outstanding_collection'   => $projectOutstandingCollection,
             'remaining_balance_display'        => $remainingBalanceDisplay,
             'cash_received_combined'           => $cashReceivedCombined,
             'customer_paid_advance'            => $customerPaidAdvance,
@@ -258,20 +341,98 @@ class ProjectModel extends Model
      * tracks whether the project is still expected to raise more sales
      * invoices, not whether existing invoices are collected.
      *
-     * 'COMPLETED' only ever comes from markBillingComplete() (user action).
-     * 'PARTIAL' is derived automatically whenever billing isn't marked
-     * complete and there's still contract value left to invoice. Otherwise
-     * 'ACTIVE'.
+     * 'COMPLETED' only ever comes from markBillingComplete() (user action)
+     * and keeps priority over every automatic state below — a project the
+     * accountant has manually closed for billing stays COMPLETED even if a
+     * later invoice pushes total_billed past total_project_value.
+     *
+     * Release 4.9.0K: the three automatic states below are all derived from
+     * remaining_billable_value (= total_project_value - advance_amount - total_billed, 4.9.0EC) alone
+     * — Contract vs Invoiced, never customer payments/advances/cash
+     * receipts (see ProjectModel::getFinancialSummary(), Release 4.9.0J).
+     * 'OVER_BILLED' (total_billed > total_project_value) did not exist
+     * before this release; a genuinely over-billed project used to fall
+     * through to 'ACTIVE', hiding the very condition Release 4.9.0J's
+     * Over Billed display exists to surface. No new stored value: like
+     * 'PARTIAL', 'OVER_BILLED' is computed here, never written to
+     * projects.billing_status (that column only ever holds ACTIVE/COMPLETED,
+     * the manual flag).
+     *
+     * Deliberately NOT changed: a project that is EXACTLY fully billed
+     * (remaining_billable_value == 0) still returns 'ACTIVE', not
+     * 'COMPLETED', unless markBillingComplete() was called — same as before
+     * this release. 'COMPLETED' has always been this method's one manual,
+     * user-driven state (Release 2.3A), read by Sales::index()'s Completed
+     * tab and this method's own priority check above; auto-promoting exact
+     * 100% billing to 'COMPLETED' would silently reinterpret that flag as
+     * automatic for one boundary value while every other project still
+     * needs the explicit action, which is a bigger behavior change than
+     * this release's stated scope (closing the missing OVER_BILLED gap).
+     *
+     * Release 4.9.0K (second finding, same audit): a project with zero
+     * invoices raised (total_billed <= 0) used to return 'PARTIAL' here —
+     * remaining_billable_value equals the full contract value, which is
+     * positive, so it fell into the same branch as a project that is
+     * genuinely in progress. That misrepresented "billing has not started"
+     * as "billing is partway done". getPaymentStatus() above already
+     * special-cases this exact situation (sale count 0 -> 'PENDING', its own
+     * first check, before any amount is computed); this method now mirrors
+     * that convention with its own leading check so a project with no
+     * invoices reads 'ACTIVE' (not yet started), consistent with the
+     * pre-invoice state everywhere else in the app.
+     *
+     * Release 4.9.0L (audit, closed — no logic change): resolves whether
+     * 'COMPLETED' means "100% invoiced" or "a user manually confirmed
+     * billing is done", left open by 4.9.0K. Two pieces of decisive
+     * evidence from the existing architecture:
+     *   1. markBillingComplete() (Projects::markBillingComplete()) is a
+     *      one-way action with no unmark/reset endpoint anywhere in the app.
+     *      A state meaning "100% invoiced" would need to be reversible —
+     *      a credit note or a corrected invoice could legitimately drop
+     *      total_billed back under total_project_value, and an auto-derived
+     *      state must follow the numbers back down. A one-way flag cannot
+     *      represent that; it can only represent a deliberate, permanent
+     *      decision.
+     *   2. The "Mark Billing Complete" button (projects/view.php) is shown
+     *      regardless of the current billing percentage — it is not gated
+     *      behind 100% — and its confirmation text reads "No more sales
+     *      invoices should be created for this project", a statement about
+     *      FUTURE invoicing intent, not about the CURRENT invoiced amount.
+     *      An accountant can legitimately close billing on a project at 60%
+     *      (scope was reduced) or leave a 100%-billed project open (more
+     *      invoices are still expected).
+     * Both facts independently confirm meaning B ("manually confirmed"),
+     * not meaning A ("100% invoiced"). Sales::index()'s own Completed tab
+     * already reads projects.billing_status (the raw manual column)
+     * directly, never a computed percentage, for the same reason.
+     * Decision: Option A — no code change. A project at exactly 100%
+     * invoiced and not manually completed continues to return 'ACTIVE'.
+     * This closes the question opened in 4.9.0K; see Release 4.9.0L's
+     * report for the full test matrix proving this against all four states,
+     * payment independence and advance independence.
      */
     public function getBillingCompletionStatus(array $project, array $financialSummary): string
     {
         if (($project['billing_status'] ?? 'ACTIVE') === 'COMPLETED') {
             return 'COMPLETED';
         }
-        if (($financialSummary['remaining_billable_value'] ?? 0) > 0.004) {
+        $totalBilled = (float) ($financialSummary['total_billed'] ?? 0);
+        if ($totalBilled <= 0.004) {
+            return 'ACTIVE';
+        }
+        $remaining = (float) ($financialSummary['remaining_billable_value'] ?? 0);
+        if ($remaining < -0.004) {
+            return 'OVER_BILLED';
+        }
+        if ($remaining > 0.004) {
             return 'PARTIAL';
         }
-        return 'ACTIVE';
+        // Release 4.9.0DZ: exactly invoiced to contract value (billed > 0,
+        // remaining == 0) is FULLY_BILLED — computed from Contract vs
+        // Invoiced only, never customer paid / advance. Supersedes the
+        // 4.9.0L decision to leave this boundary as 'ACTIVE'; the manual
+        // 'COMPLETED' flag above keeps priority and is untouched.
+        return 'FULLY_BILLED';
     }
 
     /**
@@ -395,6 +556,7 @@ class ProjectModel extends Model
                 'type'        => 'Project Advance',
                 'reference'   => 'ADV-' . $projectId,
                 'description' => $project['advance_notes'] ?: 'Advance received',
+                'method'      => (string) ($project['advance_payment_method'] ?? ''),
                 'amount'      => (float) $project['advance_amount'],
                 'category'    => 'Payment',
             ];
@@ -427,7 +589,8 @@ class ProjectModel extends Model
                 'date'        => $p['payment_date'],
                 'type'        => 'Invoice Payment',
                 'reference'   => $p['reference'] ?: ('PMT-' . $p['id']),
-                'description' => 'Payment against ' . $against . ($p['method'] ? ' via ' . $p['method'] : ''),
+                'description' => 'Payment against ' . $against,
+                'method'      => (string) ($p['method'] ?? ''),
                 'amount'      => (float) $p['amount'],
                 'category'    => 'Payment',
             ];
@@ -450,14 +613,33 @@ class ProjectModel extends Model
             FROM project_cash_receipts WHERE project_id = ?
         ", [$projectId])->getResultArray();
         foreach ($cashReceipts as $cr) {
-            $isDirectIncome = ($cr['receipt_type'] ?? 'ADVANCE') === 'DIRECT_INCOME';
+            $rtype = $cr['receipt_type'] ?? 'ADVANCE';
+            // Release 4.9.0T: CUSTOMER_PROJECT_CASH is a genuine customer
+            // collection like Invoice Payment/Advance — category 'Payment' so
+            // it reduces the running balance the same way — but labeled on
+            // its own, never folded into "Advance Receipt" (it is not held
+            // against a future invoice).
+            if ($rtype === 'DIRECT_INCOME') {
+                $type = 'Direct Project Income';
+                $desc = 'Direct income received (';
+                $category = 'Income';
+            } elseif ($rtype === 'CUSTOMER_PROJECT_CASH') {
+                $type = 'Unallocated Project Receipt';
+                $desc = 'Customer payment received, no invoice selected (';
+                $category = 'Payment';
+            } else {
+                $type = 'Advance Receipt';
+                $desc = 'Advance received (';
+                $category = 'Payment';
+            }
             $events[] = [
                 'date'        => $cr['receipt_date'],
-                'type'        => $isDirectIncome ? 'Direct Project Income' : 'Advance Receipt',
+                'type'        => $type,
                 'reference'   => $cr['reference'] ?: $cr['receipt_no'],
-                'description' => ($isDirectIncome ? 'Direct income received (' : 'Advance received (') . $cr['receipt_no'] . ')' . ($cr['payment_method'] ? ' via ' . $cr['payment_method'] : ''),
+                'description' => $desc . $cr['receipt_no'] . ')',
+                'method'      => (string) ($cr['payment_method'] ?? ''),
                 'amount'      => (float) $cr['amount'],
-                'category'    => $isDirectIncome ? 'Income' : 'Payment',
+                'category'    => $category,
             ];
         }
 
@@ -486,7 +668,7 @@ class ProjectModel extends Model
         }
 
         $expenses = $db->query("
-            SELECT id, expense_date, amount, category, description
+            SELECT id, expense_date, amount, category, description, payment_method
             FROM expenses WHERE project_id = ?
         ", [$projectId])->getResultArray();
         foreach ($expenses as $e) {
@@ -495,6 +677,7 @@ class ProjectModel extends Model
                 'type'        => 'Expense',
                 'reference'   => 'EXP-' . $e['id'],
                 'description' => $e['description'] ?: ($e['category'] ?: 'Expense'),
+                'method'      => (string) ($e['payment_method'] ?? ''),
                 'amount'      => (float) $e['amount'],
                 'category'    => 'Cost',
             ];

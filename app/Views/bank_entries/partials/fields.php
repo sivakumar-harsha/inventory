@@ -37,7 +37,7 @@
                         <input type="number" step="0.01" min="0.01" name="<?= $name ?>" id="<?= $id ?>" class="form-control" value="<?= $value !== '' ? esc(number_format((float) $value, 2, '.', ''), 'attr') : '' ?>"<?= $req ? ' required' : '' ?>>
 
                     <?php elseif ($field['type'] === 'select'): ?>
-                        <select name="<?= $name ?>" id="<?= $id ?>" class="form-control no-search"<?= $req ? ' required' : '' ?>>
+                        <select name="<?= $name ?>" id="<?= $id ?>" class="form-control"<?= $req ? ' required' : '' ?>>
                             <?php foreach ($field['options'] as $optValue => $optLabel): ?>
                             <option value="<?= esc($optValue, 'attr') ?>"<?= (string) $value === (string) $optValue ? ' selected' : '' ?>><?= esc($optLabel) ?></option>
                             <?php endforeach; ?>

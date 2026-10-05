@@ -2,6 +2,7 @@
 
 namespace App\Controllers;
 
+use App\Libraries\CashOpeningGuard;
 use App\Models\BankAccountModel;
 use App\Models\BankTransactionModel;
 use App\Models\CustomerModel;
@@ -17,11 +18,12 @@ use CodeIgniter\Controller;
  * JSON, because the create/edit pages submit them via AJAX (same convention
  * as SupplierPayments).
  *
- * Two receipt types:
- *  - INVOICE: received_amount may be anything from 0 up to grand_total; the
- *    difference is the outstanding balance.
- *  - DIRECT:  paid in full on the spot — received_amount is forced to
- *    grand_total and outstanding to 0, whatever the client submits.
+ * Release 4.9.0BQ: every NEW receipt is DIRECT and paid in full — receipt_type is
+ * forced server-side, received_amount = grand_total, outstanding 0, status PAID,
+ * whatever the client submits. INVOICE survives only as a historical type: an
+ * existing Invoice keeps its type when edited, and one that carries a balance or
+ * customer-payment allocations (see _isLegacyPartial) keeps the old rule
+ * received_amount 0..grand_total, the difference being its outstanding balance.
  *
  * Release 4.8.4F: bank posting. A receipt paid by BANK/CHEQUE/UPI posts one
  * DEPOSIT (reference_type SERVICE_RECEIPT, reference_id = the receipt id) of the
@@ -35,7 +37,6 @@ use CodeIgniter\Controller;
  */
 class ServiceReceipts extends Controller
 {
-    private const RECEIPT_TYPES  = ['INVOICE', 'DIRECT'];
     private const PAYMENT_MODES  = ['CASH', 'BANK', 'CHEQUE', 'UPI', 'OTHER'];
     private const BANK_MODES     = ['BANK', 'CHEQUE', 'UPI'];
     private const REFERENCE_TYPE = 'SERVICE_RECEIPT';
@@ -76,10 +77,16 @@ class ServiceReceipts extends Controller
 
     public function store()
     {
+        // Release 4.9.0BQ: no existing row => a NEW receipt (always DIRECT, full payment).
         $prepared = $this->_prepare($this->_extractInput(), $this->request->getPost('items'));
 
         if ($prepared['errors']) {
             return $this->_error($prepared['errors'], 422);
+        }
+
+        // Release 4.9.0CF: a CASH receipt dated before the Cash Opening Date is warned about, never blocked.
+        if ($warn = CashOpeningGuard::gate($this->request, 'service-receipt', 0, $prepared['header']['payment_mode'] ?? '', $prepared['header']['receipt_date'] ?? '', true)) {
+            return $warn;
         }
 
         $db = \Config\Database::connect();
@@ -147,6 +154,7 @@ class ServiceReceipts extends Controller
             throw \CodeIgniter\Exceptions\PageNotFoundException::forPageNotFound('Service receipt not found.');
         }
 
+        $data['legacy_partial'] = $this->_isLegacyPartial($data['receipt']);
         return view('service_receipts/edit', $data + $this->_formData());
     }
 
@@ -159,10 +167,15 @@ class ServiceReceipts extends Controller
             return $this->_error(['Service receipt not found.'], 404);
         }
 
-        $prepared = $this->_prepare($this->_extractInput(), $this->request->getPost('items'));
+        $prepared = $this->_prepare($this->_extractInput(), $this->request->getPost('items'), $receipt);
 
         if ($prepared['errors']) {
             return $this->_error($prepared['errors'], 422);
+        }
+
+        // Release 4.9.0CF: a CASH receipt dated before the Cash Opening Date is warned about, never blocked.
+        if ($warn = CashOpeningGuard::gate($this->request, 'service-receipt', (int) $id, $prepared['header']['payment_mode'] ?? '', $prepared['header']['receipt_date'] ?? '', true)) {
+            return $warn;
         }
 
         // receipt_no never changes. The customer snapshot is re-taken only when
@@ -275,7 +288,7 @@ class ServiceReceipts extends Controller
     {
         $amount = round($amount, 2);
 
-        if (! in_array($header['payment_mode'], self::BANK_MODES, true) || $amount <= 0) {
+        if (! BankTransactionModel::isBankMethod($header['payment_mode']) || $amount <= 0) {
             return;
         }
 
@@ -442,6 +455,71 @@ class ServiceReceipts extends Controller
     }
 
     /**
+     * Release 4.9.0BJ: the simplified entry screen submits a service row as
+     * {description, amount} — the final amount for that service. It is stored in
+     * the existing columns as qty 1, rate = amount, GST 0 (no GST is ever
+     * derived), so reports, PDF, Excel and old receipts need no change. A row
+     * that already carries qty/rate (the edit screen resubmitting a historical
+     * qty x rate / GST line) goes through the unchanged legacy path.
+     *
+     * The amount must be a plain positive decimal with at most two places and
+     * within the column range; a bad one adds an error and the row is replaced
+     * by a harmless placeholder so it is not reported twice.
+     */
+    private function _normalizeItems($items, array &$errors)
+    {
+        if (! is_array($items)) {
+            return $items;
+        }
+
+        $row = 0;
+        foreach ($items as $k => $item) {
+            $row++;
+            if (! is_array($item) || isset($item['qty']) || isset($item['rate']) || ! array_key_exists('amount', $item)) {
+                continue;
+            }
+
+            $amount = is_string($item['amount']) ? trim($item['amount']) : '';
+
+            if (! preg_match('/^\d+(\.\d{1,2})?$/', $amount)) {
+                $errors[] = "Row {$row}: amount must be a number greater than zero with at most two decimal places.";
+                $amount   = '0';
+            } elseif ((float) $amount <= 0) {
+                $errors[] = "Row {$row}: amount must be greater than zero.";
+            } elseif ((float) $amount > self::MAX_AMOUNT) {
+                $errors[] = "Row {$row}: amount is too large.";
+                $amount   = '0';
+            }
+
+            $items[$k] = [
+                'description' => $item['description'] ?? '',
+                'qty'         => 1,
+                'rate'        => $amount,
+                'gst_percent' => 0,
+            ];
+        }
+
+        return $items;
+    }
+
+    /**
+     * Release 4.9.0BM: true for a historical receipt whose saved data is a real
+     * partial payment (a balance outstanding, or received != grand total). Such a
+     * receipt keeps its Received/Outstanding figures when edited; everything else
+     * is a full-payment receipt.
+     */
+    private function _isLegacyPartial(array $receipt): bool
+    {
+        // Release 4.9.0BQ: only a historical INVOICE can be partial, and one that
+        // vouchers have been allocated to keeps its received figure too (forcing it
+        // to a new grand total would book bank money nobody paid).
+        return ($receipt['receipt_type'] ?? '') === 'INVOICE'
+            && ((float) $receipt['outstanding_amount'] > 0.004
+                || abs((float) $receipt['received_amount'] - (float) $receipt['grand_total']) > 0.004
+                || $this->_allocatedTotal((int) $receipt['id']) > 0);
+    }
+
+    /**
      * Collects the request's header fields, untouched. Validation happens in
      * _prepare().
      */
@@ -449,13 +527,16 @@ class ServiceReceipts extends Controller
     {
         $post = $this->request;
 
+        // receipt_type / received_amount / outstanding_amount / payment_status are
+        // never trusted from the browser: _prepare() derives the first from the
+        // stored row (or DIRECT for a new receipt) and the rest from the items.
+        // received_amount is read only so a historical partial Invoice can be edited.
         return [
-            'receipt_type'    => strtoupper(trim((string) $post->getPost('receipt_type'))),
             'customer_id'     => (int) $post->getPost('customer_id'),
             'receipt_date'    => trim((string) $post->getPost('receipt_date')),
             'attended_person' => trim((string) $post->getPost('attended_person')),
             'received_amount' => trim((string) $post->getPost('received_amount')),
-            'payment_mode'    => strtoupper(trim((string) $post->getPost('payment_mode'))) ?: 'CASH',
+            'payment_mode'    => strtoupper(trim((string) $post->getPost('payment_mode'))),
             'bank_account_id' => (int) $post->getPost('bank_account_id'),
             'remarks'         => trim((string) $post->getPost('remarks')),
         ];
@@ -468,14 +549,27 @@ class ServiceReceipts extends Controller
      *
      * @return array{errors: string[], header: array, items: array, customer: array}
      */
-    private function _prepare(array $input, $items): array
+    private function _prepare(array $input, $items, ?array $existing = null): array
     {
         $errors   = [];
         $customer = null;
 
-        if (! in_array($input['receipt_type'], self::RECEIPT_TYPES, true)) {
-            $errors[] = 'Receipt type must be INVOICE or DIRECT.';
+        // Release 4.9.0BQ: a NEW receipt is always DIRECT and full-paid. An existing
+        // receipt keeps the type it already has (a historical Invoice stays an
+        // Invoice, a Direct can never become one) — the browser has no say.
+        $receiptType   = $existing ? $existing['receipt_type'] : 'DIRECT';
+        $legacyPartial = $existing !== null && $this->_isLegacyPartial($existing);
+
+        if ($existing === null && is_array($items)) {
+            // New rows are Description + Amount only; a forged qty/rate/gst_percent is dropped.
+            foreach ($items as $k => $item) {
+                $items[$k] = is_array($item)
+                    ? ['description' => $item['description'] ?? '', 'amount' => $item['amount'] ?? null]
+                    : $item;
+            }
         }
+
+        $items = $this->_normalizeItems($items, $errors);
 
         if ($input['customer_id'] <= 0) {
             $errors[] = 'Customer is required.';
@@ -496,7 +590,9 @@ class ServiceReceipts extends Controller
             $errors[] = 'Attended person cannot exceed 150 characters.';
         }
 
-        if (! in_array($input['payment_mode'], self::PAYMENT_MODES, true)) {
+        if ($input['payment_mode'] === '') {
+            $errors[] = 'Payment mode is required.';
+        } elseif (! in_array($input['payment_mode'], self::PAYMENT_MODES, true)) {
             $errors[] = 'Payment mode must be one of: ' . implode(', ', self::PAYMENT_MODES) . '.';
         }
 
@@ -511,17 +607,26 @@ class ServiceReceipts extends Controller
 
             if ($totals['grand_total'] > self::MAX_AMOUNT) {
                 $errors[] = 'Grand total is too large.';
-            } elseif ($input['receipt_type'] === 'DIRECT') {
-                // Direct: paid in full on the spot, whatever was submitted.
+            } elseif (! $legacyPartial) {
+                // Release 4.9.0BM/BQ: a service receipt is money received in full, so
+                // the received amount is always the calculated grand total and any
+                // client-submitted received_amount is ignored. Only a historical
+                // Invoice that really carries a balance or allocations ($legacyPartial,
+                // edit only) keeps the old partial-payment rules below.
                 $received    = $totals['grand_total'];
                 $outstanding = 0.0;
             } else {
-                $raw = $input['received_amount'];
-                if ($raw !== '' && (! is_numeric($raw) || (float) $raw < 0)) {
+                // A blank value keeps the saved figure rather than silently zeroing it.
+                $raw = $input['received_amount'] !== '' ? $input['received_amount'] : (string) $existing['received_amount'];
+                if (! is_numeric($raw) || (float) $raw < 0) {
                     $errors[] = 'Received amount must be zero or more.';
                 } elseif ((float) $raw > $totals['grand_total'] + 0.004) {
                     $errors[] = 'Received amount cannot exceed the grand total of '
                         . number_format($totals['grand_total'], 2) . '.';
+                } elseif ((float) $raw + 0.004 < $this->_allocatedTotal((int) $existing['id'])) {
+                    $errors[] = 'Received amount cannot be less than the '
+                        . number_format($this->_allocatedTotal((int) $existing['id']), 2)
+                        . ' already allocated from customer payments.';
                 } else {
                     $received    = round((float) $raw, 2);
                     $outstanding = round($totals['grand_total'] - $received, 2);
@@ -544,13 +649,13 @@ class ServiceReceipts extends Controller
 
         if (! $errors) {
             $header += [
-                'receipt_type'    => $input['receipt_type'],
+                'receipt_type'    => $receiptType,
                 'customer_id'     => (int) $customer['id'],
                 'receipt_date'    => $input['receipt_date'],
                 'attended_person' => $input['attended_person'],
                 'payment_mode'    => $input['payment_mode'],
                 // A stray bank_account_id sent with a non-bank mode is dropped.
-                'bank_account_id' => in_array($input['payment_mode'], self::BANK_MODES, true)
+                'bank_account_id' => BankTransactionModel::isBankMethod($input['payment_mode'])
                     ? $input['bank_account_id']
                     : null,
                 'remarks'         => $input['remarks'] !== '' ? $input['remarks'] : null,
@@ -571,7 +676,7 @@ class ServiceReceipts extends Controller
      */
     private function _validateBankAccount(string $paymentMode, int $bankAccountId): ?string
     {
-        if (! in_array($paymentMode, self::BANK_MODES, true)) {
+        if (! BankTransactionModel::isBankMethod($paymentMode)) {
             return null;
         }
 
@@ -643,7 +748,6 @@ class ServiceReceipts extends Controller
         return [
             'customers'     => (new CustomerModel())->orderBy('name', 'ASC')->findAll(),
             'bank_accounts' => (new BankAccountModel())->where('is_active', 1)->orderBy('bank_name', 'ASC')->findAll(),
-            'receipt_types' => self::RECEIPT_TYPES,
             'payment_modes' => self::PAYMENT_MODES,
             'bank_modes'    => self::BANK_MODES,
         ];

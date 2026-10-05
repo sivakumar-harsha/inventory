@@ -26,8 +26,6 @@
 	}
 
 	.filter-toolbar .form-section { margin-bottom: 0; }
-	.filter-toolbar .form-label { font-size: .72rem; margin-bottom: 3px; }
-	.filter-toolbar .form-control { padding: 6px 10px; font-size: .82rem; height: auto; }
 
 	#ledgerTable.table-custom th,
 	#ledgerTable.table-custom td { padding: 7px 10px; font-size: .78rem; }
@@ -148,6 +146,7 @@
         <table id="ledgerTable" class="table-custom">
             <thead>
                 <tr>
+                    <th class="sno-col">S.No.</th>
                     <th>Date</th>
                     <th>Product</th>
                     <th>Type</th>
@@ -160,6 +159,7 @@
             <tbody>
                 <?php foreach ($ledger as $row): ?>
                 <tr>
+                    <td class="sno-col" data-label="S.No."></td>
                     <td><?= esc($row['transaction_date']) ?></td>
                     <td><?= esc($row['product_name'] ?: '-') ?></td>
                     <td><span class="badge-txn badge-<?= strtolower($row['transaction_type']) ?>"><?= esc($row['transaction_type']) ?></span></td>
@@ -193,6 +193,7 @@
 			lengthChange: false,
 			info: false,
 			ordering: true,
+			order: [[1, "asc"]],
 			pageLength: 15,
 			dom: 'tp',
 			language: {
@@ -205,13 +206,13 @@
 		});
 
 		$('#filterProduct').on('change', function () {
-			table.column(1).search(this.value ? '^' + $.fn.dataTable.util.escapeRegex(this.value) + '$' : '', true, false).draw();
+			table.column(2).search(this.value ? '^' + $.fn.dataTable.util.escapeRegex(this.value) + '$' : '', true, false).draw();
 		});
 		$('#filterType').on('change', function () {
-			table.column(2).search(this.value, false, false).draw();
+			table.column(3).search(this.value, false, false).draw();
 		});
 		$('#filterRefType').on('change', function () {
-			table.column(5).search(this.value, false, false).draw();
+			table.column(6).search(this.value, false, false).draw();
 		});
 
 		$.fn.dataTable.ext.search.push(function (settings, data) {
@@ -219,7 +220,7 @@
 
 			var from = $('#filterFromDate').val();
 			var to   = $('#filterToDate').val();
-			var rowDate = data[0];
+			var rowDate = data[1];
 
 			if (from && rowDate < from) return false;
 			if (to && rowDate > to) return false;

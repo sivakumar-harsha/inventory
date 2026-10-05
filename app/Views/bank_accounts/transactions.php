@@ -60,8 +60,6 @@
 	#statementTable.table-custom td { padding: 7px 10px; font-size: .78rem; white-space: nowrap; }
 	#statementTable.table-custom td.desc-cell { white-space: normal; min-width: 180px; }
 
-	.filter-toolbar .form-label { font-size: .72rem; margin-bottom: 3px; }
-	.filter-toolbar .form-control { padding: 6px 10px; font-size: .82rem; height: auto; }
 
 	@media print {
 	    .page-title a, .btn-cancel, .btn-save, .ba-breadcrumb, .filter-toolbar, .transaction-entry-card, .main-sidebar, .main-header { display: none !important; }
@@ -185,10 +183,12 @@
                 <table id="statementTable" class="table-custom">
                     <thead>
                         <tr>
+                            <th class="sno-col">S.No.</th>
                             <th>Date</th>
                             <th>Type</th>
                             <th>Reference</th>
                             <th>Remarks</th>
+                            <th>Method</th>
                             <th style="text-align:right">Deposit</th>
                             <th style="text-align:right">Withdrawal</th>
                             <th style="text-align:right">Balance</th>
@@ -196,23 +196,27 @@
                     </thead>
                     <tbody>
                         <tr>
+                            <td class="sno-col" data-label="S.No."></td>
                             <td><?= esc($account['created_at'] ? date('Y-m-d', strtotime($account['created_at'])) : '-') ?></td>
                             <td><span class="badge-type type-deposit">Opening</span></td>
                             <td>-</td>
                             <td class="desc-cell">Opening Balance</td>
+                            <td><?= pm_badge('') ?></td>
                             <td style="text-align:right">-</td>
                             <td style="text-align:right">-</td>
                             <td style="text-align:right"><?= number_format((float) $account['opening_balance'], 2) ?></td>
                         </tr>
                         <?php if (empty($transactions)): ?>
-                        <tr><td colspan="7" style="text-align:center; color:#94a3b8;">No transactions posted yet.</td></tr>
+                        <tr><td colspan="9" style="text-align:center; color:#94a3b8;">No transactions posted yet.</td></tr>
                         <?php endif; ?>
                         <?php foreach ($transactions as $t): ?>
                         <tr data-date="<?= esc($t['date']) ?>">
+                            <td class="sno-col sno-auto" data-label="S.No."></td>
                             <td><?= esc($t['date']) ?></td>
                             <td><span class="badge-type type-<?= strpos($t['type'], 'TRANSFER') === 0 ? 'transfer' : strtolower($t['type']) ?>"><?= esc(ucwords(strtolower(str_replace('_', ' ', $t['type'])))) ?></span></td>
                             <td><?= esc($t['reference_no'] ?: '-') ?></td>
-                            <td class="desc-cell"><?= esc($t['remarks'] ?: '-') ?></td>
+                            <td class="desc-cell"><?= esc(str_replace('Loan Disbursement', 'Loan Received', (string) $t['remarks']) ?: '-') ?></td>
+                            <td><?= pm_badge($t['method'] ?? '', strpos($t['type'], 'TRANSFER') === 0 ? '—' : 'Not recorded') ?></td>
                             <td style="text-align:right"><?= $t['credit'] > 0 ? number_format($t['credit'], 2) : '-' ?></td>
                             <td style="text-align:right"><?= $t['debit'] > 0 ? number_format($t['debit'], 2) : '-' ?></td>
                             <td style="text-align:right"><?= number_format($t['balance'], 2) ?></td>
@@ -221,11 +225,11 @@
                     </tbody>
                     <tfoot>
                         <tr>
-                            <td colspan="6" style="text-align:right"><strong>Opening Balance</strong></td>
+                            <td colspan="8" style="text-align:right"><strong>Opening Balance</strong></td>
                             <td style="text-align:right"><strong><?= number_format((float) $account['opening_balance'], 2) ?></strong></td>
                         </tr>
                         <tr>
-                            <td colspan="6" style="text-align:right"><strong>Closing Balance</strong></td>
+                            <td colspan="8" style="text-align:right"><strong>Closing Balance</strong></td>
                             <td style="text-align:right"><strong><?= number_format((float) $account['current_balance'], 2) ?></strong></td>
                         </tr>
                     </tfoot>

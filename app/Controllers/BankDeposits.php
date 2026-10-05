@@ -59,6 +59,12 @@ class BankDeposits extends BankEntryController
         return BankTransactionModel::REF_MANUAL_DEPOSIT;
     }
 
+    /** Release 4.9.0CF: the mode the Cash Book keys on (see BankEntryController::cashMode). */
+    protected function cashMode(array $input): string
+    {
+        return strtoupper(trim((string) ($input['deposit_type'] ?? '')));
+    }
+
     protected function extractInput(): array
     {
         return [

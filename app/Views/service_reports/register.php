@@ -11,13 +11,11 @@
 	.dataTables_wrapper .dataTables_paginate .paginate_button:hover { background: #1e293b !important; color: #fff !important; }
 
 	.filter-toolbar .form-section { margin-bottom: 0; }
-	.filter-toolbar .form-label { font-size: .72rem; margin-bottom: 3px; }
-	.filter-toolbar .form-control { padding: 6px 10px; font-size: .82rem; height: auto; }
 	.filter-toolbar .btn-save { padding: 6px 12px; font-size: .8rem; white-space: nowrap; }
 
 	#regTable.table-custom th,
 	#regTable.table-custom td { padding: 7px 10px; font-size: .75rem; }
-	#regTable td:nth-child(1), #regTable td:nth-child(2), #regTable td:last-child { white-space: nowrap; }
+	#regTable td:nth-child(2), #regTable td:nth-child(3), #regTable td:last-child { white-space: nowrap; }
 
 	.badge-sr { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: .72rem; font-weight: 600; }
 	.badge-sr.badge-pending { background:#ffedd5; color:#c2410c; }
@@ -97,7 +95,7 @@
 <div class="card-custom mb-3">
     <div class="card-custom-header">Filters</div>
     <div class="card-custom-body">
-        <form method="GET" action="<?= base_url('service-reports/register') ?>" class="filter-toolbar">
+        <form method="GET" data-auto-filter action="<?= base_url('service-reports/register') ?>" class="filter-toolbar">
             <div class="row g-2 align-items-end">
                 <div class="col-6 col-md-3">
                     <div class="form-section">
@@ -138,7 +136,7 @@
                         <select name="payment_mode" class="form-control">
                             <option value="">All Modes</option>
                             <?php foreach ($paymentModes as $m): ?>
-                            <option value="<?= $m ?>" <?= $f['payment_mode'] === $m ? 'selected' : '' ?>><?= esc(ucfirst(strtolower($m))) ?></option>
+                            <option value="<?= $m ?>" <?= $f['payment_mode'] === $m ? 'selected' : '' ?>><?= esc(pm_label($m)) ?></option>
                             <?php endforeach; ?>
                         </select>
                     </div>
@@ -173,7 +171,6 @@
                     </div>
                 </div>
                 <div class="col-12" style="display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap">
-                    <button type="submit" class="btn-save"><i class="bi bi-search"></i> Filter</button>
                     <a href="<?= base_url('service-reports/register') ?>" class="btn-save" style="background:#6c757d;"><i class="bi bi-arrow-clockwise"></i> Reset</a>
                     <a href="<?= base_url('service-reports/export/pdf') . (($qs = $_SERVER['QUERY_STRING'] ?? '') !== '' ? '?' . $qs : '') ?>" class="btn-save" style="background:#16a34a;"><i class="bi bi-file-earmark-pdf"></i> Export PDF</a>
                     <a href="<?= base_url('service-reports/export/excel') . (($qs = $_SERVER['QUERY_STRING'] ?? '') !== '' ? '?' . $qs : '') ?>" class="btn-save" style="background:#16a34a;"><i class="bi bi-file-earmark-excel"></i> Export Excel</a>
@@ -192,6 +189,7 @@
         <table id="regTable" class="table-custom">
             <thead>
                 <tr>
+                    <th class="sno-col">S.No.</th>
                     <th>Receipt No</th>
                     <th>Date</th>
                     <th>Customer</th>
@@ -208,23 +206,24 @@
             <tbody>
                 <?php foreach ($rows as $r): ?>
                 <tr>
+                    <td class="sno-col" data-label="S.No."></td>
                     <td><?= esc($r['receipt_no']) ?></td>
                     <td><?= esc($r['receipt_date']) ?></td>
                     <td><?= esc($r['customer_name']) ?></td>
                     <td><span class="badge-sr badge-<?= esc(strtolower($r['receipt_type'])) ?>"><?= esc(ucfirst(strtolower($r['receipt_type']))) ?></span></td>
-                    <td><?= esc(ucfirst(strtolower($r['payment_mode']))) ?></td>
+                    <td><?= esc(pm_label($r['payment_mode'], '-')) ?></td>
                     <td><?= esc($r['attended_person'] ?: '-') ?></td>
                     <td style="text-align:right"><?= number_format((float) $r['grand_total'], 2) ?></td>
                     <td style="text-align:right"><?= number_format((float) $r['received_amount'], 2) ?></td>
                     <td style="text-align:right" class="<?= (float) $r['outstanding_amount'] > 0.004 ? 'text-danger-amt' : 'text-muted-amt' ?>"><?= number_format((float) $r['outstanding_amount'], 2) ?></td>
                     <td><span class="badge-sr badge-<?= esc(strtolower($r['payment_status'])) ?>"><?= esc(ucfirst(strtolower($r['payment_status']))) ?></span></td>
-                    <td><a href="<?= base_url('service-receipts/view/' . $r['id']) ?>" class="btn-view" title="View"><i class="bi bi-eye"></i></a></td>
+                    <td><a href="<?= base_url('service-receipts/view/' . $r['id']) ?>" class="btn-view table-action-btn" title="View"><i class="bi bi-eye"></i></a></td>
                 </tr>
                 <?php endforeach; ?>
             </tbody>
             <tfoot>
                 <tr style="background:#f8fafc;font-weight:700">
-                    <td colspan="6">TOTAL</td>
+                    <td colspan="7">TOTAL</td>
                     <td style="text-align:right"><?= number_format($kpi_invoice_amount, 2) ?></td>
                     <td style="text-align:right"><?= number_format($kpi_received_amount, 2) ?></td>
                     <td style="text-align:right"><?= number_format($kpi_outstanding, 2) ?></td>

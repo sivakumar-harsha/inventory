@@ -50,7 +50,8 @@ class SupplierLedger extends Controller
             if (! $supplier) {
                 throw \CodeIgniter\Exceptions\PageNotFoundException::forPageNotFound('Supplier not found.');
             }
-            $data += ['supplier' => $supplier] + $this->_statement($supplier, $filters);
+            $data['supplier'] = $supplier;
+            $data += $this->_statement($supplier, $filters);
         }
 
         return view('supplier_ledger/index', $data);
@@ -74,6 +75,7 @@ class SupplierLedger extends Controller
             'opening'  => $st['opening'],
             'rows'     => $st['rows'],
             'closing'  => $st['closing'],
+            'has_any'  => $st['has_any'],
         ], [
             'title'       => 'Supplier Ledger - ' . $supplier['name'],
             'orientation' => 'landscape',
@@ -87,7 +89,7 @@ class SupplierLedger extends Controller
 
         $rows = [];
         foreach ($st['rows'] as $t) {
-            $rows[] = [$t['date'], $t['voucher'], $t['ttype'], $t['particulars'], $t['debit'], $t['credit'], $t['balance']];
+            $rows[] = [$t['date'], $t['voucher'], $t['ttype'], $t['particulars'], pm_label($t['method'], in_array($t['ttype'], ['Payment', 'Advance'], true) ? 'Not recorded' : '—'), $t['debit'], $t['credit'], $t['balance']];
         }
 
         $applied = array_filter([
@@ -108,13 +110,14 @@ class SupplierLedger extends Controller
                 'Net Payable'        => number_format($st['summary']['net'], 2),
             ],
             $st['opening'],
-            ['Date', 'Voucher No', 'Type', 'Particulars', 'Debit', 'Credit', 'Balance'],
+            ['Date', 'Voucher No', 'Type', 'Particulars', 'Method', 'Debit', 'Credit', 'Balance'],
             $rows,
-            ['date', 'text', 'text', 'text', 'currency', 'currency', 'currency'],
-            6,
+            ['date', 'text', 'text', 'text', 'text', 'currency', 'currency', 'currency'],
+            7,
             $st['closing'],
-            [4, 5],
-            'landscape'
+            [5, 6],
+            'landscape',
+            $st['has_any'] ? 'No transactions found.' : 'No ledger transactions found for this supplier.'
         )->stream('supplier_ledger_' . preg_replace('/[^a-z0-9]+/i', '_', $supplier['name']) . '_' . date('Ymd_His'));
     }
 
@@ -189,7 +192,7 @@ class SupplierLedger extends Controller
             // Advance (credit) is listed BEFORE its purchase; the date sort below
             // is stable, so same-day rows keep this order (Release 4.8.4H).
             if ((float) $b['advance_paid'] > 0) {
-                $rows[] = $this->_row($b['purchase_date'], $gpaNo[(int) $b['id']] ?? $b['purchase_no'], 'Advance', 'Advance paid during purchase ' . $b['purchase_no'], 0.0, (float) $b['advance_paid'], $b['bill_no'] ?? '', '');
+                $rows[] = $this->_row($b['purchase_date'], $gpaNo[(int) $b['id']] ?? $b['purchase_no'], 'Advance', 'Advance paid during purchase ' . $b['purchase_no'], 0.0, (float) $b['advance_paid'], $b['bill_no'] ?? '', '', (string) ($b['payment_method'] ?? ''));
             }
             $rows[] = $this->_row($b['purchase_date'], $b['purchase_no'], 'Purchase', 'General purchase' . ($b['bill_no'] ? ' - Bill ' . $b['bill_no'] : ''), (float) $b['grand_total'], 0.0, $b['bill_no'] ?? '', '');
         }
@@ -214,8 +217,8 @@ class SupplierLedger extends Controller
             );
 
             if ((float) $p['advance_amount'] > 0) {
-                $rows[]  = $this->_row($p['payment_date'], $p['payment_no'], 'Advance', 'Advance paid to supplier', 0.0, (float) $p['advance_amount'], '', $remarks);
-                $advRows[] = ['date' => $p['payment_date'], 'voucher' => $p['payment_no'], 'paid' => (float) $p['advance_amount'], 'used' => 0.0, 'remarks' => $remarks !== '' ? $remarks : 'Advance Paid'];
+                $rows[]  = $this->_row($p['payment_date'], $p['payment_no'], 'Advance', 'Advance paid to supplier', 0.0, (float) $p['advance_amount'], '', $remarks, (string) ($p['payment_method'] ?? ''));
+                $advRows[] = ['date' => $p['payment_date'], 'voucher' => $p['payment_no'], 'method' => (string) ($p['payment_method'] ?? ''), 'paid' => (float) $p['advance_amount'], 'used' => 0.0, 'remarks' => $remarks !== '' ? $remarks : 'Advance Paid'];
                 $advPaidTotal += (float) $p['advance_amount'];
             }
 
@@ -227,7 +230,7 @@ class SupplierLedger extends Controller
                 $cash    = round($paid - $fromAdv, 2);
 
                 if ($cash > 0.004 || $fromAdv <= 0.004) {
-                    $rows[] = $this->_row($p['payment_date'], $p['payment_no'], 'Payment', 'Payment against bill ' . $billRef, 0.0, $cash, $billRef, $remarks);
+                    $rows[] = $this->_row($p['payment_date'], $p['payment_no'], 'Payment', 'Payment against bill ' . $billRef, 0.0, $cash, $billRef, $remarks, (string) ($p['payment_method'] ?? ''));
                 }
                 if ($fromAdv > 0.004) {
                     $rows[]  = $this->_row($p['payment_date'], $p['payment_no'], 'Adjustment', 'Advance adjusted against ' . $billRef, 0.0, 0.0, $billRef, $remarks);
@@ -320,6 +323,7 @@ class SupplierLedger extends Controller
 
         return [
             'rows'    => $shown,
+            'has_any' => $rows !== [],
             'opening' => $opening,
             'closing' => $closing,
             'bills'   => $billsShown,
@@ -334,11 +338,12 @@ class SupplierLedger extends Controller
         ];
     }
 
-    private function _row(?string $date, string $voucher, string $ttype, string $particulars, float $debit, float $credit, string $ref, string $remarks): array
+    // Release 4.9.0CB: $method is the stored payment method of the source voucher ('' for bills / adjustments).
+    private function _row(?string $date, string $voucher, string $ttype, string $particulars, float $debit, float $credit, string $ref, string $remarks, string $method = ''): array
     {
         return [
             'date' => (string) $date, 'voucher' => $voucher, 'ttype' => $ttype, 'particulars' => $particulars,
-            'debit' => $debit, 'credit' => $credit, 'ref' => $ref, 'remarks' => $remarks,
+            'debit' => $debit, 'credit' => $credit, 'ref' => $ref, 'remarks' => $remarks, 'method' => $method,
         ];
     }
 

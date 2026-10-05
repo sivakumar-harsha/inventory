@@ -73,6 +73,12 @@ class BankDaybook extends BankEntryController
         return BankTransactionModel::REF_BANK_DAYBOOK;
     }
 
+    /** Release 4.9.0CF: the mode the Cash Book keys on (see BankEntryController::cashMode). */
+    protected function cashMode(array $input): string
+    {
+        return in_array(strtoupper(trim((string) ($input['category'] ?? ''))), ['CASH DEPOSIT', 'CASH WITHDRAWAL'], true) ? 'CASH' : '';
+    }
+
     protected function extractInput(): array
     {
         return [

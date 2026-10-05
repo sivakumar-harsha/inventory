@@ -2,6 +2,7 @@
 
 namespace App\Controllers;
 
+use App\Libraries\CashOpeningGuard;
 use App\Models\BankAccountModel;
 use App\Models\BankTransactionModel;
 use CodeIgniter\Controller;
@@ -32,6 +33,15 @@ abstract class BankEntryController extends Controller
 
     /** The bank_transactions.reference_type this screen owns. */
     abstract protected function referenceType(): string;
+
+    /**
+     * Release 4.9.0CF: 'CASH' when this entry moves physical cash (so the Cash Book reads it), else anything else.
+     * Default: not a cash movement. Deposit, Withdrawal and Manual Entry override it with the rule CashMovements uses.
+     */
+    protected function cashMode(array $input): string
+    {
+        return '';
+    }
 
     /** Raw POST -> trimmed/typed input array. */
     abstract protected function extractInput(): array;
@@ -100,8 +110,27 @@ abstract class BankEntryController extends Controller
             return $this->_fail($errors, 422);
         }
 
-        $db    = \Config\Database::connect();
+        // Release 4.9.0CF: a cash deposit / withdrawal dated before the Cash Opening Date is warned about, never blocked.
+        if ($warn = CashOpeningGuard::gate($this->request, 'bank-entry-' . static::class, 0, $this->cashMode($input), $input['transaction_date'] ?? '', true)) {
+            return $warn;
+        }
+
         $model = new BankTransactionModel();
+
+        // Release 4.9.0AO: a manual Deposit/Withdrawal/Manual Entry that looks
+        // like it duplicates an automatic module posting (same account, date,
+        // direction and amount) is warned about once; the client resubmits
+        // with confirm_duplicate=1 to save it anyway as a separate, genuine
+        // transaction. Never applies to Transfer (referenceType() is
+        // BANK_TRANSFER there, which manualReferenceTypes() excludes).
+        if (! $this->request->getPost('confirm_duplicate')) {
+            $warning = $this->_duplicateWarning($model, $input);
+            if ($warning) {
+                return $this->response->setJSON(['status' => false, 'duplicate' => true, 'warning' => $warning])->setStatusCode(409);
+            }
+        }
+
+        $db = \Config\Database::connect();
         $db->transStart();
 
         try {
@@ -139,6 +168,11 @@ abstract class BankEntryController extends Controller
 
         if ($errors) {
             return $this->_fail($errors, 422);
+        }
+
+        // Release 4.9.0CF: a cash deposit / withdrawal dated before the Cash Opening Date is warned about, never blocked.
+        if ($warn = CashOpeningGuard::gate($this->request, 'bank-entry-' . static::class, (int) $id, $this->cashMode($input), $input['transaction_date'] ?? '', true)) {
+            return $warn;
         }
 
         $db    = \Config\Database::connect();
@@ -360,6 +394,44 @@ abstract class BankEntryController extends Controller
     protected function lengthError(?string $value, int $max, string $label): ?string
     {
         return ($value !== null && mb_strlen($value) > $max) ? $label . ' cannot exceed ' . $max . ' characters.' : null;
+    }
+
+    /**
+     * Release 4.9.0AO: null for Transfer (referenceType() is BANK_TRANSFER,
+     * not a manual reference type) and for any manual entry that does not
+     * match an existing automatic posting. Otherwise a plain-data summary of
+     * the matching automatic row, for the client's confirm dialog.
+     */
+    protected function _duplicateWarning(BankTransactionModel $model, array $input): ?array
+    {
+        if (! in_array($this->referenceType(), BankTransactionModel::manualReferenceTypes(), true)) {
+            return null;
+        }
+
+        $row = $this->rowData($input);
+
+        $match = $model->findLikelyAutomaticDuplicate(
+            (int) $row['bank_account_id'],
+            (string) $row['transaction_date'],
+            (string) $row['transaction_type'],
+            (float) $row['amount']
+        );
+
+        if (! $match) {
+            return null;
+        }
+
+        $account = (new BankAccountModel())->find((int) $match['bank_account_id']);
+
+        return [
+            'message'          => 'Possible duplicate bank transaction found. This transaction may already have been posted automatically. Continue only if this is a separate, genuine transaction.',
+            'date'             => $match['transaction_date'],
+            'amount'           => (float) $match['amount'],
+            'bank_account'     => $account ? ($account['bank_name'] . ' — ' . $account['account_number']) : '',
+            'transaction_type' => BankTransactionModel::transactionLabel($match),
+            'reference_type'   => (string) $match['reference_type'],
+            'reference_no'     => (string) ($match['reference_no'] ?? ''),
+        ];
     }
 
     protected function _fail(array $errors, int $status)

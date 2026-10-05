@@ -83,6 +83,18 @@ $modeLabels = ['CASH' => 'Cash', 'BANK' => 'Bank', 'CHEQUE' => 'Cheque', 'UPI' =
 .field-error.show { display:block; }
 #saveHint { font-size:.72rem; color:#94a3b8; margin-top:8px; }
 .btn-save:disabled { opacity:.55; cursor:not-allowed; }
+
+/* Release 4.9.0BJ: simplified service rows (Description + Amount) and the quick-add customer button. */
+.sr-item-table { min-width: 0 !important; }
+.sr-item-table .amount-input { text-align: right; }
+.sr-legacy-note { font-size: .7rem; color: #94a3b8; margin-top: 2px; }
+.customer-select-row { display: flex; align-items: flex-start; gap: 6px; }
+.customer-select-row .select2-container { flex: 1 1 auto; min-width: 0; }
+.customer-select-row > select { flex: 1 1 auto; min-width: 0; }
+.btn-quick-add-customer { width: 34px; height: 34px; flex-shrink: 0; border: none; border-radius: 6px; background: var(--primary); color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.btn-quick-add-customer:hover { background: var(--primary-dark); }
+#quickAddCustomerModal .invalid-feedback-text { font-size: .8rem; }
+#quickAddCustomerModal .qc-existing { font-size: .8rem; }
 </style>
 
 <nav aria-label="breadcrumb" class="sr-breadcrumb">
@@ -126,10 +138,8 @@ $modeLabels = ['CASH' => 'Cash', 'BANK' => 'Bank', 'CHEQUE' => 'Cheque', 'UPI' =
                     <div class="col-md-3">
                         <div class="form-section">
                             <label class="form-label">Receipt Type <span class="text-danger">*</span></label>
-                            <select id="receiptType" class="form-control no-search">
-                                <option value="INVOICE" <?= $receipt['receipt_type'] === 'INVOICE' ? 'selected' : '' ?>>Invoice</option>
-                                <option value="DIRECT" <?= $receipt['receipt_type'] === 'DIRECT' ? 'selected' : '' ?>>Direct Receipt</option>
-                            </select>
+                            <!-- Release 4.9.0BQ: the type is fixed. The server keeps the stored value (a historical Invoice stays an Invoice) and ignores anything submitted. -->
+                            <input type="text" id="receiptType" class="form-control" value="<?= $receipt['receipt_type'] === 'INVOICE' ? 'Invoice (historical)' : 'Direct Receipt' ?>" readonly>
                         </div>
                     </div>
                     <div class="col-md-3">
@@ -241,17 +251,13 @@ $modeLabels = ['CASH' => 'Cash', 'BANK' => 'Bank', 'CHEQUE' => 'Cheque', 'UPI' =
                         <thead>
                             <tr>
                                 <th class="desc-cell">Description</th>
-                                <th style="width:100px">Qty</th>
-                                <th style="width:110px">Rate</th>
-                                <th style="width:90px">GST %</th>
-                                <th style="width:100px">GST Amount</th>
-                                <th style="width:110px">Line Total</th>
-                                <th style="width:36px"></th>
+                                <th style="width:140px;text-align:right">Amount</th>
+                                <th style="width:48px"></th>
                             </tr>
                         </thead>
                         <tbody id="itemsContainer">
                             <tr class="sr-empty-row" id="emptyItemsRow">
-                                <td colspan="7">No service items added yet.</td>
+                                <td colspan="3">No service items added yet.</td>
                             </tr>
                         </tbody>
                     </table>
@@ -267,11 +273,15 @@ $modeLabels = ['CASH' => 'Cash', 'BANK' => 'Bank', 'CHEQUE' => 'Cheque', 'UPI' =
             <div class="card-custom-body">
                 <table class="sr-summary-table">
                     <tr><td>Subtotal</td><td class="amt">₹<span id="sumSubtotal">0.00</span></td></tr>
-                    <tr><td>GST Total</td><td class="amt">₹<span id="sumGstTotal">0.00</span></td></tr>
-                    <tr><td>Round Off</td><td class="amt" id="sumRoundOff">0.00</td></tr>
+                    <tr id="sumGstRow" class="d-none"><td>GST Total</td><td class="amt">₹<span id="sumGstTotal">0.00</span></td></tr>
                     <tr class="grand"><td>Grand Total</td><td class="amt">₹<span id="sumGrandTotal">0.00</span></td></tr>
+                    <?php if (! $legacy_partial): ?>
+                    <tr><td>Amount Received</td><td class="amt">₹<span id="sumReceived">0.00</span></td></tr>
+                    <?php endif; ?>
                 </table>
 
+                <?php if ($legacy_partial): ?>
+                <!-- Historical receipt with a genuine balance: its Received/Outstanding data is preserved and stays editable. -->
                 <div class="form-section mt-3">
                     <label class="form-label">Received Amount</label>
                     <input type="number" id="receivedAmount" class="form-control" step="0.01" min="0" value="<?= esc($receipt['received_amount']) ?>">
@@ -285,6 +295,7 @@ $modeLabels = ['CASH' => 'Cash', 'BANK' => 'Bank', 'CHEQUE' => 'Cheque', 'UPI' =
                 <div class="mt-2">
                     <span class="badge-sr badge-pending" id="paymentStatusBadge">Pending</span>
                 </div>
+                <?php endif; ?>
 
                 <div class="mt-3">
                     <button type="button" class="btn-save w-100" id="saveBtn" data-after="list" disabled>
@@ -308,30 +319,27 @@ $modeLabels = ['CASH' => 'Cash', 'BANK' => 'Bank', 'CHEQUE' => 'Cheque', 'UPI' =
 <?= $this->endSection() ?>
 
 <?= $this->section('scripts') ?>
-<script src="<?= base_url('assets/js/gst-calc.js') ?>"></script>
 <script>
 var baseUrl   = "<?= base_url() ?>";
 var BANK_MODES = <?= json_encode($bank_modes) ?>;
-var GST_RATES  = [0, 5, 12, 18, 28];
 var RECEIPT_ID = <?= (int) $receipt['id'] ?>;
+var RECEIPT_TYPE = <?= json_encode($receipt['receipt_type']) ?>;
+var LEGACY_PARTIAL =<?= $legacy_partial ? 'true' : 'false' ?>;   // historical receipt with an outstanding balance
 var SAVE_URL   = baseUrl + 'service-receipts/update/' + RECEIPT_ID;
 // this receipt's saved service rows (loaded through addItem(), which sets values via .val())
 var EXISTING_ITEMS = <?= json_encode($items, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
-// gst-calc.js does not round, so the totals shown here can differ from the saved (server-rounded)
-// totals by a few paise. The page only warns about clearly excessive amounts; the server enforces the exact cap.
-var RECEIVED_TOLERANCE = 1;
 var itemCount  = 0;
 var saving     = false;
 var touched    = {};
 
 // ---------- calculation ----------
 
-// One service row, calculated by the shared helper (assets/js/gst-calc.js) exactly as
-// General Purchase does it. GST applies only when the GST % is above zero.
-function calcLine(qty, rate, pct) {
-    pct = parseFloat(pct) || 0;
-    return gstCalculateLine(qty, rate, pct, pct > 0);
-}
+// Release 4.9.0BJ: a service row is just Description + Amount (the final amount for that service).
+// Rows opened from a historical receipt that really used qty x rate and/or GST keep those figures
+// (shown read-only, submitted unchanged), so editing never silently flattens old accounting data.
+var AMOUNT_RE = /^\d+(\.\d{1,2})?$/;
+
+function cents(v) { return Math.round((parseFloat(v) || 0) * 100); }
 
 // Same rule as ServiceReceipts::_recalculateStatus() / Supplier Payment.
 function statusFor(grand, outstanding, hasItems) {
@@ -346,45 +354,38 @@ function isBankMode(mode) {
 }
 
 function isDirect() {
-    return $('#receiptType').val() === 'DIRECT';
+    return RECEIPT_TYPE === 'DIRECT';
 }
 
 // ---------- service rows ----------
-
-function gstOptions(selected) {
-    var rates = GST_RATES.slice();
-    var sel = parseFloat(selected);
-    // keep an unusual saved rate (e.g. 2.5) selectable so editing never silently changes it
-    if (!isNaN(sel) && rates.indexOf(sel) === -1) { rates.push(sel); rates.sort(function (a, b) { return a - b; }); }
-    return rates.map(function (r) {
-        return '<option value="' + r + '"' + (r === (isNaN(sel) ? 0 : sel) ? ' selected' : '') + '>' + r + '</option>';
-    }).join('');
-}
 
 function toggleEmptyRow() {
     $('#emptyItemsRow').toggle($('.item-row').length === 0);
 }
 
+// data: {description, amount} for a simple row, or {description, legacy: {qty, rate, gst_percent, gst_amount, line_total}}.
 function addItem(data) {
     data = data || {};
     itemCount++;
 
     var $row = $(
         '<tr class="item-row" id="item-' + itemCount + '">' +
-            '<td class="desc-cell"><input type="text" class="form-control desc-input" maxlength="500" placeholder="Service description"></td>' +
-            '<td><input type="number" class="form-control qty-input" min="0.001" step="0.001"></td>' +
-            '<td><input type="number" class="form-control rate-input" min="0" step="0.01"></td>' +
-            '<td><select class="form-control gst-select no-search">' + gstOptions(data.gst_percent) + '</select></td>' +
-            '<td><input type="text" class="form-control gst-amount" readonly value="0.00"></td>' +
-            '<td><input type="text" class="form-control line-total" readonly value="0.00"></td>' +
+            '<td class="desc-cell"><input type="text" class="form-control desc-input" maxlength="500" placeholder="Service description">' +
+                '<div class="sr-legacy-note d-none">Earlier receipt line (qty &times; rate + GST). Remove and re-add it to change the amount.</div></td>' +
+            '<td><input type="number" class="form-control amount-input" min="0.01" step="0.01" placeholder="0.00"></td>' +
             '<td><button type="button" class="sr-remove-row" title="Remove row"><i class="bi bi-x-circle-fill"></i></button></td>' +
         '</tr>'
     );
 
     // values are set through .val() (never string-concatenated into HTML)
     if (data.description !== undefined) $row.find('.desc-input').val(data.description);
-    if (data.qty  !== undefined) $row.find('.qty-input').val(data.qty);
-    if (data.rate !== undefined) $row.find('.rate-input').val(data.rate);
+    if (data.legacy) {
+        $row.data('legacy', data.legacy);
+        $row.find('.amount-input').val(parseFloat(data.legacy.line_total).toFixed(2)).prop('readonly', true);
+        $row.find('.sr-legacy-note').removeClass('d-none');
+    } else if (data.amount !== undefined) {
+        $row.find('.amount-input').val(data.amount);
+    }
 
     $('#itemsContainer').append($row);
     toggleEmptyRow();
@@ -404,45 +405,40 @@ function showError(id, show, message) {
 }
 
 function recalc() {
-    var lines = [];
     var rowsOk = true;
+    var taxableC = 0, gstC = 0, count = 0;
 
     $('.item-row').each(function () {
-        var $r   = $(this);
-        var desc = $.trim($r.find('.desc-input').val());
-        var qty  = parseFloat($r.find('.qty-input').val());
-        var rate = parseFloat($r.find('.rate-input').val());
-        var pct  = $r.find('.gst-select').val();
+        var $r      = $(this);
+        var desc    = $.trim($r.find('.desc-input').val());
+        var legacy  = $r.data('legacy');
+        var amtText = $.trim($r.find('.amount-input').val());
+        count++;
 
-        var c = calcLine(qty, rate, pct);
-        $r.find('.gst-amount').val(c.gstAmount.toFixed(2));
-        $r.find('.line-total').val(c.total.toFixed(2));
-        lines.push(c);
+        var amtBad = false;
+        if (legacy) {
+            taxableC += cents(legacy.line_total) - cents(legacy.gst_amount);
+            gstC     += cents(legacy.gst_amount);
+        } else {
+            amtBad = !(AMOUNT_RE.test(amtText) && parseFloat(amtText) > 0);
+            if (!amtBad) taxableC += cents(amtText);
+        }
 
         var descBad = desc === '';
-        var qtyBad  = !(qty > 0);
-        var rateBad = !(rate >= 0);
-        if (descBad || qtyBad || rateBad) rowsOk = false;
+        if (descBad || amtBad) rowsOk = false;
 
         markInvalid($r.find('.desc-input'), descBad);
-        markInvalid($r.find('.qty-input'), qtyBad);
-        markInvalid($r.find('.rate-input'), rateBad);
+        markInvalid($r.find('.amount-input'), amtBad);
     });
 
-    var hasItems = lines.length > 0;
-    var sum      = gstSummarize(lines);
-    var subtotal = sum.taxable;
-    var gstTotal = sum.gst;
-    var grand    = sum.grandTotal;
-
-    // Round Off is display-only (as in General Purchase) and is never submitted.
-    var roundOff    = Math.round(grand) - grand;
-    var roundOffTxt = roundOff.toFixed(2);
-    if (roundOffTxt === '-0.00') roundOffTxt = '0.00';   // float dust, not a real adjustment
+    var hasItems = count > 0;
+    var subtotal = taxableC / 100;
+    var gstTotal = gstC / 100;
+    var grand    = (taxableC + gstC) / 100;
 
     $('#sumSubtotal').text(subtotal.toFixed(2));
     $('#sumGstTotal').text(gstTotal.toFixed(2));
-    $('#sumRoundOff').text((roundOff >= 0 || roundOffTxt === '0.00' ? '+' : '') + roundOffTxt);
+    $('#sumGstRow').toggleClass('d-none', gstC === 0);   // only a historical GST line has any to show
     $('#sumGrandTotal').text(grand.toFixed(2));
 
     // Received / outstanding
@@ -450,7 +446,10 @@ function recalc() {
     var receivedMsg = '';
     var received, outstanding;
 
-    if (isDirect()) {
+    if (!LEGACY_PARTIAL) {
+        // Release 4.9.0BM: money received in full — Amount Received is the Grand Total.
+        $('#sumReceived').text(grand.toFixed(2));
+    } else if (isDirect()) {
         // Direct: paid in full on the spot — received follows the grand total.
         received = grand;
         outstanding = 0;
@@ -464,27 +463,30 @@ function recalc() {
             receivedOk = false;
             receivedMsg = 'Received amount must be zero or more.';
             received = 0;
-        } else if (received > grand + RECEIVED_TOLERANCE) {
+        } else if (cents(received) > cents(grand)) {
             receivedOk = false;
             receivedMsg = 'Received amount cannot exceed the grand total of ' + grand.toFixed(2) + '.';
         }
         outstanding = Math.max(0, grand - received);
     }
 
-    $('#sumOutstanding').text(outstanding.toFixed(2));
-
-    var status = statusFor(grand, outstanding, hasItems);
-    $('#paymentStatusBadge').text(status).attr('class', 'badge-sr badge-' + status.toLowerCase());
+    if (LEGACY_PARTIAL) {
+        $('#sumOutstanding').text(outstanding.toFixed(2));
+        var status = statusFor(grand, outstanding, hasItems && grand > 0);
+        $('#paymentStatusBadge').text(status).attr('class', 'badge-sr badge-' + status.toLowerCase());
+    }
 
     // Required fields
-    var customerOk  = !!$('#customerSelect').val();
-    var attendedOk  = $.trim($('#attendedPerson').val()) !== '';
-    var dateOk      = !!$('#receiptDate').val();
-    var bankNeeded  = isBankMode($('#paymentMode').val());
-    var bankOk      = !bankNeeded || !!$('#bankAccountId').val();
+    var customerOk    = !!$('#customerSelect').val();
+    var attendedOk    = $.trim($('#attendedPerson').val()) !== '';
+    var dateOk        = !!$('#receiptDate').val();
+    var paymentModeOk = true;   // always set on an existing receipt
+    var bankNeeded    = isBankMode($('#paymentMode').val());
+    var bankOk        = !bankNeeded || !!$('#bankAccountId').val();
 
     showError('err-customer', touched.customer && !customerOk);
     showError('err-attended', touched.attended && !attendedOk);
+    showError('err-payment-mode', touched.paymentMode && !paymentModeOk);
     showError('err-bank', bankNeeded && touched.bank && !bankOk);
     showError('err-received', !receivedOk, receivedMsg);
 
@@ -492,9 +494,10 @@ function recalc() {
     if (!customerOk) missing.push('customer');
     if (!dateOk) missing.push('receipt date');
     if (!attendedOk) missing.push('attended person');
+    if (!paymentModeOk) missing.push('payment mode');
     if (!bankOk) missing.push('bank account');
-    if (!hasItems) missing.push('at least one service item');
-    else if (!rowsOk) missing.push('description, qty and rate on every row');
+    if (!hasItems) missing.push('at least one service');
+    else if (!rowsOk) missing.push('a description and an amount above zero on every row');
     if (!receivedOk) missing.push('a valid received amount');
 
     var canSave = missing.length === 0 && !saving;
@@ -547,13 +550,12 @@ function saveReceipt(after) {
 
     var items = [];
     $('.item-row').each(function () {
-        var $r = $(this);
-        items.push({
-            description: $.trim($r.find('.desc-input').val()),
-            qty:         $r.find('.qty-input').val(),
-            rate:        $r.find('.rate-input').val(),
-            gst_percent: $r.find('.gst-select').val()
-        });
+        var $r = $(this), legacy = $r.data('legacy');
+        if (legacy) {
+            items.push({ description: $.trim($r.find('.desc-input').val()), qty: legacy.qty, rate: legacy.rate, gst_percent: legacy.gst_percent });
+        } else {
+            items.push({ description: $.trim($r.find('.desc-input').val()), amount: $.trim($r.find('.amount-input').val()) });
+        }
     });
 
     var bank = isBankMode($('#paymentMode').val());
@@ -565,21 +567,23 @@ function saveReceipt(after) {
     $('.save-spinner').removeClass('d-none');
 
     // Round Off is display-only and is not part of this payload.
-    $.ajax({
-        url: SAVE_URL,
-        type: 'POST',
-        dataType: 'json',
-        data: {
-            receipt_type:    $('#receiptType').val(),
-            customer_id:     $('#customerSelect').val(),
+    // received_amount is sent only for a historical partial receipt; otherwise the server derives it from the grand total.
+    var payload = {
+            customer_id:    $('#customerSelect').val(),
             receipt_date:    $('#receiptDate').val(),
             attended_person: $.trim($('#attendedPerson').val()),
-            received_amount: $('#receivedAmount').val(),
             payment_mode:    $('#paymentMode').val(),
             bank_account_id: bank ? $('#bankAccountId').val() : '',
             remarks:         $('#remarks').val(),
             items:           items
-        }
+    };
+    if (LEGACY_PARTIAL) payload.received_amount = $('#receivedAmount').val();
+
+    $.ajax({
+        url: SAVE_URL,
+        type: 'POST',
+        dataType: 'json',
+        data: payload
     }).done(function (resp) {
         if (resp.status) {
             showToast(resp.message || 'Service receipt saved successfully.');
@@ -617,9 +621,8 @@ $('#itemsContainer').on('focusout', 'input', function () {
     recalc();
 });
 
-$('#receiptType').on('change', recalc);
 $('#paymentMode').on('change', function () { toggleBankAccount(); recalc(); });
-$('#receivedAmount').on('input', recalc);
+if (LEGACY_PARTIAL) $('#receivedAmount').on('input', recalc);
 $('#receiptDate').on('input change', recalc);
 $('#customerSelect').on('change', function () { touched.customer = true; fillCustomer(); recalc(); });
 $('#attendedPerson').on('input', recalc).on('blur', function () { touched.attended = true; recalc(); });
@@ -632,7 +635,10 @@ $('#receiptForm').on('submit', function (e) { e.preventDefault(); });
 fillCustomer();
 toggleBankAccount();
 EXISTING_ITEMS.forEach(function (it) {
-    addItem({ description: it.description, qty: parseFloat(it.qty), rate: parseFloat(it.rate), gst_percent: it.gst_percent });
+    var plain = parseFloat(it.qty) === 1 && parseFloat(it.gst_percent) === 0 && Math.abs(parseFloat(it.rate) - parseFloat(it.line_total)) < 0.005;
+    addItem(plain
+        ? { description: it.description, amount: parseFloat(it.line_total).toFixed(2) }
+        : { description: it.description, legacy: { qty: it.qty, rate: it.rate, gst_percent: it.gst_percent, gst_amount: it.gst_amount, line_total: it.line_total } });
 });
 toggleEmptyRow();
 recalc();

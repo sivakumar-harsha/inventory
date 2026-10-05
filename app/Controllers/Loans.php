@@ -2,54 +2,58 @@
 
 namespace App\Controllers;
 
+use App\Libraries\CashOpeningGuard;
 use App\Libraries\ExcelReport;
 use App\Libraries\PdfReport;
 use App\Models\BankAccountModel;
 use App\Models\BankTransactionModel;
-use App\Models\LoanEmiModel;
 use App\Models\LoanModel;
 use App\Models\LoanPaymentModel;
+use App\Models\LoanReceiptModel;
+use App\Models\LoanTypeModel;
 use CodeIgniter\Controller;
 
 /**
- * Release 4.8.5A: Loan Management foundation. Release 4.8.5B put pages on the
- * GET endpoints (index/create/view/edit render views/loans); the POST endpoints
- * (store/update/delete/generate-schedule) still answer with JSON.
+ * Loan Management — a manual loan transaction register (Release 4.9.0BC view).
  *
  * A loan is money the company has borrowed (bank, NBFC, friends, vehicle
- * finance, overdraft). Creating one generates its whole reducing-balance EMI
- * schedule (loan_emis); the header keeps the running figures:
+ * finance, overdraft). The loan master holds the basic loan information; no
+ * schedule is generated for new loans. The header keeps the running figures:
  *
- *     outstanding_principal = sanctioned_amount - total_principal_paid
+ *     outstanding_principal = MAX(0, sanctioned_amount - SUM(loan_payments.total_paid))
  *
- * and status is ACTIVE until outstanding_principal reaches zero, then CLOSED
- * automatically (and back to ACTIVE if a payment is taken back).
+ * and status is ACTIVE until that reaches zero, then CLOSED automatically (and
+ * back to ACTIVE if a payment is taken back). loan_payments is the source of
+ * truth; loan_emis and the principal/interest columns are legacy reference data
+ * that nothing here writes.
  *
- * Schedule: monthly reducing balance. EMI = P*r*(1+r)^n / ((1+r)^n - 1) with
- * r = annual rate / 12 / 100 (P/n at 0%), rounded to 2 decimals; each month's
- * interest is opening * r rounded to 2 decimals; the LAST instalment absorbs
- * whatever rounding left, so principal always sums exactly to the sanctioned
- * amount. The first EMI falls due one month after start_date, and every due
- * date is the monthly anniversary of start_date (clamped to the month's last
- * day, e.g. 31 Jan -> 28 Feb -> 31 Mar).
+ * Payments: payments()/storePayment()/updatePayment()/deletePayment() record
+ * one manual Payment Amount (loan_payments.total_paid) and the bank posting (a
+ * WITHDRAWAL with reference_type LOAN_PAYMENT and reference_id the
+ * loan_payments.id, only for BANK/CHEQUE/UPI). The helpers never open a DB
+ * transaction — each endpoint owns it, so any failure rolls the payment row,
+ * the loan header and the bank balance back together. ledger() is the
+ * read-only loan statement.
  *
- * Payments (Release 4.8.5C): payments()/storePayment()/updatePayment()/
- * deletePayment() drive the engine (_applyPayment(), _restorePayment(),
- * _recalculateLoan()) and the bank posting (a WITHDRAWAL with reference_type
- * LOAN_PAYMENT and reference_id the loan_payments.id, only for BANK/CHEQUE/UPI),
- * exactly as CustomerPayments/ServiceReceipts structure theirs. The engine and
- * the bank helpers never open a DB transaction — each endpoint owns it, so any
- * failure rolls the loan, the EMI, the payment row and the bank balance back
- * together. ledger() is the read-only loan statement.
+ * Loan receipts: the opposite side of a loan — actual money the company
+ * received from the lender ("Loan Received"), tracked separately from
+ * loan_payments. receiveLoan()/storeReceipt()/updateReceipt()/deleteReceipt()
+ * post a DEPOSIT (reference_type LOAN_DISBURSEMENT, reference_id the
+ * loan_receipts.id) for BANK/CHEQUE/UPI only. A receipt never touches the
+ * outstanding figure. Total receipts are hard-capped at the sanctioned amount.
  *
  * Every other module is untouched.
  */
 class Loans extends Controller
 {
-    private const LOAN_TYPES     = ['BANK', 'PERSONAL', 'VEHICLE', 'OD', 'OTHER'];
     private const BANK_REQUIRED  = ['BANK', 'OD'];
     private const BANK_METHODS   = ['BANK', 'CHEQUE', 'UPI'];
     private const REFERENCE_TYPE = 'LOAN_PAYMENT';
+
+    // Release 4.9.0AT: an overdraft is drawn incrementally, not received as a
+    // lump sum, so Receive Loan is not offered for it.
+    private const RECEIPT_EXCLUDED_TYPES = ['OD'];
+    private const REFERENCE_TYPE_RECEIPT = 'LOAN_DISBURSEMENT';
 
     // Exception code the payment engine puts on a business-rule failure
     // (overpayment, closed loan...), so an endpoint answers 422 with the
@@ -62,9 +66,6 @@ class Loans extends Controller
     private const MAX_TENURE = 600;   // 50 years
     private const MAX_RATE   = 100.0; // annual %
 
-    // How far a typed-in EMI may sit from the calculated one (lenders round it).
-    private const EMI_TOLERANCE = 1.00;
-
     // =========================================================
     // ENDPOINTS
     // =========================================================
@@ -75,6 +76,8 @@ class Loans extends Controller
 
         $loans = $db->query("
             SELECT l.*, ba.bank_name, ba.account_name,
+                   " . LoanModel::paidSql('l') . " AS total_paid,
+                   " . LoanModel::outstandingSql('l') . " AS outstanding_principal,
                    (SELECT MIN(le.due_date) FROM loan_emis le
                      WHERE le.loan_id = l.id AND le.payment_status <> 'PAID') AS next_due_date,
                    (SELECT COUNT(*) FROM loan_emis le
@@ -100,7 +103,7 @@ class Loans extends Controller
         return view('loans/index', [
             'title'                 => 'Loan Management',
             'loans'                 => $loans,
-            'loan_types'            => self::LOAN_TYPES,
+            'loan_types'            => LoanTypeModel::codes(),
             'lenders'               => array_values(array_unique(array_column($loans, 'lender_name'))),
             'kpi_active_loans'      => count($active),
             'kpi_total_outstanding' => round(array_sum(array_column($active, 'outstanding_principal')), 2),
@@ -115,9 +118,7 @@ class Loans extends Controller
         return view('loans/create', [
             'title'         => 'New Loan',
             'next_loan_no'  => (new LoanModel())->nextLoanNo(),
-            'loan_types'    => self::LOAN_TYPES,
-            'bank_required' => self::BANK_REQUIRED,
-            'bank_accounts' => $this->_activeBankAccounts(),
+            'loan_types'    => array_keys(LoanTypeModel::activeLabels()),
         ]);
     }
 
@@ -154,7 +155,7 @@ class Loans extends Controller
             }
             $loanId = (int) $loanModel->getInsertID();
 
-            $this->_insertSchedule($loanId, $prepared['schedule']);
+            // Release 4.9.0AY: no EMI schedule is generated. Payments are entered manually.
         } catch (\Throwable $e) {
             $db->transRollback();
             return $this->_error(['Failed to save loan: ' . $e->getMessage()], 500);
@@ -174,7 +175,6 @@ class Loans extends Controller
             'message'   => 'Loan saved successfully.',
             'id'        => $loanId,
             'loan_no'   => $loanNo,
-            'emi_count' => count($prepared['schedule']),
         ]);
     }
 
@@ -197,20 +197,9 @@ class Loans extends Controller
             return redirect()->to('/loans')->with('error', 'Loan not found.');
         }
 
-        // The account already on the loan must stay selectable even if it has
-        // been deactivated since, or saving would silently drop it.
-        $accounts = $this->_activeBankAccounts();
-        $current  = $data['bank_account'];
-
-        if ($current && ! in_array((int) $current['id'], array_map('intval', array_column($accounts, 'id')), true)) {
-            $accounts[] = $current;
-        }
-
         return view('loans/edit', [
-            'title'         => 'Edit Loan ' . $data['loan']['loan_no'],
-            'loan_types'    => self::LOAN_TYPES,
-            'bank_required' => self::BANK_REQUIRED,
-            'bank_accounts' => $accounts,
+            'title'      => 'Edit Loan ' . $data['loan']['loan_no'],
+            'loan_types' => array_values(array_unique(array_merge(array_keys(LoanTypeModel::activeLabels()), [$data['loan']['loan_type']]))),
         ] + $data);
     }
 
@@ -238,11 +227,12 @@ class Loans extends Controller
 
             $hasPayments = $this->_hasPayments((int) $id);
 
-            // With payments on record the schedule they were applied against
-            // must not move, so the terms that drive it are frozen.
-            if ($hasPayments && $this->_termsChanged($loan, $prepared['header'])) {
+            // Release 4.9.0AY: rate, tenure and start date are informational; only
+            // the sanctioned amount (which the outstanding principal is built on)
+            // is frozen once payments exist.
+            if ($hasPayments && $this->_cents((float) $loan['sanctioned_amount']) !== $this->_cents((float) $prepared['header']['sanctioned_amount'])) {
                 $db->transRollback();
-                return $this->_error(['This loan already has payments, so its sanctioned amount, interest rate, tenure and start date can no longer be changed.'], 422);
+                return $this->_error(['This loan already has payments, so its sanctioned amount can no longer be changed.'], 422);
             }
 
             // loan_no goes into the update only when it really changed: the
@@ -266,10 +256,7 @@ class Loans extends Controller
                 throw new \RuntimeException(implode(' ', $loanModel->errors()) ?: 'The loan could not be updated.');
             }
 
-            if (! $hasPayments) {
-                (new LoanEmiModel())->where('loan_id', (int) $id)->delete();
-                $this->_insertSchedule((int) $id, $prepared['schedule']);
-            }
+            // Release 4.9.0AY: the legacy loan_emis rows are left exactly as they are.
         } catch (\Throwable $e) {
             $db->transRollback();
             return $this->_error(['Failed to update loan: ' . $e->getMessage()], 500);
@@ -332,47 +319,15 @@ class Loans extends Controller
         return $this->response->setJSON(['status' => true, 'message' => 'Loan deleted successfully.']);
     }
 
-    /**
-     * POST loans/generate-schedule — { sanctioned_amount, interest_rate,
-     * tenure_months, start_date }. Previews the schedule the loan form will
-     * save; writes nothing.
-     */
-    public function ajaxGenerateSchedule()
-    {
-        $input  = $this->_extractInput();
-        $errors = $this->_validateTerms($input);
-
-        if ($errors) {
-            return $this->_error($errors, 422);
-        }
-
-        try {
-            $schedule = $this->_generateSchedule($input['sanctioned_amount'], $input['interest_rate'], $input['tenure_months'], $input['start_date']);
-        } catch (\RuntimeException $e) {
-            return $this->_error([$e->getMessage()], 422);
-        }
-
-        $interest = round(array_sum(array_column($schedule, 'interest_amount')), 2);
-
-        return $this->response->setJSON([
-            'status'         => true,
-            'emi_amount'     => $this->_calculateEmi($input['sanctioned_amount'], $input['interest_rate'], $input['tenure_months']),
-            'total_interest' => $interest,
-            'total_payable'  => round($input['sanctioned_amount'] + $interest, 2),
-            'end_date'       => end($schedule)['due_date'],
-            'schedule'       => $schedule,
-        ]);
-    }
-
     // =========================================================
     // PAYMENT ENDPOINTS (Release 4.8.5C)
     // =========================================================
 
-    /** GET loans/payments/{loanId} — the EMI payment screen: schedule, pay forms, payment history. */
+    /** GET loans/payments/{loanId} — the payment screen: record-payment form and payment history. */
     public function payments($loanId)
     {
         $loanModel = new LoanModel();
-        $loan      = $loanModel->find((int) $loanId);
+        $loan      = $loanModel->findWithTotals((int) $loanId);
 
         if (! $loan) {
             return redirect()->to('/loans')->with('error', 'Loan not found.');
@@ -382,7 +337,6 @@ class Loans extends Controller
             'title'         => 'Payments ' . $loan['loan_no'],
             'loan'          => $loan,
             'outstanding'   => $loanModel->outstanding((int) $loanId),
-            'emis'          => (new LoanEmiModel())->emiListWithRemaining((int) $loanId),
             'payments'      => (new LoanPaymentModel())->forLoan((int) $loanId),
             'bank_accounts' => $this->_activeBankAccounts(),
             'bank_methods'  => self::BANK_METHODS,
@@ -390,9 +344,9 @@ class Loans extends Controller
     }
 
     /**
-     * POST loans/payments/store — one payment against one loan: an instalment
-     * (loan_emi_id, part or all of what it still owes) or a prepayment
-     * (loan_emi_id blank). Payment row, EMI, loan totals and the bank
+     * POST loans/payments/store — one manual payment against one loan: a single
+     * Payment Amount (stored as total_paid). Release 4.9.0BA: no principal /
+     * interest split and no EMI. The payment row, the loan header and the bank
      * withdrawal are written in one transaction.
      */
     public function storePayment()
@@ -413,11 +367,16 @@ class Loans extends Controller
             return $this->_error($errors, 422);
         }
 
+        // Release 4.9.0CF: a CASH payment dated before the Cash Opening Date is warned about, never blocked.
+        if ($warn = CashOpeningGuard::gate($this->request, 'loan-payment', 0, $input['payment_method'], $input['payment_date'], true)) {
+            return $warn;
+        }
+
         $db = \Config\Database::connect();
         $db->transStart();
 
         try {
-            $state = $this->_applyPayment($input['loan_id'], $input['loan_emi_id'], $input['principal_paid'], $input['interest_paid'], $input['payment_date']);
+            $this->_assertPaymentFits($input['loan_id'], $input['payment_amount'], null, false);
 
             $row                = $this->_paymentRow($input);
             $row['created_by']  = session()->get('user_id');
@@ -429,6 +388,7 @@ class Loans extends Controller
             $paymentId = (int) $paymentModel->getInsertID();
 
             $this->_postBankWithdrawal($loan, $row + ['id' => $paymentId]);
+            $state = $this->_recalculateLoan($input['loan_id'], true);
         } catch (\Throwable $e) {
             $db->transRollback();
             return $this->_paymentFailure($e, 'save the payment');
@@ -482,6 +442,11 @@ class Loans extends Controller
             return $this->_error($errors, 422);
         }
 
+        // Release 4.9.0CF: a CASH payment dated before the Cash Opening Date is warned about, never blocked.
+        if ($warn = CashOpeningGuard::gate($this->request, 'loan-payment', (int) $paymentId, $input['payment_method'], $input['payment_date'], true)) {
+            return $warn;
+        }
+
         $db = \Config\Database::connect();
         $db->transStart();
 
@@ -494,17 +459,17 @@ class Loans extends Controller
                 throw new \RuntimeException('Payment not found.', self::RULE_CODE);
             }
 
-            $this->_restorePayment($loanId, $old['loan_emi_id'] !== null ? (int) $old['loan_emi_id'] : null, (float) $old['principal_paid'], (float) $old['interest_paid']);
+            $this->_assertPaymentFits($loanId, $input['payment_amount'], (int) $paymentId, true);
             $this->_deleteBankWithdrawal((int) $paymentId);
 
-            $state = $this->_applyPayment($loanId, $input['loan_emi_id'], $input['principal_paid'], $input['interest_paid'], $input['payment_date'], true);
-            $row   = $this->_paymentRow($input);
+            $row = $this->_paymentRow($input, $old);
 
             if (! $paymentModel->update((int) $paymentId, $row)) {
                 throw new \RuntimeException(implode(' ', $paymentModel->errors()) ?: 'The payment could not be updated.');
             }
 
             $this->_postBankWithdrawal($loan, $row + ['id' => (int) $paymentId]);
+            $state = $this->_recalculateLoan($loanId, true);
         } catch (\Throwable $e) {
             $db->transRollback();
             return $this->_paymentFailure($e, 'update the payment');
@@ -562,9 +527,9 @@ class Loans extends Controller
                 throw new \RuntimeException('Payment not found.', self::RULE_CODE);
             }
 
-            $state = $this->_restorePayment($loanId, $old['loan_emi_id'] !== null ? (int) $old['loan_emi_id'] : null, (float) $old['principal_paid'], (float) $old['interest_paid']);
             $this->_deleteBankWithdrawal((int) $paymentId);
             $paymentModel->delete((int) $paymentId);
+            $state = $this->_recalculateLoan($loanId, true);
         } catch (\Throwable $e) {
             $db->transRollback();
             return $this->_paymentFailure($e, 'delete the payment');
@@ -592,6 +557,466 @@ class Loans extends Controller
         ]);
     }
 
+    // =========================================================
+    // RECEIPT ENDPOINTS (Release 4.9.0AT)
+    // =========================================================
+
+    /** GET loans/receive/{loanId} — the Receive Loan form. Not offered for OD (overdraft is drawn, not received as a lump sum). */
+    public function receiveLoan($loanId)
+    {
+        $loan = (new LoanModel())->find((int) $loanId);
+
+        if (! $loan) {
+            return redirect()->to('/loans')->with('error', 'Loan not found.');
+        }
+        if (in_array($loan['loan_type'], self::RECEIPT_EXCLUDED_TYPES, true)) {
+            return redirect()->to('/loans/view/' . $loanId)->with('error', 'Receive Loan is not available for an Overdraft facility.');
+        }
+
+        $receiptModel  = new LoanReceiptModel();
+        $totalReceived = $receiptModel->totalReceived((int) $loanId);
+
+        return view('loans/receive', [
+            'title'                 => 'Receive Loan ' . $loan['loan_no'],
+            'loan'                  => $loan,
+            'total_received'        => $totalReceived,
+            'remaining_to_receive'  => round((float) $loan['sanctioned_amount'] - $totalReceived, 2),
+            'bank_accounts'         => $this->_activeBankAccounts(),
+            'bank_methods'          => self::BANK_METHODS,
+        ]);
+    }
+
+    /** GET loans/receipts/edit/{receiptId} — the Edit Receipt form. */
+    public function editReceipt($receiptId)
+    {
+        $receiptModel = new LoanReceiptModel();
+        $receipt      = $receiptModel->find((int) $receiptId);
+
+        if (! $receipt) {
+            return redirect()->to('/loans')->with('error', 'Receipt not found.');
+        }
+
+        $loan = (new LoanModel())->find((int) $receipt['loan_id']);
+
+        if (! $loan) {
+            return redirect()->to('/loans')->with('error', 'Loan not found.');
+        }
+
+        $totalReceived = $receiptModel->totalReceived((int) $receipt['loan_id']);
+
+        return view('loans/receipt_edit', [
+            'title'                 => 'Edit Receipt ' . $receipt['receipt_no'],
+            'loan'                  => $loan,
+            'receipt'               => $receipt,
+            'total_received'        => $totalReceived,
+            'remaining_to_receive'  => round((float) $loan['sanctioned_amount'] - $totalReceived, 2),
+            'bank_accounts'         => $this->_activeBankAccounts(),
+            'bank_methods'          => self::BANK_METHODS,
+        ]);
+    }
+
+    /**
+     * POST loans/receipts/store — one receipt against one loan (full or
+     * partial; multiple receipts per loan are supported). Receipt row and the
+     * bank deposit are written in one transaction; total receipts are
+     * hard-capped at the sanctioned amount.
+     */
+    public function storeReceipt()
+    {
+        $input = $this->_extractReceiptInput();
+        $loan  = (new LoanModel())->find($input['loan_id']);
+
+        if (! $loan) {
+            return $this->_error(['Loan not found.'], 404);
+        }
+        if (in_array($loan['loan_type'], self::RECEIPT_EXCLUDED_TYPES, true)) {
+            return $this->_error(['Receive Loan is not available for an Overdraft facility.'], 422);
+        }
+
+        $errors = $this->_validateReceipt($input);
+
+        if ($errors) {
+            return $this->_error($errors, 422);
+        }
+
+        // Release 4.9.0CF: a CASH receipt dated before the Cash Opening Date is warned about, never blocked.
+        if ($warn = CashOpeningGuard::gate($this->request, 'loan-receipt', 0, $input['payment_method'], $input['receipt_date'], true)) {
+            return $warn;
+        }
+
+        $db = \Config\Database::connect();
+        $db->transStart();
+
+        $receiptId = null;
+        $row       = null;
+
+        try {
+            // Row-locks the loan header, so two receipts against the same loan
+            // at once serialise instead of both passing the over-receipt check
+            // against the same stale total.
+            (new LoanModel())->outstanding($input['loan_id'], true);
+
+            $receiptModel  = new LoanReceiptModel();
+            $sanctioned    = round((float) $loan['sanctioned_amount'], 2);
+            $totalReceived = $receiptModel->totalReceived($input['loan_id']);
+
+            if (round($totalReceived + $input['amount'], 2) > $sanctioned + 0.004) {
+                throw new \RuntimeException(
+                    'This receipt would take total receipts to ' . number_format($totalReceived + $input['amount'], 2)
+                    . ', which exceeds the sanctioned amount of ' . number_format($sanctioned, 2) . '.',
+                    self::RULE_CODE
+                );
+            }
+
+            $row               = $this->_receiptRow($input);
+            $row['receipt_no'] = $receiptModel->nextReceiptNo();
+            $row['created_by'] = session()->get('user_id');
+
+            if (! $receiptModel->insert($row)) {
+                throw new \RuntimeException(implode(' ', $receiptModel->errors()) ?: 'The receipt could not be saved.');
+            }
+            $receiptId = (int) $receiptModel->getInsertID();
+
+            $this->_postBankDeposit($loan, $row + ['id' => $receiptId]);
+        } catch (\Throwable $e) {
+            $db->transRollback();
+            return $this->_receiptFailure($e, 'save the receipt');
+        }
+
+        $db->transComplete();
+
+        if ($db->transStatus() === false) {
+            return $this->_error(['Failed to save the receipt due to a database error.'], 500);
+        }
+
+        audit_create('Loan', self::REFERENCE_TYPE_RECEIPT, $receiptId, $row['receipt_no'], $row, 'Receipt ' . $row['receipt_no'] . ' recorded against loan ' . $loan['loan_no'] . '.');
+
+        return $this->response->setJSON([
+            'status'      => true,
+            'message'     => 'Loan receipt recorded successfully.',
+            'id'          => $receiptId,
+            'receipt_no'  => $row['receipt_no'],
+        ]);
+    }
+
+    /**
+     * POST loans/receipts/update/{receiptId} — the old bank deposit (if any) is
+     * reversed before the receipt is rewritten and a new deposit posted, all in
+     * one transaction, so a rejected edit changes nothing. A receipt never
+     * moves to another loan.
+     */
+    public function updateReceipt($receiptId)
+    {
+        $receiptModel = new LoanReceiptModel();
+        $existing     = $receiptModel->find((int) $receiptId);
+
+        if (! $existing) {
+            return $this->_error(['Receipt not found.'], 404);
+        }
+
+        $loanId = (int) $existing['loan_id'];
+        $loan   = (new LoanModel())->find($loanId);
+
+        if (! $loan) {
+            return $this->_error(['Loan not found.'], 404);
+        }
+
+        $input            = $this->_extractReceiptInput();
+        $input['loan_id'] = $loanId;
+        $errors           = $this->_validateReceipt($input);
+
+        if ($errors) {
+            return $this->_error($errors, 422);
+        }
+
+        // Release 4.9.0CF: a CASH receipt dated before the Cash Opening Date is warned about, never blocked.
+        if ($warn = CashOpeningGuard::gate($this->request, 'loan-receipt', (int) $receiptId, $input['payment_method'], $input['receipt_date'], true)) {
+            return $warn;
+        }
+
+        $db = \Config\Database::connect();
+        $db->transStart();
+
+        $row = null;
+        $old = null;
+
+        try {
+            (new LoanModel())->outstanding($loanId, true); // row lock, before the receipt row
+
+            $old = $receiptModel->lockedRow((int) $receiptId);
+
+            if (! $old) {
+                throw new \RuntimeException('Receipt not found.', self::RULE_CODE);
+            }
+
+            $sanctioned  = round((float) $loan['sanctioned_amount'], 2);
+            $totalOthers = round($receiptModel->totalReceived($loanId) - (float) $old['amount'], 2);
+
+            if (round($totalOthers + $input['amount'], 2) > $sanctioned + 0.004) {
+                throw new \RuntimeException(
+                    'This receipt would take total receipts to ' . number_format($totalOthers + $input['amount'], 2)
+                    . ', which exceeds the sanctioned amount of ' . number_format($sanctioned, 2) . '.',
+                    self::RULE_CODE
+                );
+            }
+
+            $this->_deleteBankDeposit((int) $receiptId);
+
+            $row = $this->_receiptRow($input);
+
+            if (! $receiptModel->update((int) $receiptId, $row)) {
+                throw new \RuntimeException(implode(' ', $receiptModel->errors()) ?: 'The receipt could not be updated.');
+            }
+
+            $this->_postBankDeposit($loan, $row + ['id' => (int) $receiptId, 'receipt_no' => $old['receipt_no']]);
+        } catch (\Throwable $e) {
+            $db->transRollback();
+            return $this->_receiptFailure($e, 'update the receipt');
+        }
+
+        $db->transComplete();
+
+        if ($db->transStatus() === false) {
+            return $this->_error(['Failed to update the receipt due to a database error.'], 500);
+        }
+
+        audit_update('Loan', self::REFERENCE_TYPE_RECEIPT, (int) $receiptId, $old['receipt_no'], $old, $row, 'Receipt ' . $old['receipt_no'] . ' updated against loan ' . $loan['loan_no'] . '.');
+
+        return $this->response->setJSON([
+            'status'  => true,
+            'message' => 'Receipt updated successfully.',
+            'id'      => (int) $receiptId,
+        ]);
+    }
+
+    /**
+     * POST loans/receipts/delete/{receiptId} — reverses and removes whatever
+     * bank deposit the receipt posted, then deletes the receipt row itself.
+     * A receipt has no downstream dependents (nothing else references
+     * loan_receipts.id — it never touches outstanding_principal), so this
+     * mirrors Loans::deletePayment()'s already-proven reversal architecture
+     * rather than adding a separate cancelled/void status.
+     */
+    public function deleteReceipt($receiptId)
+    {
+        $receiptModel = new LoanReceiptModel();
+        $existing     = $receiptModel->find((int) $receiptId);
+
+        if (! $existing) {
+            return $this->_error(['Receipt not found.'], 404);
+        }
+
+        $loanId = (int) $existing['loan_id'];
+        $loan   = (new LoanModel())->find($loanId);
+        $db     = \Config\Database::connect();
+        $db->transStart();
+
+        $old = null;
+
+        try {
+            (new LoanModel())->outstanding($loanId, true); // row lock
+
+            $old = $receiptModel->lockedRow((int) $receiptId);
+
+            if (! $old) {
+                throw new \RuntimeException('Receipt not found.', self::RULE_CODE);
+            }
+
+            $this->_deleteBankDeposit((int) $receiptId);
+            $receiptModel->delete((int) $receiptId);
+        } catch (\Throwable $e) {
+            $db->transRollback();
+            return $this->_receiptFailure($e, 'delete the receipt');
+        }
+
+        $db->transComplete();
+
+        if ($db->transStatus() === false) {
+            return $this->_error(['Failed to delete the receipt due to a database error.'], 500);
+        }
+
+        audit_delete('Loan', self::REFERENCE_TYPE_RECEIPT, (int) $receiptId, $old['receipt_no'], $old, 'Receipt ' . $old['receipt_no'] . ' deleted from loan ' . ($loan['loan_no'] ?? $loanId) . '.');
+
+        return $this->response->setJSON([
+            'status'  => true,
+            'message' => 'Receipt deleted successfully.',
+        ]);
+    }
+
+    /** 422 for a business-rule failure raised by the receipt engine, 500 for anything else. */
+    private function _receiptFailure(\Throwable $e, string $action)
+    {
+        if ($e->getCode() === self::RULE_CODE) {
+            return $this->_error([$e->getMessage()], 422);
+        }
+
+        return $this->_error(["Failed to {$action}: " . $e->getMessage()], 500);
+    }
+
+    /**
+     * Normalizes a receipt POST. An unparseable amount becomes null so
+     * validation can name it.
+     */
+    private function _extractReceiptInput(): array
+    {
+        $post = $this->request;
+
+        return [
+            'loan_id'         => (int) $post->getPost('loan_id'),
+            'receipt_date'    => trim((string) $post->getPost('receipt_date')),
+            'payment_method'  => strtoupper(trim((string) $post->getPost('payment_method'))),
+            'bank_account_id' => (int) $post->getPost('bank_account_id'),
+            'amount'          => $this->_amount($post->getPost('amount')),
+            'reference_no'    => trim((string) $post->getPost('reference_no')),
+            'remarks'         => trim((string) $post->getPost('remarks')),
+        ];
+    }
+
+    /**
+     * Field rules of a receipt. The over-receipt hard cap needs the locked
+     * loan/receipt totals, so it is enforced by storeReceipt()/updateReceipt()
+     * inside the transaction, same split as _validatePayment()/_applyPayment().
+     */
+    private function _validateReceipt(array $input): array
+    {
+        $errors = [];
+
+        if ($input['loan_id'] <= 0) {
+            $errors[] = 'Loan is required.';
+        }
+
+        if ($input['receipt_date'] === '') {
+            $errors[] = 'Receipt date is required.';
+        } elseif (! $this->_isValidDate($input['receipt_date'])) {
+            $errors[] = 'Receipt date is not a valid date.';
+        }
+
+        if ($input['amount'] === null) {
+            $errors[] = 'Amount must be a valid number.';
+        } elseif ($input['amount'] <= 0) {
+            $errors[] = 'Amount must be greater than zero.';
+        } elseif ($input['amount'] > self::MAX_AMOUNT) {
+            $errors[] = 'Amount is too large.';
+        } elseif (abs($input['amount'] - round($input['amount'], 2)) >= 0.000001) {
+            $errors[] = 'Amount cannot have more than two decimal places.';
+        }
+
+        if (! in_array($input['payment_method'], ['CASH', 'BANK', 'CHEQUE', 'UPI', 'OTHER'], true)) {
+            $errors[] = 'Payment method must be one of: Cash, Bank, Cheque, UPI, Other.';
+        } elseif (BankTransactionModel::isBankMethod($input['payment_method'])) {
+            if ($input['bank_account_id'] <= 0) {
+                $errors[] = 'A bank account is required for Bank, Cheque and UPI receipts.';
+            } else {
+                $account = (new BankAccountModel())->find($input['bank_account_id']);
+
+                if (! $account) {
+                    $errors[] = 'The selected bank account was not found.';
+                } elseif ((int) $account['is_active'] !== 1) {
+                    $errors[] = 'The selected bank account is inactive.';
+                }
+            }
+        }
+
+        if (mb_strlen($input['reference_no']) > 100) {
+            $errors[] = 'Reference number cannot be longer than 100 characters.';
+        }
+
+        return $errors;
+    }
+
+    /** The loan_receipts columns of a validated receipt (minus receipt_no, assigned separately). Cash/Other carry no bank account. */
+    private function _receiptRow(array $input): array
+    {
+        $viaBank = BankTransactionModel::isBankMethod($input['payment_method']);
+
+        return [
+            'loan_id'         => $input['loan_id'],
+            'receipt_date'    => $input['receipt_date'],
+            'amount'          => round($input['amount'], 2),
+            'payment_method'  => $input['payment_method'],
+            'bank_account_id' => $viaBank ? $input['bank_account_id'] : null,
+            'reference_no'    => $input['reference_no'] !== '' ? $input['reference_no'] : null,
+            'remarks'         => $input['remarks'] !== '' ? $input['remarks'] : null,
+        ];
+    }
+
+    // =========================================================
+    // RECEIPT BANK POSTING (used by storeReceipt / updateReceipt / deleteReceipt)
+    // =========================================================
+
+    /**
+     * The bank row a loan receipt will post: a DEPOSIT of amount dated the
+     * receipt date, reference_type LOAN_DISBURSEMENT, reference_id the
+     * receipt id (never loan_id — multiple receipts of one loan must each get
+     * their own bank row, or createBankTransaction()'s duplicate guard would
+     * reject every receipt after the first). Null unless the receipt went
+     * through a bank (BANK/CHEQUE/UPI). Pure.
+     */
+    private function _bankDepositData(array $loan, array $receipt): ?array
+    {
+        if (! BankTransactionModel::isBankMethod($receipt['payment_method'] ?? null)) {
+            return null;
+        }
+        if (round((float) $receipt['amount'], 2) <= 0) {
+            return null;
+        }
+
+        return [
+            'bank_account_id'  => (int) $receipt['bank_account_id'],
+            'transaction_date' => $receipt['receipt_date'],
+            'transaction_type' => 'DEPOSIT',
+            'amount'           => round((float) $receipt['amount'], 2),
+            'reference_type'   => self::REFERENCE_TYPE_RECEIPT,
+            'reference_id'     => (int) $receipt['id'],
+            'reference_no'     => ($receipt['reference_no'] ?? '') !== '' ? $receipt['reference_no'] : ($receipt['receipt_no'] ?? $loan['loan_no']),
+            'remarks'          => 'Loan Received – ' . $loan['lender_name'],
+            'created_by'       => session()->get('user_id'),
+        ];
+    }
+
+    /** Posts the DEPOSIT for one receipt; no-op unless received through a bank. */
+    private function _postBankDeposit(array $loan, array $receipt): void
+    {
+        $data = $this->_bankDepositData($loan, $receipt);
+
+        if ($data !== null) {
+            (new BankTransactionModel())->createBankTransaction($data);
+        }
+    }
+
+    /** Reverses and removes whatever was posted for one receipt (0 rows is fine). */
+    private function _deleteBankDeposit(int $receiptId): void
+    {
+        (new BankTransactionModel())->deleteBankTransaction(self::REFERENCE_TYPE_RECEIPT, $receiptId);
+    }
+
+    /**
+     * Loan receipts formatted for the Loan Ledger's separate "Loan Receipts"
+     * section — kept apart from the principal-driven statement above it
+     * (Loan Received / Payment rows and the running Outstanding Balance
+     * column), since a receipt never affects outstanding_principal and mixing
+     * it into that Debit/Credit pair would invent an accounting meaning for
+     * those columns they don't currently have.
+     */
+    private function _receiptLedgerRows(int $loanId): array
+    {
+        $rows = [];
+
+        foreach ((new LoanReceiptModel())->forLoan($loanId) as $r) {
+            $rows[] = [
+                'date'       => $r['receipt_date'],
+                'receipt_no' => $r['receipt_no'],
+                'amount'     => round((float) $r['amount'], 2),
+                'method'     => pm_label($r['payment_method'], 'Not recorded'),
+                'account'    => $r['bank_name'] ? $r['bank_name'] . ' ' . $r['account_name'] : '',
+                'reference'  => ($r['reference_no'] ?? '') !== '' ? $r['reference_no'] : '',
+                'remarks'    => (string) ($r['remarks'] ?? ''),
+            ];
+        }
+
+        return $rows;
+    }
+
     /**
      * GET loans/ledger/{loanId} — read-only statement. The disbursement opens
      * the account as a debit of the sanctioned amount; every payment is a
@@ -602,7 +1027,7 @@ class Loans extends Controller
     public function ledger($loanId)
     {
         $loanModel = new LoanModel();
-        $loan      = $loanModel->find((int) $loanId);
+        $loan      = $loanModel->findWithTotals((int) $loanId);
 
         if (! $loan) {
             return redirect()->to('/loans')->with('error', 'Loan not found.');
@@ -613,33 +1038,28 @@ class Loans extends Controller
         $rows       = [[
             'date'      => $loan['start_date'],
             'kind'      => 'DISBURSEMENT',
-            'label'     => 'Loan Disbursement',
+            'label'     => 'Loan Received',
             'reference' => $loan['loan_no'],
             'method'    => '',
             'debit'     => $sanctioned,
             'credit'    => 0.00,
-            'principal' => 0.00,
-            'interest'  => 0.00,
             'balance'   => $running,
         ]];
-        $credit = $principal = $interest = 0.0;
+        $credit = 0.0;
 
         foreach ((new LoanPaymentModel())->forLoan((int) $loanId, true) as $p) {
-            $running    = round($running - (float) $p['principal_paid'], 2);
-            $credit    += (float) $p['total_paid'];
-            $principal += (float) $p['principal_paid'];
-            $interest  += (float) $p['interest_paid'];
+            $running = round($running - (float) $p['total_paid'], 2);
+            $credit += (float) $p['total_paid'];
 
             $rows[] = [
                 'date'      => $p['payment_date'],
-                'kind'      => $p['loan_emi_id'] ? 'EMI' : 'PREPAYMENT',
-                'label'     => $p['loan_emi_id'] ? 'EMI #' . (int) $p['emi_no'] . ' Payment' : 'Prepayment',
+                'kind'      => 'PAYMENT',
+                'label'     => $p['loan_emi_id'] ? 'Payment (old EMI ref. #' . (int) $p['emi_no'] . ')' : 'Payment',
                 'reference' => ($p['reference_no'] ?? '') !== '' ? $p['reference_no'] : '',
-                'method'    => $p['payment_method'] . ($p['bank_name'] ? ' — ' . $p['bank_name'] . ' ' . $p['account_name'] : ''),
+                'method'    => pm_label($p['payment_method'], 'Not recorded'),
+                'account'   => $p['bank_name'] ? $p['bank_name'] . ' ' . $p['account_name'] : '',
                 'debit'     => 0.00,
                 'credit'    => round((float) $p['total_paid'], 2),
-                'principal' => round((float) $p['principal_paid'], 2),
-                'interest'  => round((float) $p['interest_paid'], 2),
                 'balance'   => $running,
             ];
         }
@@ -649,16 +1069,19 @@ class Loans extends Controller
             [(int) $loanId]
         )->getRowArray();
 
+        $totalReceived = (new LoanReceiptModel())->totalReceived((int) $loanId);
+
         return view('loans/ledger', [
             'title'        => 'Loan Ledger ' . $loan['loan_no'],
             'loan'         => $loan,
             'rows'         => $rows,
             'total_credit' => round($credit, 2),
-            'total_principal' => round($principal, 2),
-            'total_interest'  => round($interest, 2),
             'emis_total'   => (int) $counts['total'],
             'emis_paid'    => (int) $counts['paid'],
             'emis_pending' => (int) $counts['total'] - (int) $counts['paid'],
+            'receipt_rows' => $this->_receiptLedgerRows((int) $loanId),
+            'total_received' => $totalReceived,
+            'remaining_to_receive' => round($sanctioned - $totalReceived, 2),
         ]);
     }
 
@@ -671,7 +1094,7 @@ class Loans extends Controller
     public function exportLedgerPdf($loanId)
     {
         $loanModel = new LoanModel();
-        $loan      = $loanModel->find((int) $loanId);
+        $loan      = $loanModel->findWithTotals((int) $loanId);
 
         if (! $loan) {
             throw \CodeIgniter\Exceptions\PageNotFoundException::forPageNotFound('Loan not found.');
@@ -682,33 +1105,28 @@ class Loans extends Controller
         $rows       = [[
             'date'      => $loan['start_date'],
             'kind'      => 'DISBURSEMENT',
-            'label'     => 'Loan Disbursement',
+            'label'     => 'Loan Received',
             'reference' => $loan['loan_no'],
             'method'    => '',
             'debit'     => $sanctioned,
             'credit'    => 0.00,
-            'principal' => 0.00,
-            'interest'  => 0.00,
             'balance'   => $running,
         ]];
-        $credit = $principal = $interest = 0.0;
+        $credit = 0.0;
 
         foreach ((new LoanPaymentModel())->forLoan((int) $loanId, true) as $p) {
-            $running    = round($running - (float) $p['principal_paid'], 2);
-            $credit    += (float) $p['total_paid'];
-            $principal += (float) $p['principal_paid'];
-            $interest  += (float) $p['interest_paid'];
+            $running = round($running - (float) $p['total_paid'], 2);
+            $credit += (float) $p['total_paid'];
 
             $rows[] = [
                 'date'      => $p['payment_date'],
-                'kind'      => $p['loan_emi_id'] ? 'EMI' : 'PREPAYMENT',
-                'label'     => $p['loan_emi_id'] ? 'EMI #' . (int) $p['emi_no'] . ' Payment' : 'Prepayment',
+                'kind'      => 'PAYMENT',
+                'label'     => $p['loan_emi_id'] ? 'Payment (old EMI ref. #' . (int) $p['emi_no'] . ')' : 'Payment',
                 'reference' => ($p['reference_no'] ?? '') !== '' ? $p['reference_no'] : '',
-                'method'    => $p['payment_method'] . ($p['bank_name'] ? ' — ' . $p['bank_name'] . ' ' . $p['account_name'] : ''),
+                'method'    => pm_label($p['payment_method'], 'Not recorded'),
+                'account'   => $p['bank_name'] ? $p['bank_name'] . ' ' . $p['account_name'] : '',
                 'debit'     => 0.00,
                 'credit'    => round((float) $p['total_paid'], 2),
-                'principal' => round((float) $p['principal_paid'], 2),
-                'interest'  => round((float) $p['interest_paid'], 2),
                 'balance'   => $running,
             ];
         }
@@ -722,8 +1140,6 @@ class Loans extends Controller
             'loan'             => $loan,
             'rows'             => $rows,
             'total_credit'     => round($credit, 2),
-            'total_principal'  => round($principal, 2),
-            'total_interest'   => round($interest, 2),
             'emis_total'       => (int) $counts['total'],
             'emis_paid'        => (int) $counts['paid'],
             'emis_pending'     => (int) $counts['total'] - (int) $counts['paid'],
@@ -743,7 +1159,7 @@ class Loans extends Controller
     public function exportLedgerExcel($loanId)
     {
         $loanModel = new LoanModel();
-        $loan      = $loanModel->find((int) $loanId);
+        $loan      = $loanModel->findWithTotals((int) $loanId);
 
         if (! $loan) {
             throw \CodeIgniter\Exceptions\PageNotFoundException::forPageNotFound('Loan not found.');
@@ -754,29 +1170,26 @@ class Loans extends Controller
         $rows       = [[
             'date'      => $loan['start_date'],
             'kind'      => 'DISBURSEMENT',
-            'label'     => 'Loan Disbursement',
+            'label'     => 'Loan Received',
             'reference' => $loan['loan_no'],
             'method'    => '',
             'debit'     => $sanctioned,
             'credit'    => 0.00,
-            'principal' => 0.00,
-            'interest'  => 0.00,
             'balance'   => $running,
         ]];
 
         foreach ((new LoanPaymentModel())->forLoan((int) $loanId, true) as $p) {
-            $running = round($running - (float) $p['principal_paid'], 2);
+            $running = round($running - (float) $p['total_paid'], 2);
 
             $rows[] = [
                 'date'      => $p['payment_date'],
-                'kind'      => $p['loan_emi_id'] ? 'EMI' : 'PREPAYMENT',
-                'label'     => $p['loan_emi_id'] ? 'EMI #' . (int) $p['emi_no'] . ' Payment' : 'Prepayment',
+                'kind'      => 'PAYMENT',
+                'label'     => $p['loan_emi_id'] ? 'Payment (old EMI ref. #' . (int) $p['emi_no'] . ')' : 'Payment',
                 'reference' => ($p['reference_no'] ?? '') !== '' ? $p['reference_no'] : '',
-                'method'    => $p['payment_method'] . ($p['bank_name'] ? ' — ' . $p['bank_name'] . ' ' . $p['account_name'] : ''),
+                'method'    => pm_label($p['payment_method'], 'Not recorded'),
+                'account'   => $p['bank_name'] ? $p['bank_name'] . ' ' . $p['account_name'] : '',
                 'debit'     => 0.00,
                 'credit'    => round((float) $p['total_paid'], 2),
-                'principal' => round((float) $p['principal_paid'], 2),
-                'interest'  => round((float) $p['interest_paid'], 2),
                 'balance'   => $running,
             ];
         }
@@ -784,8 +1197,8 @@ class Loans extends Controller
         $excelRows = [];
         foreach ($rows as $row) {
             $excelRows[] = [
-                $row['date'], $row['kind'], $row['reference'], $row['label'], $row['method'],
-                $row['debit'], $row['credit'], $row['principal'], $row['interest'], $row['balance'],
+                $row['date'], $row['kind'], $row['reference'], $row['label'], $row['method'] . (($row['account'] ?? '') !== '' ? ' — ' . $row['account'] : ''),
+                $row['debit'], $row['credit'], $row['balance'],
             ];
         }
 
@@ -799,12 +1212,12 @@ class Loans extends Controller
                 'Status'            => $loan['status'],
             ],
             0.0,
-            ['Date', 'Type', 'Reference', 'Description', 'Method', 'Debit', 'Credit', 'Principal', 'Interest', 'Balance'],
+            ['Date', 'Type', 'Reference', 'Description', 'Method', 'Debit', 'Credit', 'Balance'],
             $excelRows,
-            ['date', 'text', 'text', 'text', 'text', 'currency', 'currency', 'currency', 'currency', 'currency'],
-            9,
+            ['date', 'text', 'text', 'text', 'text', 'currency', 'currency', 'currency'],
+            7,
             $running,
-            [5, 6, 7, 8],
+            [5, 6],
             'portrait'
         )->stream('loan_ledger_' . preg_replace('/[^a-z0-9]+/i', '_', $loan['loan_no']) . '_' . date('Ymd_His'));
     }
@@ -824,35 +1237,29 @@ class Loans extends Controller
     // =========================================================
 
     /**
-     * Normalizes a payment POST. An unparseable number becomes null so
-     * validation can name it; blank principal/interest are 0, and a blank
-     * total is 'not given' (it is then principal + interest).
+     * Normalizes a payment POST. An unparseable Payment Amount becomes null so
+     * validation can name it.
      */
     private function _extractPaymentInput(): array
     {
-        $post     = $this->request;
-        $totalRaw = trim((string) $post->getPost('total_paid'));
-        $emiId    = (int) $post->getPost('loan_emi_id');
+        $post = $this->request;
 
+        // Release 4.9.0BA: one manual Payment Amount. No principal, interest or EMI is read.
         return [
             'loan_id'         => (int) $post->getPost('loan_id'),
-            'loan_emi_id'     => $emiId > 0 ? $emiId : null,
             'payment_date'    => trim((string) $post->getPost('payment_date')),
             'payment_method'  => strtoupper(trim((string) $post->getPost('payment_method'))),
             'bank_account_id' => (int) $post->getPost('bank_account_id'),
-            'principal_paid'  => $this->_amount($post->getPost('principal_paid')),
-            'interest_paid'   => $this->_amount($post->getPost('interest_paid')),
-            'total_given'     => $totalRaw !== '',
-            'total_paid'      => $totalRaw === '' ? 0.0 : $this->_amount($totalRaw),
+            'payment_amount'  => $this->_amount($post->getPost('payment_amount')),
             'reference_no'    => trim((string) $post->getPost('reference_no')),
             'remarks'         => trim((string) $post->getPost('remarks')),
         ];
     }
 
     /**
-     * Field rules of a payment. What needs the locked loan / EMI (closed loan,
-     * overpaying an instalment, overpaying the principal) is enforced by
-     * _applyPayment() inside the transaction.
+     * Field rules of a payment. What needs the locked loan (closed loan,
+     * overpaying the outstanding amount) is enforced by _assertPaymentFits()
+     * inside the transaction.
      */
     private function _validatePayment(array $input): array
     {
@@ -868,43 +1275,21 @@ class Loans extends Controller
             $errors[] = 'Payment date is not a valid date.';
         }
 
-        $amountsOk = true;
-        foreach (['principal_paid' => 'Principal', 'interest_paid' => 'Interest'] as $key => $label) {
-            $v = $input[$key];
+        $v = $input['payment_amount'];
 
-            if ($v === null) {
-                $errors[] = "{$label} must be a valid number.";
-                $amountsOk = false;
-            } elseif ($v < 0) {
-                $errors[] = "{$label} cannot be negative.";
-                $amountsOk = false;
-            } elseif ($v > self::MAX_AMOUNT) {
-                $errors[] = "{$label} is too large.";
-                $amountsOk = false;
-            } elseif (abs($v - round($v, 2)) >= 0.000001) {
-                $errors[] = "{$label} cannot have more than two decimal places.";
-                $amountsOk = false;
-            }
-        }
-
-        if ($input['total_given'] && $input['total_paid'] === null) {
-            $errors[] = 'Total paid must be a valid number.';
-            $amountsOk = false;
-        }
-
-        if ($amountsOk) {
-            $sum = round($input['principal_paid'] + $input['interest_paid'], 2);
-
-            if ($sum <= 0) {
-                $errors[] = 'Total payment must be greater than zero.';
-            } elseif ($input['total_given'] && $this->_cents($input['total_paid']) !== $this->_cents($sum)) {
-                $errors[] = 'Principal + Interest (' . number_format($sum, 2) . ') must equal the Total Paid (' . number_format($input['total_paid'], 2) . ').';
-            }
+        if ($v === null) {
+            $errors[] = 'Payment amount must be a valid number.';
+        } elseif ($v <= 0) {
+            $errors[] = $v < 0 ? 'Payment amount cannot be negative.' : 'Payment amount must be greater than zero.';
+        } elseif ($v > self::MAX_AMOUNT) {
+            $errors[] = 'Payment amount is too large.';
+        } elseif (abs($v - round($v, 2)) >= 0.000001) {
+            $errors[] = 'Payment amount cannot have more than two decimal places.';
         }
 
         if (! in_array($input['payment_method'], ['CASH', 'BANK', 'CHEQUE', 'UPI', 'OTHER'], true)) {
             $errors[] = 'Payment method must be one of: Cash, Bank, Cheque, UPI, Other.';
-        } elseif (in_array($input['payment_method'], self::BANK_METHODS, true)) {
+        } elseif (BankTransactionModel::isBankMethod($input['payment_method'])) {
             if ($input['bank_account_id'] <= 0) {
                 $errors[] = 'A bank account is required for Bank, Cheque and UPI payments.';
             } else {
@@ -925,132 +1310,32 @@ class Loans extends Controller
         return $errors;
     }
 
-    /** The loan_payments columns of a validated payment. Cash/Other carry no bank account. */
-    private function _paymentRow(array $input): array
+    /**
+     * The loan_payments columns of a validated payment. Cash/Other carry no bank
+     * account. Release 4.9.0BA: total_paid is exactly the user's Payment Amount;
+     * principal_paid / interest_paid are the legacy split columns, which a manual
+     * payment does not know, so they are stored as 0 (never guessed). Editing a
+     * historical payment without changing its amount keeps its old split and EMI
+     * reference untouched; changing the amount drops the now-stale split.
+     */
+    private function _paymentRow(array $input, ?array $old = null): array
     {
-        $viaBank = in_array($input['payment_method'], self::BANK_METHODS, true);
+        $viaBank = BankTransactionModel::isBankMethod($input['payment_method']);
+        $amount  = round($input['payment_amount'], 2);
+        $same    = $old !== null && $this->_cents((float) $old['total_paid']) === $this->_cents($amount);
 
         return [
             'loan_id'         => $input['loan_id'],
-            'loan_emi_id'     => $input['loan_emi_id'],
+            'loan_emi_id'     => $old['loan_emi_id'] ?? null,
             'payment_date'    => $input['payment_date'],
             'payment_method'  => $input['payment_method'],
             'bank_account_id' => $viaBank ? $input['bank_account_id'] : null,
-            'principal_paid'  => round($input['principal_paid'], 2),
-            'interest_paid'   => round($input['interest_paid'], 2),
-            'total_paid'      => round($input['principal_paid'] + $input['interest_paid'], 2),
+            'principal_paid'  => $same ? (float) $old['principal_paid'] : 0.00,
+            'interest_paid'   => $same ? (float) $old['interest_paid'] : 0.00,
+            'total_paid'      => $amount,
             'reference_no'    => $input['reference_no'] !== '' ? $input['reference_no'] : null,
             'remarks'         => $input['remarks'] !== '' ? $input['remarks'] : null,
         ];
-    }
-
-    // =========================================================
-    // EMI SCHEDULE ENGINE
-    // =========================================================
-
-    /** Standard reducing-balance EMI, rounded to 2 decimals (P/n at 0% interest). */
-    private function _calculateEmi(float $principal, float $annualRate, int $tenure): float
-    {
-        $r = $annualRate / 12 / 100;
-
-        if ($r <= 0) {
-            return round($principal / $tenure, 2);
-        }
-
-        $factor = pow(1 + $r, $tenure);
-
-        return round($principal * $r * $factor / ($factor - 1), 2);
-    }
-
-    /**
-     * Monthly reducing-balance schedule. One row per EMI:
-     * emi_no, due_date, opening_balance, principal_amount, interest_amount,
-     * emi_amount, closing_balance. All amounts are rounded to 2 decimals; the
-     * last EMI takes the remaining balance as its principal so the schedule
-     * closes at exactly zero. Pure — touches no table. Throws when the terms
-     * cannot amortise (an amount too small for the tenure).
-     */
-    private function _generateSchedule(float $principal, float $annualRate, int $tenure, string $startDate): array
-    {
-        $emi = $this->_calculateEmi($principal, $annualRate, $tenure);
-
-        if ($emi <= 0) {
-            throw new \RuntimeException('The sanctioned amount is too small for this tenure.');
-        }
-
-        $r        = $annualRate / 12 / 100;
-        $opening  = round($principal, 2);
-        $schedule = [];
-
-        for ($n = 1; $n <= $tenure; $n++) {
-            $interest = round($opening * $r, 2);
-
-            if ($n === $tenure) {
-                $principalPart = $opening;
-            } else {
-                $principalPart = round($emi - $interest, 2);
-
-                if ($principalPart <= 0 || $principalPart >= $opening) {
-                    throw new \RuntimeException('The EMI schedule cannot be generated for these terms. Check the amount, interest rate and tenure.');
-                }
-            }
-
-            $closing    = round($opening - $principalPart, 2);
-            $schedule[] = [
-                'emi_no'           => $n,
-                'due_date'         => $this->_dueDate($startDate, $n),
-                'opening_balance'  => $opening,
-                'principal_amount' => $principalPart,
-                'interest_amount'  => $interest,
-                'emi_amount'       => round($principalPart + $interest, 2),
-                'closing_balance'  => $closing,
-            ];
-
-            $opening = $closing;
-        }
-
-        return $schedule;
-    }
-
-    /**
-     * The n-th monthly anniversary of $startDate. Always counted from the
-     * original day (not chained), and clamped to the target month's last day:
-     * 31 Jan + 1 month = 28/29 Feb, + 2 months = 31 Mar.
-     */
-    private function _dueDate(string $startDate, int $months): string
-    {
-        $start = new \DateTimeImmutable($startDate);
-        $first = $start->modify('first day of this month')->modify("+{$months} months");
-        $day   = min((int) $start->format('j'), (int) $first->format('t'));
-
-        return $first->setDate((int) $first->format('Y'), (int) $first->format('n'), $day)->format('Y-m-d');
-    }
-
-    /** Writes a generated schedule as PENDING loan_emis rows. */
-    private function _insertSchedule(int $loanId, array $schedule): void
-    {
-        $rows = [];
-
-        foreach ($schedule as $emi) {
-            $rows[] = [
-                'loan_id'          => $loanId,
-                'emi_no'           => $emi['emi_no'],
-                'due_date'         => $emi['due_date'],
-                'principal_amount' => $emi['principal_amount'],
-                'interest_amount'  => $emi['interest_amount'],
-                'emi_amount'       => $emi['emi_amount'],
-                'paid_amount'      => 0,
-                'balance_amount'   => $emi['emi_amount'],
-                'payment_status'   => 'PENDING',
-                'paid_date'        => null,
-            ];
-        }
-
-        $emiModel = new LoanEmiModel();
-
-        if ($emiModel->insertBatch($rows) !== count($rows)) {
-            throw new \RuntimeException('The EMI schedule could not be saved: ' . (implode(' ', $emiModel->errors()) ?: 'database error') . '.');
-        }
     }
 
     // =========================================================
@@ -1058,28 +1343,23 @@ class Loans extends Controller
     // =========================================================
 
     /**
-     * Brings a loan header in line with what has been paid: outstanding
-     * principal = sanctioned - principal paid (never below zero), and status
-     * ACTIVE until that reaches zero, then CLOSED. With $fromPayments the paid
-     * totals are first re-summed from loan_payments (the source of truth),
-     * which also repairs any drift. Returns the new outstanding and status.
+     * Brings a loan header in line with its payments (loan_payments is the
+     * source of truth). Release 4.9.0BA: outstanding = sanctioned - SUM(total_paid)
+     * (never below zero) and status is ACTIVE until that reaches zero, then
+     * CLOSED. The legacy total_principal_paid / total_interest_paid columns keep
+     * the sums of the legacy split columns (0 for manual payments); nothing reads
+     * them for the outstanding figure. Returns the new outstanding and status.
      */
-    private function _recalculateLoan(int $loanId, bool $fromPayments = false): array
+    private function _recalculateLoan(int $loanId, bool $fromPayments = true): array
     {
         $db = \Config\Database::connect();
 
-        if ($fromPayments) {
-            $sums = $db->query(
-                'SELECT COALESCE(SUM(principal_paid), 0) AS principal, COALESCE(SUM(interest_paid), 0) AS interest
-                 FROM loan_payments WHERE loan_id = ?',
-                [$loanId]
-            )->getRowArray();
-
-            $db->table('loans')->where('id', $loanId)->update([
-                'total_principal_paid' => round((float) $sums['principal'], 2),
-                'total_interest_paid'  => round((float) $sums['interest'], 2),
-            ]);
-        }
+        $sums = $db->query(
+            'SELECT COALESCE(SUM(principal_paid), 0) AS principal, COALESCE(SUM(interest_paid), 0) AS interest,
+                    COALESCE(SUM(total_paid), 0) AS paid
+             FROM loan_payments WHERE loan_id = ?',
+            [$loanId]
+        )->getRowArray();
 
         $loan = $db->table('loans')->where('id', $loanId)->get()->getRowArray();
 
@@ -1087,13 +1367,15 @@ class Loans extends Controller
             throw new \RuntimeException("Loan #{$loanId} was not found while recalculating it.");
         }
 
-        $outstanding = round((float) $loan['sanctioned_amount'] - (float) $loan['total_principal_paid'], 2);
+        $outstanding = round((float) $loan['sanctioned_amount'] - (float) $sums['paid'], 2);
         if ($outstanding <= 0.004) {
             $outstanding = 0.00;
         }
         $status = $outstanding > 0 ? 'ACTIVE' : 'CLOSED';
 
         $db->table('loans')->where('id', $loanId)->update([
+            'total_principal_paid'  => round((float) $sums['principal'], 2),
+            'total_interest_paid'   => round((float) $sums['interest'], 2),
             'outstanding_principal' => $outstanding,
             'status'                => $status,
             'updated_at'            => date('Y-m-d H:i:s'),
@@ -1103,132 +1385,28 @@ class Loans extends Controller
     }
 
     /**
-     * Adds one payment to a loan: principal and interest paid go up, and — when
-     * the payment settles an instalment ($emiId) — that instalment's paid and
-     * balance amounts and status follow. Then the header is recalculated, which
-     * closes the loan once no principal is outstanding. Row-locks the loan, so
-     * it must run inside the caller's DB transaction. Throws if the payment
-     * would pay more principal than is outstanding or more than an instalment
-     * still owes, or if the loan is closed (unless $allowClosed, which an edit of
-     * an existing payment uses — it has just taken the old payment back); a payment outside the schedule passes $emiId = null.
-     * Returns the loan's new outstanding and status.
+     * Guards one payment amount against the locked loan: the loan must be open
+     * (unless $allowClosed, used by an edit) and the amount must not exceed what
+     * is still outstanding, not counting payment $excludePaymentId (the one being
+     * edited). Row-locks the loan, so it must run inside the caller's transaction.
      */
-    private function _applyPayment(int $loanId, ?int $emiId, float $principal, float $interest, string $paymentDate, bool $allowClosed = false): array
+    private function _assertPaymentFits(int $loanId, float $amount, ?int $excludePaymentId, bool $allowClosed): void
     {
-        $principal = round($principal, 2);
-        $interest  = round($interest, 2);
-        $total     = round($principal + $interest, 2);
-
-        if ($principal < 0 || $interest < 0 || $total <= 0) {
-            throw new \RuntimeException('A loan payment must have a positive amount.', self::RULE_CODE);
-        }
-
-        $info = (new LoanModel())->outstanding($loanId, true);
+        $amount = round($amount, 2);
+        $info   = (new LoanModel())->outstanding($loanId, true, $excludePaymentId);
 
         if ($info === null) {
             throw new \RuntimeException("Loan #{$loanId} was not found while applying a payment.");
         }
+        if ($amount <= 0) {
+            throw new \RuntimeException('A loan payment must have a positive amount.', self::RULE_CODE);
+        }
         if ($info['status'] === 'CLOSED' && ! $allowClosed) {
             throw new \RuntimeException("Loan {$info['loan_no']} is closed, so no further payments can be recorded.", self::RULE_CODE);
         }
-        if ($principal > $info['outstanding_principal'] + 0.004) {
-            throw new \RuntimeException('Principal paid exceeds the outstanding principal of ' . number_format($info['outstanding_principal'], 2) . '.', self::RULE_CODE);
+        if ($amount > $info['outstanding_principal'] + 0.004) {
+            throw new \RuntimeException('Payment amount exceeds the outstanding amount of ' . number_format($info['outstanding_principal'], 2) . '.', self::RULE_CODE);
         }
-
-        $db = \Config\Database::connect();
-
-        if ($emiId !== null) {
-            $emi = $this->_lockEmi($loanId, $emiId);
-
-            if ($emi['payment_status'] === 'PAID' || (float) $emi['balance_amount'] <= 0.004) {
-                throw new \RuntimeException("EMI #{$emi['emi_no']} is already fully paid.", self::RULE_CODE);
-            }
-            if ($total > (float) $emi['balance_amount'] + 0.004) {
-                throw new \RuntimeException("Payment exceeds the balance of EMI #{$emi['emi_no']} (" . number_format((float) $emi['balance_amount'], 2) . ').', self::RULE_CODE);
-            }
-
-            $this->_writeEmiPaid($emi, round((float) $emi['paid_amount'] + $total, 2), $paymentDate);
-        }
-
-        $db->table('loans')->where('id', $loanId)
-            ->set('total_principal_paid', 'ROUND(total_principal_paid + ' . number_format($principal, 2, '.', '') . ', 2)', false)
-            ->set('total_interest_paid', 'ROUND(total_interest_paid + ' . number_format($interest, 2, '.', '') . ', 2)', false)
-            ->update();
-
-        return $this->_recalculateLoan($loanId);
-    }
-
-    /**
-     * Takes one payment back off a loan (used when a payment is edited or
-     * deleted): the exact reverse of _applyPayment(). Paid totals are floored at
-     * zero, the instalment goes back to PENDING/PARTIAL, and a loan that had
-     * closed reopens as ACTIVE because its outstanding principal is positive
-     * again. Same transaction rules as _applyPayment().
-     */
-    private function _restorePayment(int $loanId, ?int $emiId, float $principal, float $interest): array
-    {
-        $principal = round($principal, 2);
-        $interest  = round($interest, 2);
-        $total     = round($principal + $interest, 2);
-
-        $db = \Config\Database::connect();
-
-        if ((new LoanModel())->outstanding($loanId, true) === null) {
-            throw new \RuntimeException("Loan #{$loanId} was not found while restoring a payment.");
-        }
-
-        if ($emiId !== null) {
-            $emi = $this->_lockEmi($loanId, $emiId);
-
-            $this->_writeEmiPaid($emi, max(0.0, round((float) $emi['paid_amount'] - $total, 2)), null);
-        }
-
-        $db->table('loans')->where('id', $loanId)
-            ->set('total_principal_paid', 'GREATEST(0, ROUND(total_principal_paid - ' . number_format($principal, 2, '.', '') . ', 2))', false)
-            ->set('total_interest_paid', 'GREATEST(0, ROUND(total_interest_paid - ' . number_format($interest, 2, '.', '') . ', 2))', false)
-            ->update();
-
-        return $this->_recalculateLoan($loanId);
-    }
-
-    /** One instalment of one loan, row-locked. Throws if it is not that loan's. */
-    private function _lockEmi(int $loanId, int $emiId): array
-    {
-        $emi = \Config\Database::connect()
-            ->query('SELECT * FROM loan_emis WHERE id = ? AND loan_id = ? FOR UPDATE', [$emiId, $loanId])
-            ->getRowArray();
-
-        if (! $emi) {
-            throw new \RuntimeException("EMI #{$emiId} does not belong to loan #{$loanId}.", self::RULE_CODE);
-        }
-
-        return $emi;
-    }
-
-    /**
-     * Single write path for an instalment's money fields: given its new paid
-     * amount, stores paid_amount, balance_amount, payment_status and paid_date
-     * together. paid_date is $paidDate once the instalment is fully paid and
-     * NULL otherwise.
-     */
-    private function _writeEmiPaid(array $emi, float $paid, ?string $paidDate): void
-    {
-        $balance = max(0.0, round((float) $emi['emi_amount'] - $paid, 2));
-
-        if ($balance <= 0.004) {
-            $status  = 'PAID';
-            $balance = 0.00;
-        } else {
-            $status = $paid > 0.004 ? 'PARTIAL' : 'PENDING';
-        }
-
-        \Config\Database::connect()->table('loan_emis')->where('id', $emi['id'])->update([
-            'paid_amount'    => $paid,
-            'balance_amount' => $balance,
-            'payment_status' => $status,
-            'paid_date'      => $status === 'PAID' ? ($paidDate ?? $emi['paid_date']) : null,
-            'updated_at'     => date('Y-m-d H:i:s'),
-        ]);
     }
 
     /** True when any payment has been recorded (or applied) against the loan. */
@@ -1245,15 +1423,6 @@ class Loans extends Controller
         return $loan && ((float) $loan['total_principal_paid'] > 0 || (float) $loan['total_interest_paid'] > 0);
     }
 
-    /** True when any term that drives the EMI schedule differs from the stored loan. */
-    private function _termsChanged(array $loan, array $header): bool
-    {
-        return $this->_cents((float) $loan['sanctioned_amount']) !== $this->_cents((float) $header['sanctioned_amount'])
-            || abs((float) $loan['interest_rate'] - (float) $header['interest_rate']) > 0.0005
-            || (int) $loan['tenure_months'] !== (int) $header['tenure_months']
-            || $loan['start_date'] !== $header['start_date'];
-    }
-
     // =========================================================
     // BANK POSTING (used by storePayment / updatePayment / deletePayment)
     // =========================================================
@@ -1266,7 +1435,7 @@ class Loans extends Controller
      */
     private function _bankWithdrawalData(array $loan, array $payment): ?array
     {
-        if (! in_array(strtoupper((string) ($payment['payment_method'] ?? '')), self::BANK_METHODS, true)) {
+        if (! BankTransactionModel::isBankMethod($payment['payment_method'] ?? null)) {
             return null;
         }
         if (round((float) $payment['total_paid'], 2) <= 0) {
@@ -1281,7 +1450,7 @@ class Loans extends Controller
             'reference_type'   => self::REFERENCE_TYPE,
             'reference_id'     => (int) $payment['id'],
             'reference_no'     => ($payment['reference_no'] ?? '') !== '' ? $payment['reference_no'] : $loan['loan_no'],
-            'remarks'          => 'Loan EMI Payment – ' . $loan['lender_name'],
+            'remarks'          => 'Loan Payment – ' . $loan['lender_name'],
             'created_by'       => session()->get('user_id'),
         ];
     }
@@ -1320,14 +1489,11 @@ class Loans extends Controller
             'loan_no'           => trim((string) $this->request->getPost('loan_no')),
             'lender_name'       => trim((string) $this->request->getPost('lender_name')),
             'loan_type'         => $type,
-            'bank_account_id'   => (int) $this->request->getPost('bank_account_id'),
             'account_number'    => trim((string) $this->request->getPost('account_number')),
             'sanctioned_amount' => $this->_amount($this->request->getPost('sanctioned_amount')),
             'interest_rate'     => $this->_amount($this->request->getPost('interest_rate')),
             'tenure_months'     => $tenure === '' ? 0 : (ctype_digit($tenure) ? (int) $tenure : null),
-            'emi_amount'        => $this->_amount($this->request->getPost('emi_amount')),
             'start_date'        => trim((string) $this->request->getPost('start_date')),
-            'end_date'          => trim((string) $this->request->getPost('end_date')),
             'remarks'           => trim((string) $this->request->getPost('remarks')),
         ];
     }
@@ -1385,11 +1551,10 @@ class Loans extends Controller
             $errors[] = 'Interest rate cannot have more than three decimal places.';
         }
 
+        // Release 4.9.0AY: rate and tenure are optional (blank = 0 = not given).
         $tenure = $input['tenure_months'];
         if ($tenure === null) {
             $errors[] = 'Tenure must be a whole number of months.';
-        } elseif ($tenure <= 0) {
-            $errors[] = 'Tenure must be greater than zero.';
         } elseif ($tenure > self::MAX_TENURE) {
             $errors[] = 'Tenure cannot be more than ' . self::MAX_TENURE . ' months.';
         }
@@ -1431,8 +1596,13 @@ class Loans extends Controller
             $errors[] = 'Lender name cannot be longer than 150 characters.';
         }
 
-        if (! in_array($input['loan_type'], self::LOAN_TYPES, true)) {
-            $errors[] = 'Loan type must be one of: ' . implode(', ', self::LOAN_TYPES) . '.';
+        // Active master types; an edit may also keep the loan's current type even if it was since deactivated.
+        $allowedTypes = LoanTypeModel::activeLabels();
+        if ($existing && isset($existing['loan_type'])) {
+            $allowedTypes += array_intersect_key(LoanTypeModel::labels(), [$existing['loan_type'] => true]);
+        }
+        if (! isset($allowedTypes[$input['loan_type']])) {
+            $errors[] = 'Loan type must be one of: ' . implode(', ', $allowedTypes) . '.';
         }
 
         if (mb_strlen($input['account_number']) > 50) {
@@ -1441,48 +1611,15 @@ class Loans extends Controller
 
         $errors = array_merge($errors, $this->_validateTerms($input));
 
-        if ($input['end_date'] !== '') {
-            if (! $this->_isValidDate($input['end_date'])) {
-                $errors[] = 'End date is not a valid date.';
-            } elseif ($this->_isValidDate($input['start_date']) && $input['end_date'] < $input['start_date']) {
-                $errors[] = 'End date cannot be before the start date.';
-            }
-        }
-
-        // Bank account: required for BANK/OD, optional otherwise, but always
-        // a real one. An account already on this loan may have been made
-        // inactive since — keeping it on an edit is not an error.
-        $bankId = $input['bank_account_id'];
-
-        if ($bankId <= 0) {
-            if (in_array($input['loan_type'], self::BANK_REQUIRED, true)) {
-                $errors[] = 'A bank account is required for Bank and Overdraft loans.';
-            }
-        } else {
-            $account = (new BankAccountModel())->find($bankId);
-
-            if (! $account) {
-                $errors[] = 'The selected bank account was not found.';
-            } elseif ((int) $account['is_active'] !== 1 && (int) ($existing['bank_account_id'] ?? 0) !== $bankId) {
-                $errors[] = 'The selected bank account is inactive.';
-            }
-        }
-
-        // EMI amount: blank means "calculate it"; a typed one must be positive
-        // (the calculated-EMI comparison happens once the schedule exists).
-        if ($input['emi_amount'] === null) {
-            $errors[] = 'EMI amount must be a valid number.';
-        } elseif ($input['emi_amount'] < 0) {
-            $errors[] = 'EMI amount must be greater than zero.';
-        }
-
         return $errors;
     }
 
     /**
-     * Validates, then builds everything store()/update() write: the header
-     * columns (minus loan_no and the running figures), the EMI schedule and
-     * the calculated EMI. Returns ['errors' => [...]] or the full set.
+     * Release 4.9.0AY: validates, then builds the loan header columns (minus
+     * loan_no and the running figures). No schedule, no EMI amount and no
+     * bank account: the loan master is informational and the bank account
+     * belongs to each payment / receipt. On update the legacy bank_account_id,
+     * emi_amount and end_date columns are simply not written.
      */
     private function _prepare(array $input, ?array $existing): array
     {
@@ -1492,60 +1629,51 @@ class Loans extends Controller
             return ['errors' => $errors];
         }
 
-        try {
-            $schedule = $this->_generateSchedule($input['sanctioned_amount'], $input['interest_rate'], $input['tenure_months'], $input['start_date']);
-        } catch (\RuntimeException $e) {
-            return ['errors' => [$e->getMessage()]];
-        }
-
-        $emi = $this->_calculateEmi($input['sanctioned_amount'], $input['interest_rate'], $input['tenure_months']);
-
-        if ($input['emi_amount'] > 0 && abs($input['emi_amount'] - $emi) > self::EMI_TOLERANCE) {
-            return ['errors' => ['EMI amount ' . number_format($input['emi_amount'], 2) . ' does not match the ' . number_format($emi, 2)
-                . ' that these terms work out to. Leave it blank to use the calculated amount.']];
-        }
-
-        return [
-            'errors'   => [],
-            'schedule' => $schedule,
-            'header'   => [
-                'lender_name'       => $input['lender_name'],
-                'loan_type'         => $input['loan_type'],
-                'bank_account_id'   => $input['bank_account_id'] > 0 ? $input['bank_account_id'] : null,
-                'account_number'    => $input['account_number'] !== '' ? $input['account_number'] : null,
-                'sanctioned_amount' => $input['sanctioned_amount'],
-                'interest_rate'     => $input['interest_rate'],
-                'tenure_months'     => $input['tenure_months'],
-                'emi_amount'        => $emi,
-                'start_date'        => $input['start_date'],
-                'end_date'          => $input['end_date'] !== '' ? $input['end_date'] : end($schedule)['due_date'],
-                'remarks'           => $input['remarks'] !== '' ? $input['remarks'] : null,
-            ],
+        $header = [
+            'lender_name'       => $input['lender_name'],
+            'loan_type'         => $input['loan_type'],
+            'account_number'    => $input['account_number'] !== '' ? $input['account_number'] : null,
+            'sanctioned_amount' => $input['sanctioned_amount'],
+            'interest_rate'     => $input['interest_rate'],
+            'tenure_months'     => $input['tenure_months'],
+            'start_date'        => $input['start_date'],
+            'remarks'           => $input['remarks'] !== '' ? $input['remarks'] : null,
         ];
+
+        if (! $existing) {
+            $header['emi_amount'] = 0;
+        }
+
+        return ['errors' => [], 'header' => $header];
     }
 
     // =========================================================
     // READ HELPERS
     // =========================================================
 
-    /** One loan with its bank account, outstanding snapshot, schedule and payment history. */
+    /** One loan with its bank account, outstanding snapshot, schedule, payment and receipt history. */
     private function _loadLoan(int $id): ?array
     {
         $loanModel = new LoanModel();
-        $loan      = $loanModel->find($id);
+        $loan      = $loanModel->findWithTotals($id);
 
         if (! $loan) {
             return null;
         }
 
+        $receiptModel  = new LoanReceiptModel();
+        $totalReceived = $receiptModel->totalReceived($id);
+
         return [
-            'loan'              => $loan,
-            'bank_account'      => $loan['bank_account_id'] ? (new BankAccountModel())->find((int) $loan['bank_account_id']) : null,
-            'outstanding'       => $loanModel->outstanding($id),
-            'emis'              => (new LoanEmiModel())->emiList($id),
-            'upcoming_emis'     => (new LoanEmiModel())->upcomingEmis(30, $id),
-            'payments'          => (new LoanPaymentModel())->forLoan($id),
-            'schedule_editable' => ! $this->_hasPayments($id),
+            'loan'                 => $loan,
+            'bank_account'         => $loan['bank_account_id'] ? (new BankAccountModel())->find((int) $loan['bank_account_id']) : null,
+            'outstanding'          => $loanModel->outstanding($id),
+            'payments'             => (new LoanPaymentModel())->forLoan($id),
+            'schedule_editable'    => ! $this->_hasPayments($id),
+            'receipts'             => $receiptModel->forLoan($id),
+            'total_received'       => $totalReceived,
+            'remaining_to_receive' => round((float) $loan['sanctioned_amount'] - $totalReceived, 2),
+            'receipt_available'    => ! in_array($loan['loan_type'], self::RECEIPT_EXCLUDED_TYPES, true),
         ];
     }
 

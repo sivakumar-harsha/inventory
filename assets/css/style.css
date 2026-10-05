@@ -181,7 +181,7 @@ body {
    4. PAGE CONTENT
    ============================================= */
 .page-content {
-    padding: 24px;
+    padding: 10px 24px 24px; /* Release 4.9.0DG: compact gap under the top header (was 24px) */
     flex: 1;
 }
 
@@ -237,7 +237,7 @@ body {
     text-align: left;
     font-weight: 600;
     font-size: 0.75rem;
-    text-transform: uppercase;
+    text-transform: none;
     letter-spacing: 0.04em;
     color: var(--text-muted);
     border-bottom: 1px solid var(--border-color);
@@ -265,7 +265,14 @@ body {
     padding: 8px 12px;
     vertical-align: middle;
     color: var(--text-dark);
+    overflow-wrap: break-word;   /* Release 4.9.0EE: a long name/remark wraps inside its cell instead of widening the table */
 }
+
+/* Release 4.9.0EE: column headings may wrap onto a second line so a long heading does not set the column
+   width and push the table into a horizontal scrollbar. Columns that must stay on one line (S.No., actions,
+   badges) keep their own nowrap rules. */
+.table-custom thead th { white-space: normal; vertical-align: middle; }
+.table-custom thead th.sno-col { white-space: nowrap; }
 
 /* =============================================
    7. FORMS (.form-control, .form-label, .form-section)
@@ -395,6 +402,29 @@ textarea.form-control {
     color: var(--white);
 }
 
+/* Record/table action buttons (4.9.0DP): one size for every icon-only row action.
+   Colours/icons still come from .btn-view/.btn-edit/.btn-delete/.btn-pay/.btn-save above. */
+/* font-size 0 drops the inline whitespace between buttons so the gap is exactly the margin below; !important because several pages size their cells with #id selectors */
+td:has(> .table-action-btn) { font-size: 0 !important; white-space: nowrap; }
+.table-action-btn {
+    box-sizing: border-box;
+    width: 30px;
+    min-width: 30px;
+    height: 26px;
+    min-height: 26px;
+    padding: 0;
+    gap: 0;
+    justify-content: center;
+    align-items: center;
+    vertical-align: middle;
+    line-height: 1;
+}
+td:has(> .table-action-btn) > :is(a, button) { vertical-align: middle; }   /* a labelled button (Pay) beside icon buttons must share their centre line */
+.table-action-btn + :is(a, button),
+:is(a, button) + .table-action-btn { margin-left: 4px; }
+:is(.d-flex, .d-inline-flex) > .table-action-btn.table-action-btn { margin-left: 0; }   /* wrapper already supplies gap-1 (4px) */
+.table-action-btn > i { font-size: 15px; line-height: 1; margin: 0; }
+
 /* =============================================
    9. BADGES & STATUS
    ============================================= */
@@ -414,6 +444,8 @@ textarea.form-control {
 .badge-active  { background: #dbeafe; color: #1d4ed8; }
 .badge-completed { background: #dcfce7; color: #15803d; }
 .badge-on_hold { background: #f3f4f6; color: #374151; }
+/* Release 4.9.0K: same red as statement.php's .billing-strip-overbilled, for the Billing Status badge. */
+.badge-over-billed { background: #fee2e2; color: #b91c1c; }
 
 .badge-source {
     display: inline-block;
@@ -435,11 +467,11 @@ textarea.form-control {
 .kpi-card {
     background: var(--white);
     border-radius: 8px;
-    padding: 18px;
+    padding: 12px 14px;
     border-left: 4px solid transparent;
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 12px;
     border: 1px solid var(--border-color);
 }
 
@@ -449,7 +481,7 @@ textarea.form-control {
 .kpi-red   { border-left-color: #dc2626; }
 
 .kpi-icon {
-    font-size: 1.75rem;
+    font-size: 1.5rem;
     opacity: 0.7;
 }
 
@@ -666,3 +698,301 @@ textarea.form-control {
     margin-left: 0;
 }
 
+
+/* Release 4.9.0CB: payment-method badge on transaction-history rows (neutral, no per-method colours). */
+.pm-badge { display: inline-block; padding: 1px 8px; border: 1px solid #cbd5e1; border-radius: 10px; background: #f8fafc; color: #334155; font-size: .68rem; font-weight: 600; line-height: 1.5; white-space: nowrap; }
+.pm-none { color: #94a3b8; }
+
+/* ==========================================================================
+   Release 4.9.0CY: Global single-row filter layout.
+   Every filter toolbar is ONE horizontal row; when the controls do not fit,
+   the toolbar scrolls sideways inside itself (the page never grows wider).
+   Shared by Bootstrap-row, grid and flex filter markup, so pages only carry
+   the .fb-one-row class (or one of the legacy toolbar classes listed here).
+   !important is deliberate: several pages declare their own grid/wrap rules
+   in inline <style> blocks and media queries that load after this file.
+   ========================================================================== */
+.fb-one-row,
+.filter-toolbar.row, .filter-toolbar > .row,
+.blg-filters, .cbk-filters, .clg-filters, .elg-filters, .ms-filters, .slg-filters,
+.sp-filters, .sr-filters, .gp-filters, .pb-toolbar, .bt-toolbar-row, .exp-toolbar,
+.exp-toolbar-group, .fb-title-one-row {
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    align-items: flex-end;
+    overflow-x: auto;
+    overflow-y: hidden;
+    max-width: 100%;
+    min-width: 0;
+    -webkit-overflow-scrolling: touch;
+}
+.fb-one-row > *,
+.filter-toolbar.row > *, .filter-toolbar > .row > *,
+.blg-filters > *, .cbk-filters > *, .clg-filters > *, .elg-filters > *, .ms-filters > *, .slg-filters > *,
+.sp-filters > *, .sr-filters > *, .gp-filters > *, .bt-toolbar-row > *,
+.exp-toolbar > *, .exp-toolbar-group > * {
+    flex: 1 0 108px !important;
+    width: auto !important;
+    max-width: none !important;
+    min-width: 108px !important;
+    margin-top: 0;
+}
+.fb-one-row > :has(input[type=date], input[type=month]),
+.filter-toolbar.row > :has(input[type=date], input[type=month]), .filter-toolbar > .row > :has(input[type=date], input[type=month]),
+.blg-filters > :has(input[type=date]), .cbk-filters > :has(input[type=date]), .clg-filters > :has(input[type=date]),
+.elg-filters > :has(input[type=date]), .ms-filters > :has(input[type=month]), .slg-filters > :has(input[type=date]),
+.sp-filters > :has(input[type=date]), .sr-filters > :has(input[type=date]), .gp-filters > :has(input[type=date]),
+.exp-toolbar-group > :has(input[type=date]) {
+    flex: 0 0 128px !important;
+    min-width: 124px !important;
+}
+.fb-one-row > :has(input[type=text], input[type=search], .custom-search-box),
+.filter-toolbar.row > :has(input[type=text], .custom-search-box), .filter-toolbar > .row > :has(input[type=text], .custom-search-box),
+.sp-filters > :has(input[type=text]), .sr-filters > :has(input[type=text]), .gp-filters > :has(input[type=text]) {
+    flex: 1 0 136px !important;
+    min-width: 136px !important;
+}
+/* Reset / Print / Export buttons stay compact and never wrap or grow */
+.fb-one-row > :has(> .btn-cancel, > .btn-save, > button, > a.btn),
+.fb-one-row > .btn-cancel, .fb-one-row > .btn-save, .fb-actions,
+.filter-toolbar.row > :has(> .btn-cancel, > .btn-save, > button), .filter-toolbar > .row > :has(> .btn-cancel, > .btn-save, > button),
+.blg-filters > .btn-cancel, .cbk-filters > .btn-cancel, .clg-filters > .btn-cancel, .elg-filters > .btn-cancel,
+.ms-filters > .btn-cancel, .slg-filters > .btn-cancel, .blg-filters > :has(> .btn-cancel), .cbk-filters > :has(> .btn-cancel),
+.clg-filters > :has(> .btn-cancel), .elg-filters > :has(> .btn-cancel), .ms-filters > :has(> .btn-cancel), .slg-filters > :has(> .btn-cancel),
+.sp-filters > :has(> .btn-cancel), .sr-filters > :has(> .btn-cancel), .gp-filters > :has(> .btn-cancel),
+.exp-toolbar-group > .btn-cancel, .exp-toolbar-group > .btn-save {
+    flex: 0 0 auto !important;
+    min-width: 0 !important;
+    white-space: nowrap;
+}
+/* Release 4.9.0DD: report date/action toolbar. The field is as wide as its 150px date input
+   (layout .rpt-field input), so To no longer runs under Reset; groups and buttons share one bottom line. */
+.exp-toolbar { justify-content: flex-start !important; }
+.exp-toolbar > .exp-toolbar-group { flex: 0 0 auto !important; min-width: 0 !important; overflow: visible; }
+.exp-toolbar-group { gap: 8px; }
+.exp-toolbar > .exp-toolbar-group > .rpt-field { flex: 0 0 150px !important; min-width: 150px !important; margin: 0; }
+.fb-one-row .select2-container, .filter-toolbar .select2-container, .sp-filters .select2-container,
+.sr-filters .select2-container, .gp-filters .select2-container { width: 100% !important; min-width: 0; }
+/* Page-title bars that carry the list filters (Sales / Purchases / Payments) */
+.fb-title-one-row { align-items: center; }
+.fb-title-one-row > * { flex-shrink: 0 !important; }
+@media print { .fb-one-row, .fb-title-one-row { overflow: visible; } }
+.fb-one-row [style*="flex-wrap:wrap"], .filter-toolbar [style*="flex-wrap:wrap"] { flex-wrap: nowrap !important; }
+
+/* ==========================================================================
+   Release 4.9.0DG: global compact data-first page UI (reference: Supplier Payments).
+   - the breadcrumb lives in the top header (layouts/main.php lifts it out of the page);
+   - the page-content top padding above is the compact header-to-title gap;
+   - filter toolbars (the one-row classes of 4.9.0CY) get compact labels and 30px controls;
+   - existing tab strips get compact tabs.
+   ========================================================================== */
+.topbar-title.topbar-crumb { flex: 1 1 auto; min-width: 0; overflow-x: auto; white-space: nowrap; scrollbar-width: none; font-weight: 400; }
+.topbar-title.topbar-crumb::-webkit-scrollbar { display: none; }
+.topbar-breadcrumb nav { margin: 0; padding: 0; }
+.topbar .topbar-breadcrumb .breadcrumb { margin: 0; padding: 0; flex-wrap: nowrap; font-size: .78rem; line-height: 1.2; background: transparent; }
+.topbar-breadcrumb .breadcrumb-item { white-space: nowrap; }
+.topbar-breadcrumb .breadcrumb-item a { color: #2F7E8A; text-decoration: none; }
+.topbar-breadcrumb .breadcrumb-item a:hover { text-decoration: underline; }
+.topbar-breadcrumb .breadcrumb-item.active { color: #64748b; }
+
+.fb-one-row .form-label,
+.filter-toolbar .form-label,
+.blg-filters .form-label,
+.cbk-filters .form-label,
+.clg-filters .form-label,
+.elg-filters .form-label,
+.ms-filters .form-label,
+.slg-filters .form-label,
+.sp-filters .form-label,
+.sr-filters .form-label,
+.gp-filters .form-label,
+.pb-toolbar .form-label,
+.bt-toolbar-row .form-label,
+.exp-toolbar .form-label { font-size: .68rem; line-height: 1.1; margin-bottom: 2px; color: #64748b; }
+.fb-one-row .form-control,
+.filter-toolbar .form-control,
+.blg-filters .form-control,
+.cbk-filters .form-control,
+.clg-filters .form-control,
+.elg-filters .form-control,
+.ms-filters .form-control,
+.slg-filters .form-control,
+.sp-filters .form-control,
+.sr-filters .form-control,
+.gp-filters .form-control,
+.pb-toolbar .form-control,
+.bt-toolbar-row .form-control,
+.exp-toolbar .form-control,
+.fb-one-row .form-select,
+.filter-toolbar .form-select,
+.blg-filters .form-select,
+.cbk-filters .form-select,
+.clg-filters .form-select,
+.elg-filters .form-select,
+.ms-filters .form-select,
+.slg-filters .form-select,
+.sp-filters .form-select,
+.sr-filters .form-select,
+.gp-filters .form-select,
+.pb-toolbar .form-select,
+.bt-toolbar-row .form-select,
+.exp-toolbar .form-select { padding-top: 4px; padding-bottom: 4px; font-size: .82rem; height: 30px; }
+.fb-one-row .select2-container, .filter-toolbar .select2-container, .blg-filters .select2-container, .cbk-filters .select2-container, .clg-filters .select2-container, .elg-filters .select2-container, .ms-filters .select2-container, .slg-filters .select2-container, .sp-filters .select2-container, .sr-filters .select2-container, .gp-filters .select2-container, .pb-toolbar .select2-container, .bt-toolbar-row .select2-container, .exp-toolbar .select2-container { vertical-align: top; }
+.fb-one-row .select2-container .select2-selection--single,
+.filter-toolbar .select2-container .select2-selection--single,
+.blg-filters .select2-container .select2-selection--single,
+.cbk-filters .select2-container .select2-selection--single,
+.clg-filters .select2-container .select2-selection--single,
+.elg-filters .select2-container .select2-selection--single,
+.ms-filters .select2-container .select2-selection--single,
+.slg-filters .select2-container .select2-selection--single,
+.sp-filters .select2-container .select2-selection--single,
+.sr-filters .select2-container .select2-selection--single,
+.gp-filters .select2-container .select2-selection--single,
+.pb-toolbar .select2-container .select2-selection--single,
+.bt-toolbar-row .select2-container .select2-selection--single,
+.exp-toolbar .select2-container .select2-selection--single { height: 30px; }
+.fb-one-row .select2-container--default .select2-selection--single .select2-selection__rendered,
+.filter-toolbar .select2-container--default .select2-selection--single .select2-selection__rendered,
+.blg-filters .select2-container--default .select2-selection--single .select2-selection__rendered,
+.cbk-filters .select2-container--default .select2-selection--single .select2-selection__rendered,
+.clg-filters .select2-container--default .select2-selection--single .select2-selection__rendered,
+.elg-filters .select2-container--default .select2-selection--single .select2-selection__rendered,
+.ms-filters .select2-container--default .select2-selection--single .select2-selection__rendered,
+.slg-filters .select2-container--default .select2-selection--single .select2-selection__rendered,
+.sp-filters .select2-container--default .select2-selection--single .select2-selection__rendered,
+.sr-filters .select2-container--default .select2-selection--single .select2-selection__rendered,
+.gp-filters .select2-container--default .select2-selection--single .select2-selection__rendered,
+.pb-toolbar .select2-container--default .select2-selection--single .select2-selection__rendered,
+.bt-toolbar-row .select2-container--default .select2-selection--single .select2-selection__rendered,
+.exp-toolbar .select2-container--default .select2-selection--single .select2-selection__rendered { line-height: 28px; }
+.fb-one-row .select2-container--default .select2-selection--single .select2-selection__arrow,
+.filter-toolbar .select2-container--default .select2-selection--single .select2-selection__arrow,
+.blg-filters .select2-container--default .select2-selection--single .select2-selection__arrow,
+.cbk-filters .select2-container--default .select2-selection--single .select2-selection__arrow,
+.clg-filters .select2-container--default .select2-selection--single .select2-selection__arrow,
+.elg-filters .select2-container--default .select2-selection--single .select2-selection__arrow,
+.ms-filters .select2-container--default .select2-selection--single .select2-selection__arrow,
+.slg-filters .select2-container--default .select2-selection--single .select2-selection__arrow,
+.sp-filters .select2-container--default .select2-selection--single .select2-selection__arrow,
+.sr-filters .select2-container--default .select2-selection--single .select2-selection__arrow,
+.gp-filters .select2-container--default .select2-selection--single .select2-selection__arrow,
+.pb-toolbar .select2-container--default .select2-selection--single .select2-selection__arrow,
+.bt-toolbar-row .select2-container--default .select2-selection--single .select2-selection__arrow,
+.exp-toolbar .select2-container--default .select2-selection--single .select2-selection__arrow { height: 28px; }
+.fb-one-row input[type=date],
+.fb-one-row input[type=month],
+.fb-one-row input[type=text],
+.fb-one-row input[type=search],
+.fb-one-row select,
+.filter-toolbar input[type=date],
+.filter-toolbar input[type=month],
+.filter-toolbar input[type=text],
+.filter-toolbar input[type=search],
+.filter-toolbar select,
+.blg-filters input[type=date],
+.blg-filters input[type=month],
+.blg-filters input[type=text],
+.blg-filters input[type=search],
+.blg-filters select,
+.cbk-filters input[type=date],
+.cbk-filters input[type=month],
+.cbk-filters input[type=text],
+.cbk-filters input[type=search],
+.cbk-filters select,
+.clg-filters input[type=date],
+.clg-filters input[type=month],
+.clg-filters input[type=text],
+.clg-filters input[type=search],
+.clg-filters select,
+.elg-filters input[type=date],
+.elg-filters input[type=month],
+.elg-filters input[type=text],
+.elg-filters input[type=search],
+.elg-filters select,
+.ms-filters input[type=date],
+.ms-filters input[type=month],
+.ms-filters input[type=text],
+.ms-filters input[type=search],
+.ms-filters select,
+.slg-filters input[type=date],
+.slg-filters input[type=month],
+.slg-filters input[type=text],
+.slg-filters input[type=search],
+.slg-filters select,
+.sp-filters input[type=date],
+.sp-filters input[type=month],
+.sp-filters input[type=text],
+.sp-filters input[type=search],
+.sp-filters select,
+.sr-filters input[type=date],
+.sr-filters input[type=month],
+.sr-filters input[type=text],
+.sr-filters input[type=search],
+.sr-filters select,
+.gp-filters input[type=date],
+.gp-filters input[type=month],
+.gp-filters input[type=text],
+.gp-filters input[type=search],
+.gp-filters select,
+.pb-toolbar input[type=date],
+.pb-toolbar input[type=month],
+.pb-toolbar input[type=text],
+.pb-toolbar input[type=search],
+.pb-toolbar select,
+.bt-toolbar-row input[type=date],
+.bt-toolbar-row input[type=month],
+.bt-toolbar-row input[type=text],
+.bt-toolbar-row input[type=search],
+.bt-toolbar-row select,
+.exp-toolbar input[type=date],
+.exp-toolbar input[type=month],
+.exp-toolbar input[type=text],
+.exp-toolbar input[type=search],
+.exp-toolbar select { box-sizing: border-box; height: 30px; padding-top: 4px; padding-bottom: 4px; }
+/* a card that only holds filters: tight padding and a small gap before the data */
+.card-custom:has(:is(.fb-one-row, .filter-toolbar, .blg-filters, .cbk-filters, .clg-filters, .elg-filters, .ms-filters, .slg-filters, .sp-filters, .sr-filters, .gp-filters, .pb-toolbar, .bt-toolbar-row, .exp-toolbar)):not(:has(table)) { margin-bottom: 8px; }
+.card-custom:has(:is(.fb-one-row, .filter-toolbar, .blg-filters, .cbk-filters, .clg-filters, .elg-filters, .ms-filters, .slg-filters, .sp-filters, .sr-filters, .gp-filters, .pb-toolbar, .bt-toolbar-row, .exp-toolbar)):not(:has(table)) > .card-custom-body { padding: 5px 8px; }
+/* compact Bootstrap tab strips (Sales, Projects) */
+.page-content > .nav-tabs .nav-link { padding: 5px 14px; font-size: .8rem; line-height: 1.4; }
+@media print { .topbar-breadcrumb { display: none; } }
+
+/* ==========================================================================
+   Release 4.9.0DH: desktop/laptop compact standard, polish over 4.9.0DG.
+   View-only: spacing and control heights; no behaviour, data or markup changes.
+   ========================================================================== */
+/* A card that only holds filters: Bootstrap's .mb-3 is !important, so this is the one place an !important is needed. */
+.card-custom.mb-3:has(:is(.fb-one-row, .filter-toolbar, .blg-filters, .cbk-filters, .clg-filters, .elg-filters, .ms-filters, .slg-filters, .sp-filters, .sr-filters, .gp-filters, .pb-toolbar, .bt-toolbar, .exp-toolbar)):not(:has(table)) { margin-bottom: 8px !important; }
+/* Controls that page-local CSS kept at 32/34px: same 30px as every other filter (higher specificity, no !important). */
+.page-content :is(.sr-filters, .bt-toolbar) :is(.form-control, .btn-cancel, .btn-save) { box-sizing: border-box; height: 30px; padding-top: 4px; padding-bottom: 4px; }
+.page-content .bt-toolbar .select2-container--default .select2-selection--single { height: 30px; }
+.page-content .bt-toolbar .select2-container--default .select2-selection--single .select2-selection__rendered { line-height: 28px; }
+.page-content .bt-toolbar .select2-container--default .select2-selection--single .select2-selection__arrow { height: 28px; }
+/* Ledger-style filter bars (their own white box): same tight padding and 30px controls/buttons as the card-based toolbars. */
+.page-content :is(.blg-filters, .cbk-filters, .clg-filters, .elg-filters, .ms-filters, .slg-filters) { padding: 5px 8px; }
+.page-content :is(.blg-filters, .cbk-filters, .clg-filters, .elg-filters, .ms-filters, .slg-filters) :is(.form-control, .btn-cancel, .cbk-acct) { box-sizing: border-box; height: 30px; }
+
+/* ==========================================================================
+   Release 4.9.0DK: normal-case table headers and the display-only S.No. column.
+   Presentation only: the S.No. is never stored; it is numbered by the view (PHP loop) or, for DataTables,
+   by the shared draw handler in layouts/main.php for headers that carry the .sno-col class.
+   ========================================================================== */
+table thead th { text-transform: none; }
+table thead th.sno-col, table tbody td.sno-col, table tfoot td.sno-col {
+    box-sizing: border-box; width: 56px !important; min-width: 48px; max-width: 56px; padding-left: 6px !important; padding-right: 6px !important; text-align: center !important; white-space: nowrap;
+}
+table thead th.sno-col::before, table thead th.sno-col::after { display: none !important; }
+/* Static (non-DataTables) tables: the S.No. is a CSS counter on the opted-in cell. Rows hidden by a client-side
+   filter (display:none) are not counted, and rows without the cell (empty-state, opening/closing, totals) get no number. */
+table { counter-reset: sno; }
+table td.sno-auto { counter-increment: sno; }
+table td.sno-auto::before { content: counter(sno); }
+/* Card layouts (a table that turns into one block per row below a breakpoint): the number is dropped there, the
+   cards are already separate blocks. Breakpoints match each page's own card media query. */
+@media (max-width: 991.98px) {
+    #spTable tbody tr td.sno-col, #pendingTable tbody tr td.sno-col, #gpTable tbody tr td.sno-col { display: none !important; }
+}
+@media (max-width: 767.98px) {
+    .blg-table tbody tr td.sno-col, .cbk-table tbody tr td.sno-col, .clg-table tbody tr td.sno-col,
+    .slg-table tbody tr td.sno-col, .elg-table tbody tr td.sno-col { display: none !important; }
+}

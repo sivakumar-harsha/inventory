@@ -4,6 +4,8 @@ namespace App\Controllers;
 
 use App\Libraries\ExcelReport;
 use App\Libraries\PdfReport;
+use App\Models\LoanModel;
+use App\Models\LoanTypeModel;
 use CodeIgniter\Controller;
 
 /**
@@ -19,16 +21,14 @@ use CodeIgniter\Controller;
  * quoted) after its LIKE wildcards (% and _) are escaped, so it always matches literally.
  *
  * Figures come straight from what the engine maintains, never recomputed:
- *  - outstanding      = loans.outstanding_principal
+ *  - total paid       = SUM(loan_payments.total_paid)   (Release 4.9.0BA: the manual Payment Amount)
+ *  - outstanding      = sanctioned_amount - total paid  (derived from loan_payments, never below zero)
  *  - EMI balance      = loan_emis.balance_amount (unpaid EMIs are PENDING/PARTIAL)
- *  - payment split    = loan_payments.principal_paid / interest_paid / total_paid
- *  - lender totals    = SUM(sanctioned_amount / total_principal_paid /
- *                       total_interest_paid / outstanding_principal)
+ *  - lender totals    = SUM(sanctioned_amount / total paid / outstanding)
  * Dashboard::_loanSummary() uses the same definitions, unfiltered.
  */
 class LoanReports extends Controller
 {
-    private const LOAN_TYPES      = ['BANK', 'PERSONAL', 'VEHICLE', 'OD', 'OTHER'];
     private const STATUSES        = ['ACTIVE', 'CLOSED'];
     private const PAYMENT_METHODS = ['CASH', 'BANK', 'CHEQUE', 'UPI', 'OTHER'];
 
@@ -52,7 +52,7 @@ class LoanReports extends Controller
             'f'                    => $f,
             'rows'                 => $rows,
             'lenders'              => $lenders,
-            'loanTypes'            => self::LOAN_TYPES,
+            'loanTypes'            => LoanTypeModel::codes(),
             'statuses'             => self::STATUSES,
             'warning'              => $this->_warning($f),
             'kpi_total_loans'      => count($rows),
@@ -85,7 +85,7 @@ class LoanReports extends Controller
             'f'                  => $f,
             'rows'               => $rows,
             'lenders'            => $lenders,
-            'loanTypes'          => self::LOAN_TYPES,
+            'loanTypes'          => LoanTypeModel::codes(),
             'warning'            => $this->_warning($f),
             'kpi_due_month'      => $this->_sum($month, 'balance_amount'),
             'kpi_due_month_count' => count($month),
@@ -119,8 +119,6 @@ class LoanReports extends Controller
             'paymentMethods'     => self::PAYMENT_METHODS,
             'warning'            => $this->_warning($f),
             'kpi_total_payments' => count($rows),
-            'kpi_principal'      => $this->_sum($rows, 'principal_paid'),
-            'kpi_interest'       => $this->_sum($rows, 'interest_paid'),
             'kpi_collection'     => $this->_sum($rows, 'total_paid'),
         ]);
     }
@@ -135,9 +133,6 @@ class LoanReports extends Controller
         $lenders = $this->_lenders();
         $f       = $this->_outstandingFilters($lenders);
 
-        // Next EMI = the earliest unpaid instalment, and only while the loan is
-        // still ACTIVE (a loan closed by prepayment can keep PENDING rows that
-        // are no longer payable).
         $rows = $this->_outstandingRows($f);
 
         $active      = array_filter($rows, static fn ($r) => $r['status'] === 'ACTIVE');
@@ -148,7 +143,7 @@ class LoanReports extends Controller
             'f'                    => $f,
             'rows'                 => $rows,
             'lenders'              => $lenders,
-            'loanTypes'            => self::LOAN_TYPES,
+            'loanTypes'            => LoanTypeModel::codes(),
             'warning'              => null,
             'kpi_outstanding'      => $outstanding,
             'kpi_active_loans'     => count($active),
@@ -180,7 +175,7 @@ class LoanReports extends Controller
             'kpi_total_lenders'   => count($rows),
             'kpi_borrowed'        => $this->_sum($rows, 'borrowed'),
             'kpi_outstanding'     => $this->_sum($rows, 'outstanding'),
-            'kpi_interest_paid'   => $this->_sum($rows, 'interest_paid'),
+            'kpi_total_paid'      => $this->_sum($rows, 'total_paid'),
         ]);
     }
 
@@ -242,7 +237,7 @@ class LoanReports extends Controller
             'kpi_overdue_count'   => count($overdue),
             'kpi_overdue_amount'  => $this->_sum($overdue, 'balance_amount'),
         ], [
-            'title'       => 'EMI Due Report',
+            'title'       => 'EMI Due Report (Schedule Reference)',
             'orientation' => 'landscape',
             'filters'     => [
                 'Lender'    => $f['lender'],
@@ -270,8 +265,6 @@ class LoanReports extends Controller
         (new PdfReport())->render('pdf/loan_payments', [
             'rows'               => $rows,
             'kpi_total_payments' => count($rows),
-            'kpi_principal'      => $this->_sum($rows, 'principal_paid'),
-            'kpi_interest'       => $this->_sum($rows, 'interest_paid'),
             'kpi_collection'     => $this->_sum($rows, 'total_paid'),
         ], [
             'title'       => 'Loan Payment Register',
@@ -335,7 +328,7 @@ class LoanReports extends Controller
             'kpi_total_lenders' => count($rows),
             'kpi_borrowed'      => $this->_sum($rows, 'borrowed'),
             'kpi_outstanding'   => $this->_sum($rows, 'outstanding'),
-            'kpi_interest_paid' => $this->_sum($rows, 'interest_paid'),
+            'kpi_total_paid'    => $this->_sum($rows, 'total_paid'),
         ], [
             'title'       => 'Lender Summary',
             'orientation' => 'landscape',
@@ -408,7 +401,7 @@ class LoanReports extends Controller
         }
 
         (new ExcelReport())->table(
-            'EMI Due Report',
+            'EMI Due Report (Schedule Reference)',
             [
                 'Lender'    => $f['lender'],
                 'Loan Type' => $f['loan_type'],
@@ -440,9 +433,9 @@ class LoanReports extends Controller
         $excelRows = [];
         foreach ($rows as $r) {
             $excelRows[] = [
-                $r['payment_date'], $r['loan_no'], $r['lender_name'], $r['emi_no'] ?? '',
-                $r['payment_method'], $r['bank'] ?? '', $r['reference_no'] ?? '',
-                (float) $r['principal_paid'], (float) $r['interest_paid'], (float) $r['total_paid'],
+                $r['payment_date'], $r['loan_no'], $r['lender_name'],
+                pm_label($r['payment_method'], 'Not recorded'), $r['bank'] ?? '', $r['reference_no'] ?? '', $r['remarks'] ?? '',
+                (float) $r['total_paid'],
             ];
         }
 
@@ -455,10 +448,10 @@ class LoanReports extends Controller
                 'Payment Method' => $f['payment_method'],
                 'Search'         => $f['search'],
             ],
-            ['Date', 'Loan No', 'Lender', 'EMI #', 'Payment Method', 'Bank', 'Reference No', 'Principal Paid', 'Interest Paid', 'Total Paid'],
+            ['Payment Date', 'Loan No', 'Lender', 'Payment Method', 'Bank Account', 'Reference No', 'Remarks', 'Payment Amount'],
             $excelRows,
-            ['date', 'text', 'text', 'text', 'text', 'text', 'text', 'currency', 'currency', 'currency'],
-            [7, 8, 9],
+            ['date', 'text', 'text', 'text', 'text', 'text', 'text', 'currency'],
+            [7],
             'landscape'
         )->stream('loan_payments_' . date('Ymd_His'));
     }
@@ -476,8 +469,7 @@ class LoanReports extends Controller
         $excelRows = [];
         foreach ($rows as $r) {
             $excelRows[] = [
-                $r['loan_no'], $r['lender_name'], $r['loan_type'], (float) $r['outstanding_principal'],
-                $r['next_emi_date'] ?? '', $r['next_emi_amount'] !== null ? (float) $r['next_emi_amount'] : null, $r['status'],
+                $r['loan_no'], $r['lender_name'], $r['loan_type'], (float) $r['outstanding_principal'], $r['status'],
             ];
         }
 
@@ -490,10 +482,10 @@ class LoanReports extends Controller
                 'Max Amount' => $f['max_amount'] !== null ? pdf_currency($f['max_amount']) : '',
                 'Search'     => $f['search'],
             ],
-            ['Loan No', 'Lender', 'Loan Type', 'Outstanding Principal', 'Next EMI Date', 'Next EMI Amount', 'Status'],
+            ['Loan No', 'Lender', 'Loan Type', 'Outstanding Amount', 'Status'],
             $excelRows,
-            ['text', 'text', 'text', 'currency', 'date', 'currency', 'text'],
-            [3, 5],
+            ['text', 'text', 'text', 'currency', 'text'],
+            [3],
             'landscape'
         )->stream('loan_outstanding_' . date('Ymd_His'));
     }
@@ -515,7 +507,7 @@ class LoanReports extends Controller
         foreach ($rows as $r) {
             $excelRows[] = [
                 $r['lender_name'], (int) $r['loan_count'], (float) $r['borrowed'],
-                (float) $r['principal_paid'], (float) $r['interest_paid'], (float) $r['outstanding'],
+                (float) $r['total_paid'], (float) $r['outstanding'],
                 (int) $r['active_loans'], (int) $r['closed_loans'],
             ];
         }
@@ -526,10 +518,10 @@ class LoanReports extends Controller
                 'Search'      => $f['search'],
                 'Active Only' => $f['active_only'] ? 'Yes' : '',
             ],
-            ['Lender', 'Loan Count', 'Borrowed', 'Principal Paid', 'Interest Paid', 'Outstanding', 'Active Loans', 'Closed Loans'],
+            ['Lender', 'Loan Count', 'Sanctioned Amount', 'Total Paid', 'Outstanding Amount', 'Active Loans', 'Closed Loans'],
             $excelRows,
-            ['text', 'int', 'currency', 'currency', 'currency', 'currency', 'int', 'int'],
-            [2, 3, 4, 5],
+            ['text', 'int', 'currency', 'currency', 'currency', 'int', 'int'],
+            [2, 3, 4],
             'landscape'
         )->stream('loan_lender_summary_' . date('Ymd_His'));
     }
@@ -546,7 +538,8 @@ class LoanReports extends Controller
             return [];
         }
 
-        $b = \Config\Database::connect()->table('loans l')->select('l.*');
+        $b = \Config\Database::connect()->table('loans l')
+            ->select('l.*, ' . LoanModel::paidSql('l') . ' AS total_paid, ' . LoanModel::outstandingSql('l') . ' AS outstanding_principal', false);
 
         if ($f['lender'] !== '') {
             $b->where('l.lender_name', $f['lender']);
@@ -627,8 +620,8 @@ class LoanReports extends Controller
         }
 
         $b = \Config\Database::connect()->table('loan_payments lp')
-            ->select("lp.id, lp.payment_date, lp.loan_emi_id, lp.payment_method, lp.reference_no,
-                      lp.principal_paid, lp.interest_paid, lp.total_paid,
+            ->select("lp.id, lp.payment_date, lp.loan_emi_id, lp.payment_method, lp.reference_no, lp.remarks,
+                      lp.total_paid,
                       l.id AS loan_id, l.loan_no, l.lender_name, le.emi_no,
                       CONCAT(ba.bank_name, ' - ', ba.account_name) AS bank", false)
             ->join('loans l', 'l.id = lp.loan_id')
@@ -668,15 +661,7 @@ class LoanReports extends Controller
     private function _outstandingRows(array $f): array
     {
         $b = \Config\Database::connect()->table('loans l')
-            ->select("l.*, ne.due_date AS next_emi_date, ne.emi_amount AS next_emi_amount", false)
-            ->join(
-                'loan_emis ne',
-                "ne.id = (SELECT e2.id FROM loan_emis e2
-                          WHERE e2.loan_id = l.id AND e2.payment_status IN ('PENDING', 'PARTIAL')
-                          ORDER BY e2.due_date ASC, e2.emi_no ASC LIMIT 1) AND l.status = 'ACTIVE'",
-                'left',
-                false
-            );
+            ->select("l.*, " . LoanModel::paidSql('l') . " AS total_paid, " . LoanModel::outstandingSql('l') . " AS outstanding_principal", false);
 
         if ($f['lender'] !== '') {
             $b->where('l.lender_name', $f['lender']);
@@ -685,10 +670,10 @@ class LoanReports extends Controller
             $b->where('l.loan_type', $f['loan_type']);
         }
         if ($f['min_amount'] !== null) {
-            $b->where('l.outstanding_principal >=', $f['min_amount']);
+            $b->where(LoanModel::outstandingSql('l') . ' >= ' . (float) $f['min_amount'], null, false);
         }
         if ($f['max_amount'] !== null) {
-            $b->where('l.outstanding_principal <=', $f['max_amount']);
+            $b->where(LoanModel::outstandingSql('l') . ' <= ' . (float) $f['max_amount'], null, false);
         }
         if ($f['search'] !== '') {
             $b->groupStart()
@@ -697,7 +682,7 @@ class LoanReports extends Controller
                 ->groupEnd();
         }
 
-        return $b->orderBy('l.outstanding_principal', 'DESC')->orderBy('l.id', 'ASC')->get()->getResultArray();
+        return $b->orderBy('outstanding_principal', 'DESC')->orderBy('l.id', 'ASC')->get()->getResultArray();
     }
 
     private function _lenderRows(array $f): array
@@ -706,9 +691,8 @@ class LoanReports extends Controller
             ->select("l.lender_name,
                       COUNT(*) AS loan_count,
                       COALESCE(SUM(l.sanctioned_amount), 0) AS borrowed,
-                      COALESCE(SUM(l.total_principal_paid), 0) AS principal_paid,
-                      COALESCE(SUM(l.total_interest_paid), 0) AS interest_paid,
-                      COALESCE(SUM(l.outstanding_principal), 0) AS outstanding,
+                      COALESCE(SUM(" . LoanModel::paidSql('l') . "), 0) AS total_paid,
+                      COALESCE(SUM(" . LoanModel::outstandingSql('l') . "), 0) AS outstanding,
                       COALESCE(SUM(l.status = 'ACTIVE'), 0) AS active_loans,
                       COALESCE(SUM(l.status = 'CLOSED'), 0) AS closed_loans", false)
             ->groupBy('l.lender_name');
@@ -734,7 +718,7 @@ class LoanReports extends Controller
 
         return $this->_rangeCheck([
             'lender'      => $this->_lender($lenders),
-            'loan_type'   => $this->_enum('loan_type', self::LOAN_TYPES),
+            'loan_type'   => $this->_enum('loan_type', LoanTypeModel::codes()),
             'status'      => $this->_enum('status', self::STATUSES),
             'date_from'   => $this->_date('date_from', $ok),
             'date_to'     => $this->_date('date_to', $ok),
@@ -749,7 +733,7 @@ class LoanReports extends Controller
 
         return $this->_rangeCheck([
             'lender'      => $this->_lender($lenders),
-            'loan_type'   => $this->_enum('loan_type', self::LOAN_TYPES),
+            'loan_type'   => $this->_enum('loan_type', LoanTypeModel::codes()),
             'date_from'   => $this->_date('date_from', $ok),
             'date_to'     => $this->_date('date_to', $ok),
             'search'      => $this->_get('search'),
@@ -777,7 +761,7 @@ class LoanReports extends Controller
     {
         return [
             'lender'     => $this->_lender($lenders),
-            'loan_type'  => $this->_enum('loan_type', self::LOAN_TYPES),
+            'loan_type'  => $this->_enum('loan_type', LoanTypeModel::codes()),
             'min_amount' => $this->_amount('min_amount'),
             'max_amount' => $this->_amount('max_amount'),
             'search'     => $this->_get('search'),

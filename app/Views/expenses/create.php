@@ -55,9 +55,14 @@
                 <div class="col-md-3">
                     <div class="form-section">
                         <label class="form-label">Category <span class="text-danger">*</span></label>
-                        <select id="categoryId" class="form-control" required>
-                            <option value="">-- Select Category --</option>
-                        </select>
+                        <div class="d-flex align-items-start gap-2">
+                            <div class="flex-grow-1" style="min-width:0;">
+                                <select id="categoryId" class="form-control" required>
+                                    <option value="">-- Select Category --</option>
+                                </select>
+                            </div>
+                            <button type="button" class="btn-cancel" id="quickCategoryBtn" title="Add Expense Category" aria-label="Add Expense Category" style="padding:0;width:33px;height:30px;justify-content:center;flex:0 0 auto;"><i class="bi bi-plus-lg"></i></button>
+                        </div>
                         <div class="invalid-feedback-text d-none" id="categoryId_error"></div>
                     </div>
                 </div>
@@ -139,6 +144,26 @@
 </div>
 </div>
 
+<div class="modal fade" id="quickCategoryModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Add Expense Category</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <label class="form-label">Category Name <span class="text-danger">*</span></label>
+                <input type="text" id="quickCategoryName" class="form-control" maxlength="100" autocomplete="off">
+                <div class="invalid-feedback-text d-none" id="quickCategoryName_error"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-cancel" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn-save" id="quickCategorySave">Save Category</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <?= $this->endSection() ?>
 
 <?= $this->section('scripts') ?>
@@ -203,6 +228,37 @@ function clearFieldErrors() {
     $('.invalid-feedback-text').addClass('d-none').text('');
     $('#formErrorBanner').addClass('d-none').text('');
 }
+
+// Quick-add Expense Category (reuses the Expense Categories master via expense-categories/quick-store).
+var quickCatModal = null;
+$('#quickCategoryBtn').on('click', function () {
+    quickCatModal = quickCatModal || new bootstrap.Modal(document.getElementById('quickCategoryModal'));
+    $('#quickCategoryName').val('').removeClass('is-invalid');
+    $('#quickCategoryName_error').addClass('d-none').text('');
+    quickCatModal.show();
+});
+$('#quickCategoryModal').on('shown.bs.modal', function () { $('#quickCategoryName').trigger('focus'); });
+$('#quickCategoryName').on('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); $('#quickCategorySave').trigger('click'); } });
+$('#quickCategorySave').on('click', function () {
+    var btn = $(this), name = $.trim($('#quickCategoryName').val());
+    function showErr(msg) { $('#quickCategoryName').addClass('is-invalid'); $('#quickCategoryName_error').text(msg).removeClass('d-none'); }
+    $('#quickCategoryName').removeClass('is-invalid'); $('#quickCategoryName_error').addClass('d-none').text('');
+    if (name === '') { showErr('Category name is required.'); return; }
+    btn.prop('disabled', true);
+    $.ajax({ url: baseUrl + 'expense-categories/quick-store', type: 'POST', dataType: 'json', data: { category_name: name } })
+        .done(function (resp) {
+            if (resp.status) {
+                var c = resp.category;
+                $('#categoryId').append($('<option></option>').val(c.id).text(c.category_name)).val(c.id).trigger('change');
+                quickCatModal.hide();
+            } else { showErr((resp.errors || []).join(' ') || 'Could not save the category.'); }
+        })
+        .fail(function (xhr) {
+            var d = xhr.responseJSON;
+            showErr(d && d.errors ? d.errors.join(' ') : 'Could not save the category. Please try again.');
+        })
+        .always(function () { btn.prop('disabled', false); });
+});
 
 function loadFormData() {
     $.ajax({ url: baseUrl + 'expenses/create', type: 'GET', dataType: 'json' }).done(function (resp) {

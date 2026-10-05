@@ -3,18 +3,16 @@
 
 <?php
 helper('loan_ui');
-$typeLabels = ['BANK' => 'Bank Loan', 'PERSONAL' => 'Personal', 'VEHICLE' => 'Vehicle', 'OD' => 'Overdraft', 'OTHER' => 'Other'];
+$typeLabels = \App\Models\LoanTypeModel::labels();
 $today      = date('Y-m-d');
 $rate       = rtrim(rtrim(number_format((float) $loan['interest_rate'], 3, '.', ''), '0'), '.');
 $fmtDate    = static fn ($d) => $d ? date('d-m-Y', strtotime($d)) : '—';
 
-$totalEmis = count($emis);
-$paidEmis  = count(array_filter($emis, static fn ($e) => $e['payment_status'] === 'PAID'));
-$partEmis  = count(array_filter($emis, static fn ($e) => $e['payment_status'] === 'PARTIAL'));
-$overdue   = count(array_filter($emis, static fn ($e) => $e['payment_status'] !== 'PAID' && $e['due_date'] < $today));
-$pendEmis  = $totalEmis - $paidEmis;
-$percent   = $totalEmis > 0 ? (int) round($paidEmis / $totalEmis * 100) : 0;
-$next      = $outstanding['next_emi'] ?? null;
+// Release 4.9.0AY: every figure on this page comes from the loan's recorded payments.
+$payCount   = count($payments ?? []);
+// Release 4.9.0BA: Total Paid = SUM(loan_payments.total_paid); Outstanding = Sanctioned - Total Paid.
+$totalPaid  = round((float) $loan['total_paid'], 2);
+$percent    = (float) $loan['sanctioned_amount'] > 0 ? (int) round(min(100, $totalPaid / (float) $loan['sanctioned_amount'] * 100)) : 0;
 ?>
 <?= $this->include('loans/partials/ui_styles') ?>
 
@@ -32,22 +30,19 @@ $next      = $outstanding['next_emi'] ?? null;
 	.ln-stat .l { font-size: .72rem; color: #64748b; text-transform: uppercase; letter-spacing: .03em; }
 
 	.ln-schedule-wrap { overflow-x: auto; }
-	#schedTable { min-width: 860px; }
-	#schedTable th, #schedTable td { padding: 6px 10px; font-size: .78rem; white-space: nowrap; }
-	#schedTable .num { text-align: right; }
-	#schedTable tr.next-due td { background: #fffbeb; }
-	#schedTable .ln-badge + .ln-badge { margin-left: 4px; }
+	#payTable { min-width: 720px; }
+	#payTable th, #payTable td { padding: 6px 10px; font-size: .78rem; white-space: nowrap; }
+	.ln-schedule-wrap .num { text-align: right; }
 
 	@media print {
 		.sidebar, .topbar { display: none !important; }
 		.main-content { margin-left: 0 !important; }
 		.no-print, .ln-breadcrumb, #loanFlash { display: none !important; }
 		.ln-schedule-wrap { overflow: visible; }
-		#schedTable { min-width: 0; }
-		#schedTable th, #schedTable td { font-size: .7rem; padding: 3px 6px; }
+		#payTable { min-width: 0; }
+		#payTable th, #payTable td { font-size: .7rem; padding: 3px 6px; }
 		.card-custom { box-shadow: none; break-inside: avoid; }
-		#schedCard { break-inside: auto; }
-		#schedTable tr { break-inside: avoid; }
+		#payTable tr { break-inside: avoid; }
 	}
 </style>
 
@@ -60,11 +55,18 @@ $next      = $outstanding['next_emi'] ?? null;
     </ol>
 </nav>
 
+<?php
+// Receive Loan is offered only while something remains to be received (remaining_to_receive comes from the controller).
+$canReceive = $receipt_available && $remaining_to_receive > 0;
+?>
 <div class="page-title d-flex align-items-center justify-content-between flex-wrap">
     <span><i class="bi bi-cash-coin me-2"></i>Loan <?= esc($loan['loan_no']) ?> — <?= esc($loan['lender_name']) ?></span>
     <div class="d-flex flex-wrap gap-2 no-print">
         <a href="<?= base_url('loans') ?>" class="btn-cancel"><i class="bi bi-arrow-left"></i> Back</a>
         <a href="<?= base_url('loans/edit/' . $loan['id']) ?>" class="btn-save" style="background:#6c757d;"><i class="bi bi-pencil"></i> Edit</a>
+        <?php if ($canReceive): ?>
+        <a href="<?= base_url('loans/receive/' . $loan['id']) ?>" class="btn-save" style="background:#0d9488;"><i class="bi bi-piggy-bank"></i> Receive Loan</a>
+        <?php endif; ?>
         <a href="<?= base_url('loans/payments/' . $loan['id']) ?>" class="btn-pay"><i class="bi bi-wallet2"></i> Payments</a>
         <a href="<?= base_url('loans/ledger/' . $loan['id']) ?>" class="btn-save"><i class="bi bi-journal-text"></i> Ledger</a>
         <a href="javascript:void(0)" class="btn-save" onclick="window.print()"><i class="bi bi-printer"></i> Print</a>
@@ -88,10 +90,8 @@ $next      = $outstanding['next_emi'] ?? null;
                     <tr><td><strong>Loan Number</strong></td><td><?= esc($loan['loan_no']) ?></td></tr>
                     <tr><td><strong>Lender</strong></td><td><?= esc($loan['lender_name']) ?></td></tr>
                     <tr><td><strong>Type</strong></td><td><?= esc($typeLabels[$loan['loan_type']] ?? $loan['loan_type']) ?></td></tr>
-                    <tr><td><strong>Bank</strong></td><td><?= $bank_account ? esc($bank_account['bank_name'] . ' - ' . $bank_account['account_name']) : '—' ?></td></tr>
                     <tr><td><strong>Account Number</strong></td><td><?= esc($loan['account_number'] ?: '—') ?></td></tr>
-                    <tr><td><strong>Start</strong></td><td><?= $fmtDate($loan['start_date']) ?></td></tr>
-                    <tr><td><strong>End</strong></td><td><?= $fmtDate($loan['end_date']) ?></td></tr>
+                    <tr><td><strong>Loan Date / Start Date</strong></td><td><?= $fmtDate($loan['start_date']) ?></td></tr>
                     <tr><td><strong>Status</strong></td><td><?= ln_loan_status_badge($loan['status']) ?></td></tr>
                     <?php if (! empty($loan['remarks'])): ?>
                     <tr><td><strong>Remarks</strong></td><td><?= esc($loan['remarks']) ?></td></tr>
@@ -108,80 +108,138 @@ $next      = $outstanding['next_emi'] ?? null;
             <div class="card-custom-body">
                 <table class="table-custom">
                     <tr><td>Sanctioned Amount</td><td style="text-align:right">₹<?= number_format((float) $loan['sanctioned_amount'], 2) ?></td></tr>
-                    <tr><td><strong>Outstanding Principal</strong></td><td style="text-align:right"><strong>₹<?= number_format((float) $loan['outstanding_principal'], 2) ?></strong></td></tr>
-                    <tr><td>Principal Paid</td><td style="text-align:right">₹<?= number_format((float) ($outstanding['principal_paid'] ?? $loan['total_principal_paid']), 2) ?></td></tr>
-                    <tr><td>Interest Paid</td><td style="text-align:right">₹<?= number_format((float) ($outstanding['interest_paid'] ?? $loan['total_interest_paid']), 2) ?></td></tr>
-                    <tr><td>EMI Amount</td><td style="text-align:right">₹<?= number_format((float) $loan['emi_amount'], 2) ?></td></tr>
-                    <tr><td>Interest Rate</td><td style="text-align:right"><?= $rate ?>% per year</td></tr>
-                    <tr><td>Tenure</td><td style="text-align:right"><?= (int) $loan['tenure_months'] ?> months</td></tr>
+                    <tr><td>Total Paid</td><td style="text-align:right">₹<?= number_format($totalPaid, 2) ?></td></tr>
+                    <tr><td><strong>Outstanding Amount</strong></td><td style="text-align:right"><strong>₹<?= number_format((float) $loan['outstanding_principal'], 2) ?></strong></td></tr>
+                    <tr><td>Payments Recorded</td><td style="text-align:right"><?= (int) $payCount ?></td></tr>
+                    <tr><td>Interest Rate</td><td style="text-align:right"><?= (float) $loan['interest_rate'] > 0 ? $rate . '% per year' : '—' ?></td></tr>
+                    <tr><td>Tenure</td><td style="text-align:right"><?= (int) $loan['tenure_months'] > 0 ? (int) $loan['tenure_months'] . ' months' : '—' ?></td></tr>
                 </table>
             </div>
         </div>
     </div>
 </div>
 
-<!-- EMI PROGRESS -->
+<!-- LOAN RECEIPTS -->
 <div class="card-custom mb-3">
-    <div class="card-custom-header">EMI Progress</div>
+    <div class="card-custom-header d-flex align-items-center justify-content-between flex-wrap">
+        <span>Loan Receipts</span>
+    </div>
+    <div class="card-custom-body">
+        <div class="row g-2 mb-3">
+            <div class="col-6 col-md-3"><div class="ln-stat"><div class="v">₹<?= number_format((float) $loan['sanctioned_amount'], 2) ?></div><div class="l">Sanctioned Amount</div></div></div>
+            <div class="col-6 col-md-3"><div class="ln-stat"><div class="v">₹<?= number_format($total_received, 2) ?></div><div class="l">Total Received</div></div></div>
+            <div class="col-6 col-md-3"><div class="ln-stat"><div class="v">₹<?= number_format($remaining_to_receive, 2) ?></div><div class="l">Remaining to Receive</div></div></div>
+        </div>
+        <?php if (empty($receipts)): ?>
+        <div class="ln-empty" style="text-align:center; color:#94a3b8; padding:18px 10px;">
+            <i class="bi bi-inbox"></i> No receipts recorded yet.<?= $canReceive ? ' Use "Receive Loan" once money actually arrives.' : '' ?>
+        </div>
+        <?php else: ?>
+        <div class="ln-schedule-wrap">
+            <table class="table-custom">
+                <thead>
+                    <tr>
+                        <th class="sno-col">S.No.</th>
+                        <th>Receipt No</th>
+                        <th>Date</th>
+                        <th class="num">Amount</th>
+                        <th>Payment Mode</th>
+                        <th>Bank Account</th>
+                        <th>Reference No</th>
+                        <th>Remarks</th>
+                        <th class="no-print">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($receipts as $r): ?>
+                    <tr>
+                        <td class="sno-col sno-auto" data-label="S.No."></td>
+                        <td><?= esc($r['receipt_no']) ?></td>
+                        <td><?= $fmtDate($r['receipt_date']) ?></td>
+                        <td class="num"><?= number_format((float) $r['amount'], 2) ?></td>
+                        <td><?= ln_method_badge($r['payment_method']) ?></td>
+                        <td><?= $r['bank_name'] ? esc($r['bank_name'] . ' - ' . $r['account_name']) : '—' ?></td>
+                        <td><?= esc($r['reference_no'] ?: '—') ?></td>
+                        <td><?= esc($r['remarks'] ?: '—') ?></td>
+                        <td class="no-print">
+                            <div class="d-flex flex-wrap gap-2">
+                                <a href="<?= base_url('loans/receipts/edit/' . $r['id']) ?>" class="btn-edit"><i class="bi bi-pencil"></i> Edit</a>
+                                <button type="button" class="btn-delete js-del-receipt" data-id="<?= (int) $r['id'] ?>"><i class="bi bi-trash"></i> Delete</button>
+                            </div>
+                        </td>
+                    </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+        <?php endif; ?>
+    </div>
+</div>
+
+<!-- ACTUAL PAYMENTS (from recorded loan payments) -->
+<div class="card-custom mb-3">
+    <div class="card-custom-header d-flex align-items-center justify-content-between flex-wrap">
+        <span>Actual Payments</span>
+        <a href="<?= base_url('loans/payments/' . $loan['id']) ?>" class="btn-view no-print"><i class="bi bi-wallet2"></i> Payment History</a>
+    </div>
     <div class="card-custom-body">
         <div class="d-flex justify-content-between mb-1" style="font-size:.8rem;">
-            <span><?= $paidEmis ?> of <?= $totalEmis ?> EMIs paid</span>
+            <span>Paid (₹<?= number_format($totalPaid, 2) ?> of ₹<?= number_format((float) $loan['sanctioned_amount'], 2) ?>)</span>
             <span><?= $percent ?>%</span>
         </div>
         <div class="ln-progress mb-3" role="progressbar" aria-valuenow="<?= $percent ?>" aria-valuemin="0" aria-valuemax="100">
             <div class="ln-progress-bar" style="width:<?= $percent ?>%"></div>
         </div>
         <div class="row g-2">
-            <div class="col-6 col-md-3"><div class="ln-stat"><div class="v"><?= $paidEmis ?></div><div class="l">Paid EMIs</div></div></div>
-            <div class="col-6 col-md-3">
-                <div class="ln-stat"><div class="v"><?= $pendEmis ?></div><div class="l">Pending EMIs<?= $partEmis > 0 ? " ({$partEmis} partly paid)" : '' ?><?= $overdue > 0 ? " — {$overdue} overdue" : '' ?></div></div>
-            </div>
-            <div class="col-6 col-md-3"><div class="ln-stat"><div class="v"><?= $next ? $fmtDate($next['due_date']) : '—' ?></div><div class="l">Next EMI Due Date</div></div></div>
-            <div class="col-6 col-md-3"><div class="ln-stat"><div class="v"><?= $next ? '₹' . number_format((float) $next['balance_amount'], 2) : '—' ?></div><div class="l">Next EMI Amount</div></div></div>
+            <div class="col-6 col-md-3"><div class="ln-stat"><div class="v"><?= $payCount ?></div><div class="l">Payments Recorded</div></div></div>
+            <div class="col-6 col-md-3"><div class="ln-stat"><div class="v">₹<?= number_format($totalPaid, 2) ?></div><div class="l">Total Paid</div></div></div>
+            <div class="col-6 col-md-3"><div class="ln-stat"><div class="v">₹<?= number_format((float) $loan['outstanding_principal'], 2) ?></div><div class="l">Outstanding Amount</div></div></div>
         </div>
     </div>
 </div>
 
-<!-- EMI SCHEDULE -->
-<div class="card-custom" id="schedCard">
-    <div class="card-custom-header">EMI Schedule</div>
+<!-- PAYMENT HISTORY (loan_payments) -->
+<div class="card-custom mb-3">
+    <div class="card-custom-header d-flex align-items-center justify-content-between flex-wrap">
+        <span>Payment History</span>
+        <?php if ($loan['status'] === 'ACTIVE'): ?>
+        <a href="<?= base_url('loans/payments/' . $loan['id']) ?>" class="btn-view no-print"><i class="bi bi-plus-circle"></i> Record Payment</a>
+        <?php endif; ?>
+    </div>
     <div class="card-custom-body">
         <div class="ln-schedule-wrap">
-            <table id="schedTable" class="table-custom">
+            <table id="payTable" class="table-custom">
                 <thead>
                     <tr>
-                        <th>EMI</th>
-                        <th>Due Date</th>
-                        <th class="num">Principal</th>
-                        <th class="num">Interest</th>
-                        <th class="num">EMI Amount</th>
-                        <th class="num">Paid</th>
-                        <th class="num">Balance Due</th>
-                        <th class="num">Closing Balance</th>
-                        <th>Status</th>
-                        <th>Paid Date</th>
+                        <th class="sno-col">S.No.</th>
+                        <th>Payment Date</th>
+                        <th class="num">Payment Amount</th>
+                        <th>Payment Method</th>
+                        <th>Bank Account</th>
+                        <th>Reference</th>
+                        <th>Remarks</th>
+                        <th class="no-print">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <?php if (empty($emis)): ?>
-                    <tr><td colspan="10" style="text-align:center; color:#94a3b8;">No EMI schedule found.</td></tr>
+                    <?php if (empty($payments)): ?>
+                    <tr><td colspan="8" style="text-align:center; color:#94a3b8;">No payments recorded yet.</td></tr>
                     <?php endif; ?>
-                    <?php foreach ($emis as $e): ?>
-                    <?php $isOverdue = $e['payment_status'] !== 'PAID' && $e['due_date'] < $today; ?>
-                    <tr class="<?= ($next && (int) $next['emi_id'] === (int) $e['id']) ? 'next-due' : '' ?>">
-                        <td><?= (int) $e['emi_no'] ?></td>
-                        <td><?= $fmtDate($e['due_date']) ?></td>
-                        <td class="num"><?= number_format((float) $e['principal_amount'], 2) ?></td>
-                        <td class="num"><?= number_format((float) $e['interest_amount'], 2) ?></td>
-                        <td class="num"><?= number_format((float) $e['emi_amount'], 2) ?></td>
-                        <td class="num"><?= number_format((float) $e['paid_amount'], 2) ?></td>
-                        <td class="num"><?= number_format((float) $e['balance_amount'], 2) ?></td>
-                        <td class="num"><?= number_format((float) $e['closing_balance'], 2) ?></td>
-                        <td>
-                            <?= ln_emi_status_badge($e['payment_status']) ?>
-                            <?php if ($isOverdue): ?><?= ln_badge('Overdue', 'red') ?><?php endif; ?>
+                    <?php foreach ($payments as $p): ?>
+                    <tr>
+                        <td class="sno-col sno-auto" data-label="S.No."></td>
+                        <td><?= $fmtDate($p['payment_date']) ?><?php if (! empty($p['loan_emi_id'])): ?> <small class="text-muted">(old EMI ref. #<?= (int) $p['emi_no'] ?>)</small><?php endif; ?></td>
+                        <td class="num"><strong><?= number_format((float) $p['total_paid'], 2) ?></strong></td>
+                        <td><?= ln_method_badge($p['payment_method']) ?></td>
+                        <td><?= $p['bank_name'] ? esc($p['bank_name'] . ' - ' . $p['account_name']) : '—' ?></td>
+                        <td><?= esc($p['reference_no'] ?: '—') ?></td>
+                        <td><?= esc($p['remarks'] ?: '—') ?></td>
+                        <td class="no-print">
+                            <div class="d-flex flex-wrap gap-2">
+                                <a href="<?= base_url('loans/payments/' . $loan['id'] . '?edit=' . (int) $p['id']) ?>" class="btn-edit"><i class="bi bi-pencil"></i> Edit</a>
+                                <button type="button" class="btn-delete js-del-pay" data-id="<?= (int) $p['id'] ?>"><i class="bi bi-trash"></i> Delete</button>
+                            </div>
                         </td>
-                        <td><?= $fmtDate($e['paid_date']) ?></td>
                     </tr>
                     <?php endforeach; ?>
                 </tbody>
@@ -194,7 +252,7 @@ $next      = $outstanding['next_emi'] ?? null;
 
 <?= $this->section('scripts') ?>
 <script>
-	// One-time "saved" message left by the create / edit page.
+	// One-time "saved" message left by the create / edit / receive page.
 	try {
 		var msg = sessionStorage.getItem('loanFlash');
 		if (msg) {
@@ -203,5 +261,33 @@ $next      = $outstanding['next_emi'] ?? null;
 			$('#loanFlash').show();
 		}
 	} catch (x) {}
+
+	$(document).on('click', '.js-del-pay', function () {
+		var id = $(this).data('id');
+		if (!confirm('Delete this payment? The total paid and outstanding amount will be restored and any bank withdrawal reversed.')) return;
+		$.ajax({ url: "<?= base_url('loans/payments/delete/') ?>" + id, method: 'POST', dataType: 'json' })
+			.done(function (r) {
+				try { sessionStorage.setItem('loanFlash', r.message || 'Payment deleted.'); } catch (x) {}
+				location.reload();
+			})
+			.fail(function (xhr) {
+				var r = xhr.responseJSON;
+				alert((r && r.errors && r.errors.join(' ')) || 'The payment could not be deleted.');
+			});
+	});
+
+	$(document).on('click', '.js-del-receipt', function () {
+		var id = $(this).data('id');
+		if (!confirm('Delete this receipt? Any bank deposit it posted will be reversed.')) return;
+		$.ajax({ url: "<?= base_url('loans/receipts/delete/') ?>" + id, method: 'POST', dataType: 'json' })
+			.done(function (r) {
+				try { sessionStorage.setItem('loanFlash', r.message || 'Receipt deleted.'); } catch (x) {}
+				location.reload();
+			})
+			.fail(function (xhr) {
+				var r = xhr.responseJSON;
+				alert((r && r.errors && r.errors.join(' ')) || 'The receipt could not be deleted.');
+			});
+	});
 </script>
 <?= $this->endSection() ?>

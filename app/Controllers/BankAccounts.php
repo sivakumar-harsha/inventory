@@ -2,18 +2,26 @@
 
 namespace App\Controllers;
 
+use App\Libraries\TransactionMethods;
 use App\Models\BankAccountModel;
 use App\Models\BankTransactionModel;
 use CodeIgniter\Controller;
 
 /**
- * Release 4.8.3A built the backend (frozen — store()/update()/delete()/
- * storeTransaction() and every private helper below are byte-for-byte
- * unchanged). Release 4.8.3B wires index()/create()/view()/edit()/
- * transactions() to real views — pure display/data-prep, same transition
- * Supplier Payments went through between 4.8.2B and 4.8.2C. Manual entries
- * only; nothing in this controller is wired to Supplier Payments, Purchases,
- * or any other module.
+ * Release 4.8.3A built the backend. Release 4.8.3B wired index()/create()/
+ * view()/edit()/transactions() to real views — pure display/data-prep, same
+ * transition Supplier Payments went through between 4.8.2B and 4.8.2C.
+ * Manual entries only; nothing in store()/update()/delete() is wired to
+ * Supplier Payments, Purchases, or any other module.
+ *
+ * Release 4.9.0AO: storeTransaction() (this page's Deposit/Withdrawal/
+ * Transfer entry form) no longer keeps its own insert + balance-update
+ * logic. It now posts through the same BankTransactionModel engine as the
+ * Bank Deposit/Withdrawal/Transfer screens (postManualEntry()/postTransfer()),
+ * so there is one accounting engine, not two: reference_type/reference_id
+ * are always the fixed manual ones (never taken from the request), and the
+ * overdraft rule applies here too. _getRunningBalance() (read-only) is
+ * unchanged and already understood two-row transfers.
  */
 class BankAccounts extends Controller
 {
@@ -254,14 +262,36 @@ class BankAccounts extends Controller
         $data['otherAccounts']   = (new BankAccountModel())->where('is_active', 1)->where('id !=', (int) $id)->orderBy('bank_name', 'ASC')->findAll();
         $data['transactions']    = $this->_getRunningBalance((int) $id);
 
+        // Release 4.9.0CB: payment method (HOW it was paid) from the owning record + Unallocated Project Receipt wording. Display only.
+        $ids       = array_column($data['transactions'], 'id');
+        $methods   = TransactionMethods::forBankTransactions($ids);
+        $projRecpt = TransactionMethods::unallocatedProjectReceipts($ids);
+        foreach ($data['transactions'] as &$t) {
+            $t['method'] = $methods[$t['id']] ?? '';
+            if (isset($projRecpt[$t['id']])) {
+                $t['remarks'] = TransactionMethods::receiptRemark((string) $t['remarks']);
+            }
+        }
+        unset($t);
+
         return view('bank_accounts/transactions', $data);
     }
 
     /**
-     * Records one manual Deposit/Withdrawal/Transfer and applies its effect
-     * to the current_balance of every account it touches, in one
-     * transaction. Never trusts a client-sent balance — always reads each
-     * account's current_balance immediately before adjusting it.
+     * Records one manual Deposit/Withdrawal/Transfer from the per-account
+     * page. Release 4.9.0AO: rewired onto the same engine as the Bank
+     * Deposit/Withdrawal/Transfer screens (BankTransactionModel::
+     * postManualEntry()/postTransfer()) instead of this controller's own
+     * insert + balance update, so this page no longer runs a second,
+     * divergent set of accounting rules. Concretely this closes two gaps
+     * the 4.9.0AN audit found: reference_type/reference_id are no longer
+     * accepted from the request at all (every row here is always a genuine
+     * manual entry, keyed by the same MANUAL_DEPOSIT/MANUAL_WITHDRAWAL/
+     * BANK_TRANSFER reference types the unified Transactions screen uses),
+     * and the overdraft rule (assertNotOverdrawn) now applies here too. The
+     * view never sent reference_type/reference_id (confirmed: no such field
+     * exists in bank_accounts/transactions.php), so no legitimate use of
+     * this page is affected.
      */
     public function storeTransaction()
     {
@@ -272,37 +302,40 @@ class BankAccounts extends Controller
             return $this->response->setJSON(['status' => false, 'errors' => $errors])->setStatusCode(422);
         }
 
-        $db = \Config\Database::connect();
+        $db    = \Config\Database::connect();
+        $model = new BankTransactionModel();
         $db->transStart();
 
         $transactionId = null;
 
         try {
-            $transactionModel = new BankTransactionModel();
-
-            $transactionModel->insert([
-                'bank_account_id'          => $input['bank_account_id'],
-                'transaction_date'         => $input['transaction_date'],
-                'transaction_type'         => $input['transaction_type'],
-                'amount'                   => $input['amount'],
-                'reference_type'           => $input['reference_type'],
-                'reference_id'             => $input['reference_id'],
-                'reference_no'             => $input['reference_no'],
-                'remarks'                  => $input['remarks'],
-                'transfer_bank_account_id' => $input['transaction_type'] === 'TRANSFER' ? $input['transfer_bank_account_id'] : null,
-                'created_by'               => session()->get('user_id'),
-            ]);
-
-            $transactionId = $transactionModel->getInsertID();
-
-            if ($input['transaction_type'] === 'DEPOSIT') {
-                $this->_updateBankBalance($input['bank_account_id'], $input['amount']);
-            } elseif ($input['transaction_type'] === 'WITHDRAWAL') {
-                $this->_updateBankBalance($input['bank_account_id'], -$input['amount']);
-            } else { // TRANSFER
-                $this->_updateBankBalance($input['bank_account_id'], -$input['amount']);
-                $this->_updateBankBalance($input['transfer_bank_account_id'], $input['amount']);
+            if ($input['transaction_type'] === 'TRANSFER') {
+                $transactionId = $model->postTransfer([
+                    'from_account_id'  => $input['bank_account_id'],
+                    'to_account_id'    => $input['transfer_bank_account_id'],
+                    'transaction_date' => $input['transaction_date'],
+                    'amount'           => $input['amount'],
+                    'reference_no'     => $input['reference_no'],
+                    'remarks'          => $input['remarks'],
+                    'created_by'       => session()->get('user_id'),
+                ]);
+            } else {
+                $transactionId = $model->postManualEntry([
+                    'bank_account_id'  => $input['bank_account_id'],
+                    'transaction_date' => $input['transaction_date'],
+                    'transaction_type' => $input['transaction_type'],
+                    'amount'           => $input['amount'],
+                    'reference_type'   => $input['transaction_type'] === 'DEPOSIT'
+                        ? BankTransactionModel::REF_MANUAL_DEPOSIT
+                        : BankTransactionModel::REF_MANUAL_WITHDRAWAL,
+                    'reference_no'     => $input['reference_no'],
+                    'remarks'          => $input['remarks'],
+                    'created_by'       => session()->get('user_id'),
+                ]);
             }
+        } catch (\DomainException $e) {
+            $db->transRollback();
+            return $this->response->setJSON(['status' => false, 'errors' => [$e->getMessage()]])->setStatusCode(422);
         } catch (\Throwable $e) {
             $db->transRollback();
             return $this->response->setJSON(['status' => false, 'errors' => ['Failed to save transaction: ' . $e->getMessage()]])->setStatusCode(500);
@@ -314,22 +347,10 @@ class BankAccounts extends Controller
             return $this->response->setJSON(['status' => false, 'errors' => ['Failed to save transaction due to a database error.']])->setStatusCode(500);
         }
 
-        // Release 4.8.8A: audit trail only — manual Deposit/Withdrawal/
-        // Transfer entries made directly on this page (automatic postings
-        // from Expenses/Loans/ServiceReceipts/CustomerPayments/
-        // SupplierPayments are covered once, centrally, in
-        // BankTransactionModel::createBankTransaction()).
-        audit_create('Bank', 'BANK_TRANSACTION', (int) $transactionId, $input['reference_no'], [
-            'bank_account_id'          => $input['bank_account_id'],
-            'transaction_date'         => $input['transaction_date'],
-            'transaction_type'         => $input['transaction_type'],
-            'amount'                   => $input['amount'],
-            'reference_type'           => $input['reference_type'],
-            'reference_id'             => $input['reference_id'],
-            'reference_no'             => $input['reference_no'],
-            'remarks'                  => $input['remarks'],
-            'transfer_bank_account_id' => $input['transaction_type'] === 'TRANSFER' ? $input['transfer_bank_account_id'] : null,
-        ], 'Manual ' . strtolower($input['transaction_type']) . ' recorded.');
+        // Audit trail: postManualEntry()/postTransfer() already call
+        // BankTransactionModel::createBankTransaction(), which fires the
+        // single shared audit_create() hook for every row it inserts —
+        // no separate audit call needed here any more.
 
         session()->setFlashdata('success', 'Bank transaction saved successfully.');
 
@@ -377,6 +398,14 @@ class BankAccounts extends Controller
         return $errors;
     }
 
+    /**
+     * Release 4.9.0AO: no reference_type/reference_id here — every row this
+     * page posts is a genuine manual entry, and storeTransaction() now
+     * assigns the fixed MANUAL_DEPOSIT/MANUAL_WITHDRAWAL/BANK_TRANSFER
+     * reference type itself. This page's form never sent either field
+     * (there is no such input in bank_accounts/transactions.php), so this
+     * only removes a request field nothing legitimate relied on.
+     */
     private function _extractTransactionInput(): array
     {
         return [
@@ -384,8 +413,6 @@ class BankAccounts extends Controller
             'transaction_date'         => (string) $this->request->getPost('transaction_date'),
             'transaction_type'         => strtoupper((string) $this->request->getPost('transaction_type')),
             'amount'                   => (float) $this->request->getPost('amount'),
-            'reference_type'           => $this->request->getPost('reference_type') ?: null,
-            'reference_id'             => $this->request->getPost('reference_id') ? (int) $this->request->getPost('reference_id') : null,
             'reference_no'             => $this->request->getPost('reference_no') ?: null,
             'remarks'                  => $this->request->getPost('remarks') ?: null,
             'transfer_bank_account_id' => $this->request->getPost('transfer_bank_account_id') ? (int) $this->request->getPost('transfer_bank_account_id') : null,
@@ -436,26 +463,6 @@ class BankAccounts extends Controller
         }
 
         return $errors;
-    }
-
-    /**
-     * Applies $delta (positive for a credit, negative for a debit) to one
-     * account's current_balance. Always reads the account's own row
-     * immediately before writing, never trusts a value passed in from
-     * elsewhere in the request.
-     */
-    private function _updateBankBalance(int $bankAccountId, float $delta): void
-    {
-        $db      = \Config\Database::connect();
-        $account = $db->table('bank_accounts')->where('id', $bankAccountId)->get()->getRowArray();
-
-        if (! $account) {
-            throw new \RuntimeException("Bank account #{$bankAccountId} was not found while applying a balance update.");
-        }
-
-        $newBalance = round((float) $account['current_balance'] + $delta, 2);
-
-        $db->table('bank_accounts')->where('id', $bankAccountId)->update(['current_balance' => $newBalance]);
     }
 
     /**

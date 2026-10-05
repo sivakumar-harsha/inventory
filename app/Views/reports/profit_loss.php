@@ -273,8 +273,8 @@
     <div class="card-custom">
         <div class="card-custom-header">Filters</div>
         <div class="card-custom-body">
-            <form method="GET" action="<?= base_url('reports/profit-loss') ?>">
-                <div class="row">
+            <form method="GET" data-auto-filter action="<?= base_url('reports/profit-loss') ?>">
+                <div class="row fb-one-row">
                     <div class="col-md-3">
                         <div class="form-section">
                             <label class="form-label">Project</label>
@@ -300,9 +300,6 @@
                     </div>
                     <div class="col-md-4" style="display:flex;align-items:flex-end;gap:10px;padding-bottom:14px">
 
-						<button type="submit" class="btn-save">
-							<i class="bi bi-search"></i> Filter
-						</button>
 
 						<a href="<?= base_url('reports/profit-loss') ?>" class="btn btn-sm btn-secondary">
                        <i class="bi bi-arrow-clockwise"></i> Reset
@@ -379,16 +376,15 @@
     <div class="pl-table-wrap">
         <table id="profitTable" class="table-custom">
             <thead>
-                <tr><th>Project</th><th style="text-align: right;">Revenue</th><th style="text-align: right;">COGS</th><th style="text-align: right;">Expenses</th><th style="text-align: right;">Gross Profit</th><th style="text-align: right;">Net Profit</th></tr>
+                <tr><th class="sno-col">S.No.</th><th>Project</th><th style="text-align: right;">Revenue</th><th style="text-align: right;">COGS</th><th style="text-align: right;">Expenses</th><th style="text-align: right;">Gross Profit</th><th style="text-align: right;">Net Profit</th></tr>
             </thead>
             <tbody>
-                <?php if (empty($project_breakdown)): ?>
-                <tr><td colspan="6" class="pl-empty-note">No projects found for selected filters.</td></tr>
-                <?php else: foreach ($project_breakdown as $pb):
+                <?php foreach ($project_breakdown as $pb):
                     $gross = $pb['revenue'] - $pb['cogs'];
                     $net   = $gross - $pb['expenses'];
                 ?>
                 <tr>
+                    <td class="sno-col" data-label="S.No."></td>
                     <td title="<?= esc($pb['project_name']) ?>"><?= esc($pb['project_name']) ?></td>
                     <td style="text-align: right;"><?= number_format($pb['revenue'], 2) ?></td>
                     <td style="text-align: right;"><?= number_format($pb['cogs'], 2) ?></td>
@@ -396,7 +392,7 @@
                     <td class="<?= $gross >= 0 ? 'text-success' : 'text-danger' ?>" style="text-align: right;"><?= number_format($gross, 2) ?></td>
                     <td class="<?= $net >= 0 ? 'text-success' : 'text-danger' ?>" style="text-align: right;"><strong><?= number_format($net, 2) ?></strong></td>
                 </tr>
-                <?php endforeach; endif; ?>
+                <?php endforeach; ?>
             </tbody>
             <!-- Release 4.1 (Phase B): totals row reuses the exact KPI values
                  above (not a re-sum of the rows) so it is guaranteed to match
@@ -404,6 +400,7 @@
                  DataTables, so it always reflects the full filtered total. -->
             <tfoot>
                 <tr class="pl-totals-row">
+                    <td class="sno-col" data-label="S.No."></td>
                     <td>TOTAL</td>
                     <td style="text-align: right;"><?= number_format($total_revenue, 2) ?></td>
                     <td style="text-align: right;"><?= number_format($total_cogs, 2) ?></td>
@@ -456,12 +453,13 @@
 				searching: false,    // ❌ remove search box
 				lengthChange: false, // ❌ remove "show entries"
 				info: false,          // (optional) showing "1 to 10 of X"
-				ordering: true,      // (optional sorting)
+				ordering: true, order: [[1, 'asc']],      // (optional sorting)
 				pageLength: 10,      // default rows per page
 
 				dom: 'tpi' ,// ✅ ONLY table + pagination + info
 
 				language: {
+						emptyTable: 'No projects found for selected filters.',
 					paginate: {
 						previous: '<i class="bi bi-chevron-left"></i>',
 						next: '<i class="bi bi-chevron-right"></i>'

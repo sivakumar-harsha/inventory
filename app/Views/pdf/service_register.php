@@ -34,7 +34,7 @@
             <td><?= esc(pdf_text($r['receipt_type'])) ?></td>
             <td><?= esc(pdf_text($r['customer_name'])) ?></td>
             <td><?= esc(pdf_text($r['attended_person'] ?? '')) ?></td>
-            <td><?= esc(pdf_text($r['payment_mode'] ?? '')) ?></td>
+            <td><?= esc(pdf_text(pm_label($r['payment_mode'] ?? '', '-'))) ?></td>
             <td><?= esc(pdf_text($r['payment_status'])) ?></td>
             <td class="pdf-right"><?= pdf_currency($r['grand_total']) ?></td>
             <td class="pdf-right"><?= pdf_currency($r['received_amount']) ?></td>

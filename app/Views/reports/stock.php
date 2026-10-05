@@ -86,8 +86,8 @@
 <div class="card-custom mb-3">
     <div class="card-custom-header">Filters</div>
     <div class="card-custom-body">
-        <form method="GET" action="<?= base_url('reports/stock') ?>">
-            <div class="row">
+        <form method="GET" data-auto-filter action="<?= base_url('reports/stock') ?>">
+            <div class="row fb-one-row">
 
                 <div class="col-md-4">
                     <div class="form-section">
@@ -105,9 +105,6 @@
 
                 <div class="col-md-4" style="display:flex;align-items:flex-end;gap:10px;padding-bottom:14px">
 
-                    <button type="submit" class="btn-save">
-                        <i class="bi bi-search"></i> Filter
-                    </button>
 					
 					<a href="<?= base_url('reports/stock') ?>" class="btn btn-sm btn-secondary">
                        <i class="bi bi-arrow-clockwise"></i> Reset
@@ -134,14 +131,14 @@
     <div class="table-responsive">
         <table id="stockTable" class="table-custom">
             <thead>
-                <tr><th>#</th><th>Product</th><th>Unit</th><th style="text-align:center">General Stock</th><th style="text-align:center">Project Stock</th><th style="text-align:center">Total Stock</th></tr>
+                <tr><th class="sno-col">S.No.</th><th>Product</th><th>Unit</th><th style="text-align:center">General Stock</th><th style="text-align:center">Project Stock</th><th style="text-align:center">Total Stock</th></tr>
             </thead>
             <tbody>
                 <?php foreach ($stock as $i => $s):
                     $total = $s['general_stock'] + $s['project_stock'];
                 ?>
                 <tr>
-                    <td><?= $i + 1 ?></td>
+                    <td class="sno-col"><?= $i + 1 ?></td>
                     <td><strong><?= esc($s['name']) ?></strong></td>
                     <td><?= esc($s['unit']) ?></td>
                     <td style="text-align:center"><?= number_format($s['general_stock']) ?></td>
@@ -162,7 +159,7 @@
 				searching: false,    // ❌ remove search box
 				lengthChange: false, // ❌ remove "show entries"
 				info: false,          // (optional) showing "1 to 10 of X"
-				ordering: true,      // (optional sorting)
+				ordering: true, order: [],      // (optional sorting)
 				pageLength: 10,      // default rows per page
 
 				dom: 'tpi' ,// ✅ ONLY table + pagination + info

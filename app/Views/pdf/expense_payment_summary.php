@@ -20,7 +20,7 @@
     <tbody>
         <?php $total = 0.0; $count = 0; foreach ($rows as $r): $total += (float) $r['total']; $count += (int) $r['count']; ?>
         <tr>
-            <td><?= esc(pdf_text($r['payment_method'])) ?></td>
+            <td><?= esc(pdf_text(pm_label($r['payment_method'], 'Not recorded'))) ?></td>
             <td class="pdf-right"><?= (int) $r['count'] ?></td>
             <td class="pdf-right"><?= pdf_currency($r['total']) ?></td>
             <td class="pdf-right"><?= number_format((float) $r['percentage'], 1) ?>%</td>

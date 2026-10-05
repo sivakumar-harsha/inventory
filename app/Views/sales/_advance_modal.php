@@ -9,8 +9,8 @@
  * ignored, and only the three "Continue with ..." choices submit the form. Cancel closes it and
  * saves nothing (the page stays as it is).
  *
- * Three selectable cards: Apply Full Advance, Apply Partial Advance, Save Without Applying Advance (default;
- * on Edit the invoice's existing allocation is preselected). The answer goes to the server in the
+ * Three selectable cards: Apply Full Advance, Apply Partial Advance, Save Without Applying Advance (default is
+ * Apply Full Advance when a usable advance exists, else Save Without; on Edit the invoice's existing allocation is preselected). The answer goes to the server in the
  * hidden advance_action ('apply' | 'none') and advance_to_apply fields, and the server re-validates
  * everything and refuses to save without an answer.
  *
@@ -190,11 +190,15 @@ $advanceOriginalProject = (int) ($advanceOriginalProject ?? 0);
                 $('#advChoiceFull, #advChoicePartial').prop('disabled', !allocOn);
                 $('#advChoiceFull, #advChoicePartial').closest('label.card').toggleClass('opacity-50', !allocOn).css('cursor', allocOn ? 'pointer' : 'not-allowed');
                 $('#amUnavailable').toggle(!allocOn);
-                // Never default to applying: Save Without Applying Advance unless this invoice already has an allocation.
+                // Default selection only (nothing is saved until Continue): Apply Full Advance when there is a usable
+                // amount (min of available advance and invoice balance), otherwise Save Without Applying Advance.
+                // An invoice that already has an allocation keeps its existing choice.
                 $('#advChoiceNone').prop('checked', true);
                 if (allocOn && editing && current > 0.004) {
                     if (Math.abs(current - maxApply) < 0.005) { $('#advChoiceFull').prop('checked', true); }
                     else { $('#advChoicePartial').prop('checked', true); $('#amPartialInput').val(money(current)); }
+                } else if (allocOn && maxApply > 0.004) {
+                    $('#advChoiceFull').prop('checked', true);
                 }
                 $('#amContinueBtn, #amCancelBtn').prop('disabled', false);
                 refresh();

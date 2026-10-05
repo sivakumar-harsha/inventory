@@ -28,6 +28,7 @@
             <th>Voucher No</th>
             <th>Type</th>
             <th>Particulars</th>
+            <th>Method</th>
             <th class="pdf-right">Money In</th>
             <th class="pdf-right">Money Out</th>
             <th class="pdf-right">Balance</th>
@@ -35,11 +36,11 @@
     </thead>
     <tbody>
         <tr>
-            <td colspan="6"><strong>Opening Balance</strong></td>
+            <td colspan="7"><strong>Opening Balance</strong></td>
             <td class="pdf-right"><strong><?= pdf_currency($statement['opening']) ?></strong></td>
         </tr>
         <?php if (empty($rows)): ?>
-        <tr><td colspan="7" class="pdf-center">No transactions match the applied filters.</td></tr>
+        <tr><td colspan="8" class="pdf-center">No transactions match the applied filters.</td></tr>
         <?php endif; ?>
         <?php foreach ($rows as $r): ?>
         <tr>
@@ -47,6 +48,7 @@
             <td><?= esc(pdf_text($r['voucher'])) ?></td>
             <td><?= esc($r['ttype']) ?></td>
             <td><?= esc(pdf_text($r['particulars'])) ?></td>
+            <td><?= esc(pm_label($r['method'] ?? '', $r['ttype'] === 'Transfer' ? '—' : 'Not recorded')) ?></td>
             <td class="pdf-right"><?= $r['deposit'] > 0 ? pdf_currency($r['deposit']) : '-' ?></td>
             <td class="pdf-right"><?= $r['withdrawal'] > 0 ? pdf_currency($r['withdrawal']) : '-' ?></td>
             <td class="pdf-right"><?= pdf_currency($r['balance']) ?></td>
@@ -55,7 +57,7 @@
     </tbody>
     <tfoot>
         <tr>
-            <td colspan="6" class="pdf-right">Closing Balance</td>
+            <td colspan="7" class="pdf-right">Closing Balance</td>
             <td class="pdf-right"><?= pdf_currency($statement['closing']) ?></td>
         </tr>
     </tfoot>

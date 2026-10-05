@@ -86,7 +86,7 @@ $actionBadge = static function (string $action): string {
 <div class="card-custom mb-3 no-print">
     <div class="card-custom-header">Filters</div>
     <div class="card-custom-body">
-        <form method="GET" action="<?= base_url('audit-logs') ?>" class="row g-2 align-items-end">
+        <form method="GET" data-auto-filter action="<?= base_url('audit-logs') ?>" class="row g-2 align-items-end fb-one-row">
             <div class="col-6 col-md-2">
                 <div class="form-section">
                     <label class="form-label">User</label>
@@ -139,7 +139,6 @@ $actionBadge = static function (string $action): string {
                 </div>
             </div>
             <div class="col-12">
-                <button type="submit" class="btn-save"><i class="bi bi-funnel"></i> Filter</button>
                 <a href="<?= base_url('audit-logs') ?>" class="btn-cancel"><i class="bi bi-arrow-counterclockwise"></i> Reset</a>
             </div>
         </form>
@@ -159,6 +158,7 @@ $actionBadge = static function (string $action): string {
         <table id="alTable" class="table-custom al-table">
             <thead>
                 <tr>
+                    <th class="sno-col">S.No.</th>
                     <th>Date/Time</th>
                     <th>User</th>
                     <th>Module</th>
@@ -171,10 +171,11 @@ $actionBadge = static function (string $action): string {
             </thead>
             <tbody>
                 <?php if ($count === 0): ?>
-                <tr><td colspan="8" style="text-align:center;padding:20px;color:#94a3b8;"><i class="bi bi-inbox"></i> No audit log entries found for the selected filters.</td></tr>
+                <tr><td colspan="9" style="text-align:center;padding:20px;color:#94a3b8;"><i class="bi bi-inbox"></i> No audit log entries found for the selected filters.</td></tr>
                 <?php endif; ?>
                 <?php foreach ($rows as $r): ?>
                 <tr>
+                    <td class="sno-col" data-label="S.No."></td>
                     <td data-order="<?= esc($r['created_at']) ?>"><?= $fmtDateTime($r['created_at']) ?></td>
                     <td><?= esc($r['username'] ?? 'System') ?></td>
                     <td><?= esc($r['module']) ?></td>

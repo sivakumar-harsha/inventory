@@ -32,7 +32,7 @@ $filtered = ($type !== '' || $q !== '');
 
 	.cbk-scroll { max-height: 62vh; overflow: auto; }
 	.cbk-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: .8rem; }
-	.cbk-table thead th { position: sticky; top: 0; z-index: 2; background: #f1f5f9; padding: 0 10px; height: 34px; font-size: .68rem; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); border-bottom: 1px solid var(--border-color); white-space: nowrap; }
+	.cbk-table thead th { position: sticky; top: 0; z-index: 2; background: #f1f5f9; padding: 0 10px; height: 34px; font-size: .68rem; text-transform: none; letter-spacing: .03em; color: var(--text-muted); border-bottom: 1px solid var(--border-color); white-space: nowrap; }
 	.cbk-table td { height: 44px; padding: 0 10px; border-bottom: 1px solid #eef2f7; vertical-align: middle; }
 	.cbk-table td:first-child { border-left: 3px solid transparent; }
 	.cbk-table tr.edge-in td:first-child { border-left-color: #16a34a; }
@@ -107,8 +107,17 @@ $filtered = ($type !== '' || $q !== '');
     </div>
 </form>
 
+<div class="d-flex justify-content-end mb-2"><a href="<?= base_url('cash-book/opening-balance') ?>" class="btn-cancel"><i class="bi bi-cash-stack"></i> Opening Balance</a></div>
+<?php if (! empty($statement['locked_opening'])): $lo = $statement['locked_opening']; ?>
+<div class="cbk-note mb-2" id="cbkOpeningLock" style="font-size:.8rem">
+    <i class="bi bi-lock-fill"></i> Opening Cash: <strong>₹ <?= $fmt($lo['amount']) ?></strong> · Opening Date: <strong><?= $dmy($lo['opening_date']) ?></strong> · Status: <strong>Locked</strong>
+    <?php if (! empty($statement['excluded_before_opening'])): ?>
+    <div class="mt-1 text-muted" id="cbkOpeningExcluded"><strong>Note:</strong> Some cash transactions are dated before the Cash Opening Date and are excluded from the current cash calculation.</div>
+    <?php endif; ?>
+</div>
+<?php endif; ?>
 <div class="cbk-strip">
-    <div class="st-item st-open"><span>Opening Cash<?= $from ? ' · ' . $dmy($from) : '' ?></span><b>₹ <?= $fmt($statement['opening']) ?></b></div>
+    <div class="st-item st-open"><span>Opening Cash<?= ($statement['opening_date'] ?? $from) ? ' · ' . $dmy($statement['opening_date'] ?? $from) : '' ?></span><b>₹ <?= $fmt($statement['opening']) ?></b></div>
     <div class="st-item st-in"><span>Cash Received</span><b>₹ <?= $fmt($statement['cash_in']) ?></b></div>
     <div class="st-item st-out"><span>Cash Paid</span><b>₹ <?= $fmt($statement['cash_out']) ?></b></div>
     <div class="st-item st-close"><span>Closing Cash<?= $to ? ' · ' . $dmy($to) : '' ?></span><b>₹ <?= $fmt($statement['closing']) ?></b></div>
@@ -123,35 +132,46 @@ $filtered = ($type !== '' || $q !== '');
         <table class="cbk-table" id="ledgerTable">
             <thead>
                 <tr>
-                    <th>Date</th><th>Voucher No</th><th>Transaction Type</th><th>Particulars</th>
+                    <th class="sno-col">S.No.</th>
+                    <th>Date</th><th>Voucher No</th><th>Transaction Type</th><th>Particulars</th><th>Method</th>
                     <th class="num">Cash In</th><th class="num">Cash Out</th><th class="num">Running Cash Balance</th>
                 </tr>
             </thead>
             <tbody>
                 <tr class="open-row edge-open">
-                    <td data-label="Date"><?= $from ? $dmy($from) : '' ?></td>
+                    <td class="sno-col" data-label="S.No."></td>
+                    <td data-label="Date"><?= ($statement['opening_date'] ?? $from) ? $dmy($statement['opening_date'] ?? $from) : '' ?></td>
                     <td data-label="Voucher">-</td>
                     <td data-label="Type"><span class="tbadge t-opening-cash">Opening Cash</span></td>
-                    <td data-label="Particulars" class="part">Opening cash<?= $from ? ' as on ' . $dmy($from) : '' ?></td>
+                    <td data-label="Particulars" class="part"><?php if (! empty($statement['opening_is_setting'])): ?>Opening cash balance<?= ! empty($statement['opening_remarks']) ? ' — ' . esc($statement['opening_remarks']) : '' ?><?php else: ?>Opening cash<?= $from ? ' as on ' . $dmy($from) : '' ?><?php endif; ?></td>
+                    <td data-label="Method"><?= pm_badge('') ?></td>
                     <td class="num amt-nil">-</td><td class="num amt-nil">-</td>
                     <td data-label="Balance" class="num bal <?= $statement['opening'] < 0 ? 'bal-neg' : '' ?>"><?= $fmt($statement['opening']) ?></td>
                 </tr>
                 <?php if (empty($rows)): ?>
-                <tr><td colspan="7" class="cbk-empty" style="display:table-cell">No cash transactions in this period.</td></tr>
+                <tr><td colspan="9" class="cbk-empty" style="display:table-cell">No cash transactions in this period.</td></tr>
                 <?php endif; ?>
                 <?php foreach ($rows as $r): ?>
                 <tr class="<?= $rowCls($r) ?>">
+                    <td class="sno-col sno-auto" data-label="S.No."></td>
                     <td data-label="Date"><?= $dmy($r['date']) ?></td>
                     <td data-label="Voucher"><?= esc($r['voucher'] !== '' ? $r['voucher'] : '-') ?></td>
                     <td data-label="Type"><span class="tbadge t-<?= $slug($r['ttype']) ?>"><?= esc($r['ttype']) ?></span></td>
                     <td data-label="Particulars" class="part"><?= esc($r['particulars']) ?></td>
+                    <td data-label="Method"><?= pm_badge($r['method'] ?? '', 'Not recorded') ?></td>
                     <td data-label="Cash In" class="num <?= $r['in'] > 0 ? 'amt-in' : 'amt-nil' ?>"><?= $r['in'] > 0 ? $fmt($r['in']) : '-' ?></td>
                     <td data-label="Cash Out" class="num <?= $r['out'] > 0 ? 'amt-out' : 'amt-nil' ?>"><?= $r['out'] > 0 ? $fmt($r['out']) : '-' ?></td>
                     <td data-label="Balance" class="num bal <?= $r['balance'] < 0 ? 'bal-neg' : '' ?>"><?= $fmt($r['balance']) ?></td>
                 </tr>
                 <?php endforeach; ?>
             </tbody>
-            <tfoot><tr><td colspan="6" class="num">Closing Cash</td><td class="num"><?= $fmt($statement['closing']) ?></td></tr></tfoot>
+            <?php /* Release 4.9.0EF: footer totals are the same $statement cash_in / cash_out / closing as the summary cards above - nothing recalculated here. */ ?>
+            <tfoot><tr>
+                <td colspan="6" class="num">TOTAL</td>
+                <td class="num amt-in" data-label="Total Cash In"><?= $fmt($statement['cash_in']) ?></td>
+                <td class="num amt-out" data-label="Total Cash Out"><?= $fmt($statement['cash_out']) ?></td>
+                <td class="num" data-label="Closing Cash"><span style="font-weight:600;color:#64748b;font-size:.68rem;">Closing Cash</span> <?= $fmt($statement['closing']) ?></td>
+            </tr></tfoot>
         </table>
     </div>
 </div>

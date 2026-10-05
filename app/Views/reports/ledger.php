@@ -83,14 +83,17 @@
     <a href="<?= base_url('reports') ?>" class="btn-cancel"><i class="bi bi-arrow-left"></i> Back</a>
 </div>
 
+<?php if (! empty($product_cleared)): ?>
+<div class="alert alert-warning py-2 mb-2">The selected product does not belong to this project, so it was cleared. Showing no entries for that combination.</div>
+<?php endif; ?>
 <div class="card-custom mb-3">
     <div class="card-custom-body">
-        <form method="GET" action="<?= base_url('reports/ledger') ?>">
-            <div class="row">
+        <form method="GET" data-auto-filter action="<?= base_url('reports/ledger') ?>">
+            <div class="row fb-one-row">
 				<div class="col-md-4">
 					<div class="form-section">
 						<label class="form-label">Filter by Project</label>
-						<select name="project_id" class="form-control">
+						<select name="project_id" class="form-control" data-auto-filter-clear="product_id">
 							<option value="">All Projects</option>
 							<option value="general" <?= $project_id === 'general' ? 'selected' : '' ?>>GENERAL PRODUCTS</option>
 							<?php foreach ($projects as $pr): ?>
@@ -117,9 +120,6 @@
 				</div>
 
 				 <div class="col-md-4" style="display:flex;align-items:flex-end;gap:10px;padding-bottom:14px">
-					<button type="submit" class="btn-save">
-						<i class="bi bi-search"></i> Filter
-					</button>
 					 
 					 <a href="<?= base_url('reports/ledger') ?>" class="btn btn-sm btn-secondary">
                        <i class="bi bi-arrow-clockwise"></i> Reset
@@ -145,12 +145,12 @@
     <div class="table-responsive">
         <table id="ledgerTable" class="table-custom">
             <thead>
-                <tr><th>#</th><th>Date</th><th>Product</th><th>Type</th><th>Qty</th><th>Source</th><th>Project</th><th>Reference</th><th>Notes</th></tr>
+                <tr><th class="sno-col">S.No.</th><th>Date</th><th>Product</th><th>Type</th><th>Qty</th><th>Source</th><th>Project</th><th>Reference</th><th>Notes</th></tr>
             </thead>
             <tbody>
                 <?php foreach ($ledger as $i => $l): ?>
                 <tr>
-                    <td><?= $i + 1 ?></td>
+                    <td class="sno-col"><?= $i + 1 ?></td>
                     <td><?= $l['transaction_date'] ?></td>
                     <td><?= esc($l['product_name']) ?></td>
                     <td><span class="badge-status badge-<?= strtolower($l['transaction_type']) ?>"><?= $l['transaction_type'] ?></span></td>
@@ -178,7 +178,7 @@ $(document).ready(function () {
 		searching: false,    // ❌ remove search box
 		lengthChange: false, // ❌ remove "show entries"
 		info: false,          // (optional) showing "1 to 10 of X"
-		ordering: true,      // (optional sorting)
+		ordering: true, order: [],      // (optional sorting)
 		pageLength: 10,      // default rows per page
 
 		dom: 'tpi', // ✅ ONLY table + pagination + info
@@ -192,42 +192,7 @@ $(document).ready(function () {
 		 }
 	});
 
-    $('select[name="project_id"]').on('change select2:select', function () {
-
-        var projectId = $(this).val();
-        var productDropdown = $('select[name="product_id"]');
-
-        $.ajax({
-            url: "<?= base_url('reports/get-products-by-project') ?>",
-            type: "GET",
-            data: { project_id: projectId },
-
-            success: function (res) {
-
-                productDropdown.empty();
-                productDropdown.append('<option value="">All Products</option>');
-
-                res.forEach(function (p) {
-                    productDropdown.append(
-                        '<option value="'+p.id+'">'+p.name+'</option>'
-                    );
-                });
-
-                // refresh select2 safely
-                if (productDropdown.hasClass("select2-hidden-accessible")) {
-                    productDropdown.select2('destroy');
-                }
-
-                productDropdown.select2({
-                    width: '100%',
-                    placeholder: 'Search...'
-                });
-
-            }
-        });
-
-    });
-
+    // Release 4.9.0DJ: the Product list is rendered by the server for the selected Project (the form auto-submits on change).
 });
 </script>
 <?= $this->endSection() ?>

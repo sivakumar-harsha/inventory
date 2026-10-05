@@ -11,13 +11,11 @@
 	.dataTables_wrapper .dataTables_paginate .paginate_button:hover { background: #1e293b !important; color: #fff !important; }
 
 	.filter-toolbar .form-section { margin-bottom: 0; }
-	.filter-toolbar .form-label { font-size: .72rem; margin-bottom: 3px; }
-	.filter-toolbar .form-control { padding: 6px 10px; font-size: .82rem; height: auto; }
 	.filter-toolbar .btn-save { padding: 6px 12px; font-size: .8rem; white-space: nowrap; }
 
 	#colTable.table-custom th,
 	#colTable.table-custom td { padding: 7px 10px; font-size: .75rem; }
-	#colTable td:nth-child(1), #colTable td:nth-child(2) { white-space: nowrap; }
+	#colTable td:nth-child(2), #colTable td:nth-child(3) { white-space: nowrap; }
 
 	.badge-src { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: .7rem; font-weight: 700; white-space: nowrap; }
 	.badge-src.src-invoice-receipt  { background:#e0e7ff; color:#3730a3; }
@@ -92,7 +90,7 @@
 <div class="card-custom mb-3">
     <div class="card-custom-header">Filters</div>
     <div class="card-custom-body">
-        <form method="GET" action="<?= base_url('service-reports/collections') ?>" class="filter-toolbar">
+        <form method="GET" data-auto-filter action="<?= base_url('service-reports/collections') ?>" class="filter-toolbar">
             <div class="row g-2 align-items-end">
                 <div class="col-6 col-md-3">
                     <div class="form-section">
@@ -111,7 +109,7 @@
                         <select name="payment_mode" class="form-control">
                             <option value="">All Modes</option>
                             <?php foreach ($paymentModes as $m): ?>
-                            <option value="<?= $m ?>" <?= $f['payment_mode'] === $m ? 'selected' : '' ?>><?= esc(ucfirst(strtolower($m))) ?></option>
+                            <option value="<?= $m ?>" <?= $f['payment_mode'] === $m ? 'selected' : '' ?>><?= esc(pm_label($m)) ?></option>
                             <?php endforeach; ?>
                         </select>
                     </div>
@@ -146,7 +144,6 @@
                     </div>
                 </div>
                 <div class="col-12" style="display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap">
-                    <button type="submit" class="btn-save"><i class="bi bi-search"></i> Filter</button>
                     <a href="<?= base_url('service-reports/collections') ?>" class="btn-save" style="background:#6c757d;"><i class="bi bi-arrow-clockwise"></i> Reset</a>
                     <a href="<?= base_url('service-reports/export/pdf/collections') . (($qs = $_SERVER['QUERY_STRING'] ?? '') !== '' ? '?' . $qs : '') ?>" class="btn-save" style="background:#16a34a;"><i class="bi bi-file-earmark-pdf"></i> Export PDF</a>
                     <a href="<?= base_url('service-reports/export/excel/collections') . (($qs = $_SERVER['QUERY_STRING'] ?? '') !== '' ? '?' . $qs : '') ?>" class="btn-save" style="background:#16a34a;"><i class="bi bi-file-earmark-excel"></i> Export Excel</a>
@@ -165,6 +162,7 @@
         <table id="colTable" class="table-custom">
             <thead>
                 <tr>
+                    <th class="sno-col">S.No.</th>
                     <th>Date</th>
                     <th>Reference No</th>
                     <th>Collection Source</th>
@@ -178,11 +176,12 @@
             <tbody>
                 <?php foreach ($rows as $r): ?>
                 <tr>
+                    <td class="sno-col" data-label="S.No."></td>
                     <td><?= esc($r['date']) ?></td>
                     <td><?= esc($r['reference']) ?></td>
                     <td><span class="badge-src src-<?= esc(strtolower(str_replace(' ', '-', $r['source']))) ?>"><?= esc($r['source']) ?></span></td>
                     <td><?= esc($r['customer'] ?: '-') ?></td>
-                    <td><?= esc(ucfirst(strtolower($r['mode']))) ?></td>
+                    <td><?= esc(pm_label($r['mode'], '-')) ?></td>
                     <td><?= esc($r['bank'] ?: '-') ?></td>
                     <td style="text-align:right"><?= number_format($r['amount'], 2) ?></td>
                     <td><?= esc($r['remarks'] ?: '-') ?></td>
@@ -191,7 +190,7 @@
             </tbody>
             <tfoot>
                 <tr style="background:#f8fafc;font-weight:700">
-                    <td colspan="6">TOTAL</td>
+                    <td colspan="7">TOTAL</td>
                     <td style="text-align:right"><?= number_format($kpi_filtered, 2) ?></td>
                     <td></td>
                 </tr>

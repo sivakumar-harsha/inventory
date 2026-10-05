@@ -20,13 +20,11 @@ $count      = count($rows);
 	.dataTables_wrapper .dataTables_paginate .paginate_button:hover { background: #1e293b !important; color: #fff !important; }
 
 	.filter-toolbar .form-section { margin-bottom: 0; }
-	.filter-toolbar .form-label { font-size: .72rem; margin-bottom: 3px; }
-	.filter-toolbar .form-control { padding: 6px 10px; font-size: .82rem; height: auto; }
 	.filter-toolbar .btn-save { padding: 6px 12px; font-size: .8rem; white-space: nowrap; }
 
 	#regTable.table-custom th,
 	#regTable.table-custom td { padding: 7px 10px; font-size: .75rem; }
-	#regTable td:nth-child(1), #regTable td:nth-child(4) { white-space: nowrap; }
+	#regTable td:nth-child(2), #regTable td:nth-child(5) { white-space: nowrap; }
 
 	.sr-breadcrumb { margin-bottom: 8px; }
 	.sr-breadcrumb .breadcrumb { margin-bottom: 0; font-size: .78rem; padding: 0; background: transparent; }
@@ -97,7 +95,7 @@ $count      = count($rows);
 <div class="card-custom mb-3 ln-noprint">
     <div class="card-custom-header">Filters</div>
     <div class="card-custom-body">
-        <form method="GET" action="<?= base_url('loan-reports') ?>" class="filter-toolbar" id="lnFilterForm">
+        <form method="GET" data-auto-filter action="<?= base_url('loan-reports') ?>" class="filter-toolbar" id="lnFilterForm">
             <div class="row g-2 align-items-end">
                 <div class="col-6 col-md-3">
                     <div class="form-section">
@@ -116,7 +114,7 @@ $count      = count($rows);
                         <select name="loan_type" class="form-control">
                             <option value="">All Types</option>
                             <?php foreach ($loanTypes as $t): ?>
-                            <option value="<?= $t ?>" <?= $f['loan_type'] === $t ? 'selected' : '' ?>><?= esc(ucfirst(strtolower($t))) ?></option>
+                            <option value="<?= $t ?>" <?= $f['loan_type'] === $t ? 'selected' : '' ?>><?= esc(\App\Models\LoanTypeModel::labels()[$t] ?? $t) ?></option>
                             <?php endforeach; ?>
                         </select>
                     </div>
@@ -168,6 +166,7 @@ $count      = count($rows);
         <table id="regTable" class="table-custom">
             <thead>
                 <tr>
+                    <th class="sno-col">S.No.</th>
                     <th>Loan Number</th>
                     <th>Lender</th>
                     <th>Loan Type</th>
@@ -181,9 +180,10 @@ $count      = count($rows);
             <tbody>
                 <?php foreach ($rows as $r): ?>
                 <tr>
+                    <td class="sno-col" data-label="S.No."></td>
                     <td><?= esc($r['loan_no']) ?></td>
                     <td><?= esc($r['lender_name']) ?></td>
-                    <td><?= esc(ucfirst(strtolower($r['loan_type']))) ?></td>
+                    <td><?= esc(\App\Models\LoanTypeModel::labels()[$r['loan_type']] ?? $r['loan_type']) ?></td>
                     <td data-order="<?= esc($r['start_date']) ?>"><?= $fmtDate($r['start_date']) ?></td>
                     <td style="text-align:right" data-order="<?= (float) $r['emi_amount'] ?>"><?= $money($r['emi_amount']) ?></td>
                     <td style="text-align:right" data-order="<?= (float) $r['outstanding_principal'] ?>"><?= $money($r['outstanding_principal']) ?></td>
@@ -194,7 +194,7 @@ $count      = count($rows);
             </tbody>
             <tfoot>
                 <tr style="background:#f8fafc;font-weight:700">
-                    <td colspan="5">TOTAL</td>
+                    <td colspan="6">TOTAL</td>
                     <td style="text-align:right"><?= $money($kpi_outstanding) ?></td>
                     <td colspan="2"></td>
                 </tr>

@@ -41,8 +41,6 @@
 	.search-icon { position: absolute; top: 8px; left: 9px; color: #94a3b8; font-size: 12px; }
 
 	.filter-toolbar .form-section { margin-bottom: 0; }
-	.filter-toolbar .form-label { font-size: .72rem; margin-bottom: 3px; }
-	.filter-toolbar .form-control { padding: 6px 10px; font-size: .82rem; height: auto; }
 	.filter-toolbar .btn-cancel, .filter-toolbar .btn-save { padding: 6px 12px; font-size: .8rem; white-space: nowrap; }
 
 	#expenseTable.table-custom th,
@@ -122,19 +120,14 @@
                     <input type="date" id="filterToDate" class="form-control">
                 </div>
             </div>
-        </div>
-        <div class="row g-2 align-items-end filter-toolbar mt-1">
-            <div class="col-12 col-md-4">
+            <div class="col-12 col-md-4 fb-search">
                 <div class="custom-search-box position-relative">
                     <label class="form-label">Search</label>
                     <i class="bi bi-search search-icon" style="top:34px;"></i>
                     <input type="text" id="customSearch" class="form-control ps-4" placeholder="Search expense no, paid to...">
                 </div>
             </div>
-            <div class="col-6 col-md-auto">
-                <a href="javascript:void(0)" id="applyFilters" class="btn-save"><i class="bi bi-funnel"></i> Filter</a>
-            </div>
-            <div class="col-6 col-md-auto">
+            <div class="col-6 col-md-auto fb-actions">
                 <a href="javascript:void(0)" id="resetFilters" class="btn-cancel"><i class="bi bi-arrow-counterclockwise"></i> Reset</a>
             </div>
         </div>
@@ -150,6 +143,7 @@
         <table id="expenseTable" class="table-custom">
             <thead>
                 <tr>
+                    <th class="sno-col">S.No.</th>
                     <th>Voucher No</th>
                     <th>Date</th>
                     <th>Category</th>
@@ -161,7 +155,7 @@
                 </tr>
             </thead>
             <tbody>
-                <tr class="exp-empty-row"><td colspan="8" class="exp-empty"><i class="bi bi-hourglass-split"></i>Loading expenses...</td></tr>
+                <tr class="exp-empty-row"><td colspan="9" class="exp-empty"><i class="bi bi-hourglass-split"></i>Loading expenses...</td></tr>
             </tbody>
         </table>
     </div>
@@ -213,23 +207,24 @@ var METHOD_BADGE_CLASS = { CASH: 'exp-badge-m-cash', BANK: 'exp-badge-m-bank', C
 
 function methodBadge(method) {
     var cls = METHOD_BADGE_CLASS[method] || 'exp-badge-m-other';
-    var label = method ? method.charAt(0) + method.slice(1).toLowerCase() : '-';
+    var label = {CASH: 'Cash', BANK: 'Bank', CHEQUE: 'Cheque', UPI: 'UPI', OTHER: 'Other'}[method] || (method ? method : 'Not recorded');
     return '<span class="exp-badge ' + cls + '">' + label + '</span>';
 }
 
 function expenseRowHtml(e) {
     var actions =
-        '<a href="' + baseUrl + 'expenses/view/' + e.id + '" class="btn-view" title="View"><i class="bi bi-eye"></i></a> ' +
-        '<a href="' + baseUrl + 'expenses/edit/' + e.id + '" class="btn-edit" title="Edit"><i class="bi bi-pencil"></i></a> ' +
-        '<a href="javascript:void(0)" class="btn-delete" title="Delete" onclick="openDeleteModal(' + e.id + ', \'' + (e.expense_no || '').replace(/'/g, "") + '\')"><i class="bi bi-trash"></i></a>';
+        '<a href="' + baseUrl + 'expenses/view/' + e.id + '" class="btn-view table-action-btn" title="View"><i class="bi bi-eye"></i></a> ' +
+        '<a href="' + baseUrl + 'expenses/edit/' + e.id + '" class="btn-edit table-action-btn" title="Edit"><i class="bi bi-pencil"></i></a> ' +
+        '<a href="javascript:void(0)" class="btn-delete table-action-btn" title="Delete" onclick="openDeleteModal(' + e.id + ', \'' + (e.expense_no || '').replace(/'/g, "") + '\')"><i class="bi bi-trash"></i></a>';
 
     return '<tr data-category="' + (e.category_name || '') + '" data-project="' + (e.project_name || '') + '" ' +
         'data-method="' + e.payment_method + '" data-status="' + e.status + '" data-date="' + e.expense_date + '">' +
+        '<td class="sno-col"></td>' +
         '<td><a href="' + baseUrl + 'expenses/view/' + e.id + '"><strong>' + (e.expense_no || '') + '</strong></a></td>' +
         '<td>' + e.expense_date + '</td>' +
         '<td>' + (e.category_name || '-') + '</td>' +
         '<td>' + (e.project_name || 'General') + '</td>' +
-        '<td>' + methodBadge(e.payment_method) + '</td>' +
+        '<td>' + methodBadge(e.payment_method) + (e.bank_name ? '<br><small class="text-muted">' + $('<div>').text(e.bank_name + ' ' + (e.account_name || '')).html() + '</small>' : '') + '</td>' +
         '<td style="text-align:right">' + Number(e.amount).toFixed(2) + '</td>' +
         '<td>' + statusBadge(e.status) + '</td>' +
         '<td>' + actions + '</td>' +
@@ -292,7 +287,8 @@ function loadExpenses() {
         if (!resp.status) return;
 
         var rows = resp.expenses.map(expenseRowHtml).join('');
-        $('#expenseTable tbody').html(rows || '<tr class="exp-empty-row"><td colspan="8" class="exp-empty"><i class="bi bi-inbox"></i>No expenses found.</td></tr>');
+        // Empty result: leave tbody empty so DataTables' own emptyTable row is used (a colspan row makes it count 1 column).
+        $('#expenseTable tbody').html(rows);
         $('#expenseCountChip').text(resp.expenses.length + ' record' + (resp.expenses.length === 1 ? '' : 's'));
 
         populateSelectFromUnique('#filterCategory', resp.expenses.map(function (e) { return e.category_name; }));
@@ -309,10 +305,10 @@ function loadExpenses() {
             lengthChange: false,
             info: false,
             ordering: true,
-            order: [[1, 'desc']],
+            order: [[2, 'desc']],
             pageLength: 10,
             dom: 'tp',
-            columnDefs: [{ orderable: false, targets: 7 }],
+            columnDefs: [{ orderable: false, targets: 8 }],
             language: {
                 paginate: {
                     previous: '<i class="bi bi-chevron-left"></i>',
@@ -324,7 +320,7 @@ function loadExpenses() {
 
         bindFilterSearch();
     }).fail(function () {
-        $('#expenseTable tbody').html('<tr class="exp-empty-row"><td colspan="8" class="exp-empty"><i class="bi bi-exclamation-triangle"></i>Failed to load expenses. Please refresh the page.</td></tr>');
+        $('#expenseTable tbody').html('<tr class="exp-empty-row"><td colspan="9" class="exp-empty"><i class="bi bi-exclamation-triangle"></i>Failed to load expenses. Please refresh the page.</td></tr>');
         $('#expenseCountChip').text('—');
     });
 }
@@ -362,7 +358,8 @@ function bindFilterSearch() {
         expenseTable.search(this.value).draw();
     });
 
-    $('#applyFilters').off('click').on('click', function () {
+    // Filters apply immediately (Release 4.9.0CW); jQuery delegation also catches Select2's change events.
+    $('#filterCategory, #filterProject, #filterPaymentMethod, #filterStatus, #filterFromDate, #filterToDate').off('change.expFilter').on('change.expFilter', function () {
         expenseTable.draw();
     });
 

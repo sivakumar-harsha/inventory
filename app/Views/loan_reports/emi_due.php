@@ -21,13 +21,11 @@ $count      = count($rows);
 	.dataTables_wrapper .dataTables_paginate .paginate_button:hover { background: #1e293b !important; color: #fff !important; }
 
 	.filter-toolbar .form-section { margin-bottom: 0; }
-	.filter-toolbar .form-label { font-size: .72rem; margin-bottom: 3px; }
-	.filter-toolbar .form-control { padding: 6px 10px; font-size: .82rem; height: auto; }
 	.filter-toolbar .btn-save { padding: 6px 12px; font-size: .8rem; white-space: nowrap; }
 
 	#dueTable.table-custom th,
 	#dueTable.table-custom td { padding: 7px 10px; font-size: .75rem; }
-	#dueTable td:nth-child(1), #dueTable td:nth-child(2) { white-space: nowrap; }
+	#dueTable td:nth-child(2), #dueTable td:nth-child(3) { white-space: nowrap; }
 
 	.sr-breadcrumb { margin-bottom: 8px; }
 	.sr-breadcrumb .breadcrumb { margin-bottom: 0; font-size: .78rem; padding: 0; background: transparent; }
@@ -46,13 +44,17 @@ $count      = count($rows);
 </nav>
 
 <div class="page-title d-flex align-items-center justify-content-between flex-wrap">
-    <span class="d-flex align-items-center"><i class="bi bi-calendar-event me-2"></i>EMI Due Report</span>
+    <span class="d-flex align-items-center"><i class="bi bi-calendar-event me-2"></i>EMI Due Report <small class="text-muted ms-2">(schedule reference)</small></span>
     <div class="d-flex gap-2">
         <a href="<?= base_url('loans') ?>" class="btn-cancel"><i class="bi bi-arrow-left"></i> Loan Management</a>
     </div>
 </div>
 
 <?= $this->include('loans/partials/report_toolbar') ?>
+
+<div class="alert alert-info">
+    <i class="bi bi-info-circle-fill me-2"></i><strong>Schedule reference.</strong> This report lists the original EMI schedule. Loan payments are recorded manually and do not mark EMIs as paid, so an EMI shown here is not necessarily unpaid. See the Payments report for what was actually paid.
+</div>
 
 <!-- KPI CARDS -->
 <div class="row g-3 mb-3">
@@ -61,7 +63,7 @@ $count      = count($rows);
             <div class="kpi-icon"><i class="bi bi-calendar-month"></i></div>
             <div>
                 <div class="kpi-value"><?= $money($kpi_due_month) ?></div>
-                <div class="kpi-label">EMI Due This Month (<?= (int) $kpi_due_month_count ?>)</div>
+                <div class="kpi-label">Scheduled EMI This Month (ref.) (<?= (int) $kpi_due_month_count ?>)</div>
             </div>
         </div>
     </div>
@@ -70,7 +72,7 @@ $count      = count($rows);
             <div class="kpi-icon"><i class="bi bi-exclamation-triangle"></i></div>
             <div>
                 <div class="kpi-value"><?= number_format($kpi_overdue_count) ?></div>
-                <div class="kpi-label">Overdue EMI Count</div>
+                <div class="kpi-label">Past-schedule EMI Count (ref.)</div>
             </div>
         </div>
     </div>
@@ -79,7 +81,7 @@ $count      = count($rows);
             <div class="kpi-icon"><i class="bi bi-calendar-check"></i></div>
             <div>
                 <div class="kpi-value"><?= number_format($kpi_upcoming_count) ?></div>
-                <div class="kpi-label">Upcoming EMI Count</div>
+                <div class="kpi-label">Upcoming Scheduled EMIs (ref.)</div>
             </div>
         </div>
     </div>
@@ -88,7 +90,7 @@ $count      = count($rows);
             <div class="kpi-icon"><i class="bi bi-cash-stack"></i></div>
             <div>
                 <div class="kpi-value"><?= $money($kpi_overdue_amount) ?></div>
-                <div class="kpi-label">Overdue Amount</div>
+                <div class="kpi-label">Past-schedule Amount (ref.)</div>
             </div>
         </div>
     </div>
@@ -98,7 +100,7 @@ $count      = count($rows);
 <div class="card-custom mb-3 ln-noprint">
     <div class="card-custom-header">Filters</div>
     <div class="card-custom-body">
-        <form method="GET" action="<?= base_url('loan-reports/emi-due') ?>" class="filter-toolbar" id="lnFilterForm">
+        <form method="GET" data-auto-filter action="<?= base_url('loan-reports/emi-due') ?>" class="filter-toolbar" id="lnFilterForm">
             <div class="row g-2 align-items-end">
                 <div class="col-6 col-md-3">
                     <div class="form-section">
@@ -117,7 +119,7 @@ $count      = count($rows);
                         <select name="loan_type" class="form-control">
                             <option value="">All Types</option>
                             <?php foreach ($loanTypes as $t): ?>
-                            <option value="<?= $t ?>" <?= $f['loan_type'] === $t ? 'selected' : '' ?>><?= esc(ucfirst(strtolower($t))) ?></option>
+                            <option value="<?= $t ?>" <?= $f['loan_type'] === $t ? 'selected' : '' ?>><?= esc(\App\Models\LoanTypeModel::labels()[$t] ?? $t) ?></option>
                             <?php endforeach; ?>
                         </select>
                     </div>
@@ -151,13 +153,14 @@ $count      = count($rows);
 
 <div class="card-custom">
     <div class="card-custom-header ln-card-head">
-        <span>Unpaid EMIs</span>
+        <span>Scheduled EMIs (reference)</span>
         <span class="ln-count" id="lnCount"><?= number_format($count) ?> record<?= $count === 1 ? '' : 's' ?></span>
     </div>
     <div class="table-responsive ln-scroll ln-sticky">
         <table id="dueTable" class="table-custom">
             <thead>
                 <tr>
+                    <th class="sno-col">S.No.</th>
                     <th>Due Date</th>
                     <th>Loan Number</th>
                     <th>Lender</th>
@@ -172,6 +175,7 @@ $count      = count($rows);
             <tbody>
                 <?php foreach ($rows as $r): ?>
                 <tr>
+                    <td class="sno-col" data-label="S.No."></td>
                     <td data-order="<?= esc($r['due_date']) ?>"><?= $fmtDate($r['due_date']) ?></td>
                     <td><a href="<?= base_url('loans/view/' . $r['loan_id']) ?>" style="text-decoration:none;"><?= esc($r['loan_no']) ?></a></td>
                     <td><?= esc($r['lender_name']) ?></td>
@@ -186,7 +190,7 @@ $count      = count($rows);
             </tbody>
             <tfoot>
                 <tr style="background:#f8fafc;font-weight:700">
-                    <td colspan="6">TOTAL BALANCE</td>
+                    <td colspan="7">TOTAL BALANCE</td>
                     <td style="text-align:right"><?= $money($totalBalance) ?></td>
                     <td colspan="2"></td>
                 </tr>

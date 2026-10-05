@@ -45,7 +45,7 @@
                 <table class="table-custom">
                     <thead>
 						<tr>
-						<th>#</th>
+						<th class="sno-col">S.No.</th>
 						<th>Product</th>
 						<th>Unit</th>
 						<th>Qty</th>
@@ -63,7 +63,7 @@
                     <tbody>
                         <?php foreach ($items as $i => $item): ?>
                         <tr>
-                            <td><?= $i + 1 ?></td>
+                            <td class="sno-col"><?= $i + 1 ?></td>
                             <td><?= esc($item['product_name']) ?></td>
                             <td><?= esc($item['unit']) ?></td>
                             <td><?= number_format($item['quantity']) ?></td>

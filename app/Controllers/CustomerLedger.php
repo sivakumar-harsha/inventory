@@ -31,7 +31,14 @@ use CodeIgniter\Controller;
  */
 class CustomerLedger extends Controller
 {
-    private const TYPES = ['Invoice', 'Payment', 'Advance', 'Adjustment'];
+    // Release 4.9.0AH: 'Customer Project Cash' added — genuine customer money
+    // received for a project without an invoice (project_cash_receipts,
+    // receipt_type = CUSTOMER_PROJECT_CASH). The other three types now also
+    // cover the separate Sales/Invoice module (sales + payments tables),
+    // previously invisible on this ledger.
+    // Release 4.9.0CB: user-facing label of that receipt type is now 'Unallocated
+    // Project Receipt' (stored value CUSTOMER_PROJECT_CASH is unchanged).
+    private const TYPES = ['Invoice', 'Payment', 'Advance', 'Adjustment', 'Unallocated Project Receipt'];
 
     public function index()
     {
@@ -51,7 +58,9 @@ class CustomerLedger extends Controller
             if (! $customer) {
                 throw \CodeIgniter\Exceptions\PageNotFoundException::forPageNotFound('Customer not found.');
             }
-            $data += ['customer' => $customer] + $this->_statement($customer, $filters);
+            // array_merge (not +=) so 'customer' overwrites the null placeholder set above —
+            // += keeps the left operand's value on a key collision and silently dropped $customer.
+            $data = array_merge($data, ['customer' => $customer], $this->_statement($customer, $filters));
         }
 
         return view('customer_ledger/index', $data);
@@ -88,7 +97,7 @@ class CustomerLedger extends Controller
 
         $rows = [];
         foreach ($st['rows'] as $t) {
-            $rows[] = [$t['date'], $t['voucher'], $t['ttype'], $t['particulars'], $t['debit'], $t['credit'], $t['balance']];
+            $rows[] = [$t['date'], $t['voucher'], $t['ttype'], $t['particulars'], pm_label($t['method'], $t['ttype'] === 'Invoice' ? '—' : 'Not recorded'), $t['debit'], $t['credit'], $t['balance']];
         }
 
         $applied = array_filter([
@@ -98,24 +107,39 @@ class CustomerLedger extends Controller
             'Search' => $filters['q'],
         ], static fn ($v) => $v !== '');
 
+        // Release 4.9.0AI: 'Net Receivable' (outstanding - gross advance) is a
+        // narrower figure than the customer's true ledger position now that
+        // Sales-module payments and Customer Project Cash also post credits
+        // (see _statement()); it can be negative even when the customer's
+        // real position is positive, and vice versa. summary['balance'] is the
+        // authoritative whole-history debit-minus-credit figure already used
+        // for the on-screen Closing Balance, so the same label swap used there
+        // is applied here: negative = money owed BACK to the customer, shown
+        // as "Customer Credit" with the app's existing 'Cr' suffix convention
+        // (see projects/statement.php, customer_ledger/view.php) rather than a
+        // misleading negative "Net Receivable". No accounting figures change.
+        $balance  = (float) $st['summary']['balance'];
+        $infoBlock = [
+            'Customer'             => $customer['name'],
+            'GST'                  => $customer['gst'] ?? '',
+            'Outstanding Invoices' => (string) $st['summary']['unpaid_count'],
+            'Outstanding Amount'   => number_format($st['summary']['outstanding'], 2),
+            'Customer Advance'     => number_format($st['summary']['advance'], 2),
+        ];
+        $infoBlock[$balance < -0.004 ? 'Customer Credit' : 'Net Receivable']
+            = $balance < -0.004 ? number_format(abs($balance), 2) . ' Cr' : number_format($balance, 2);
+
         (new ExcelReport())->ledger(
             'Customer Ledger - ' . $customer['name'],
             $applied,
-            [
-                'Customer'             => $customer['name'],
-                'GST'                  => $customer['gst'] ?? '',
-                'Outstanding Invoices' => (string) $st['summary']['unpaid_count'],
-                'Outstanding Amount'   => number_format($st['summary']['outstanding'], 2),
-                'Customer Advance'     => number_format($st['summary']['advance'], 2),
-                'Net Receivable'       => number_format($st['summary']['net'], 2),
-            ],
+            $infoBlock,
             $st['opening'],
-            ['Date', 'Voucher No', 'Type', 'Particulars', 'Debit', 'Credit', 'Balance'],
+            ['Date', 'Voucher No', 'Type', 'Particulars', 'Method', 'Debit', 'Credit', 'Balance'],
             $rows,
-            ['date', 'text', 'text', 'text', 'currency', 'currency', 'currency'],
-            6,
+            ['date', 'text', 'text', 'text', 'text', 'currency', 'currency', 'currency'],
+            7,
             $st['closing'],
-            [4, 5],
+            [5, 6],
             'landscape'
         )->stream('customer_ledger_' . preg_replace('/[^a-z0-9]+/i', '_', $customer['name']) . '_' . date('Ymd_His'));
     }
@@ -160,14 +184,14 @@ class CustomerLedger extends Controller
         $customerId = (int) $customer['id'];
 
         $invoices = $db->query("
-            SELECT sr.id, sr.receipt_no, sr.receipt_date, sr.grand_total, sr.received_amount,
+            SELECT sr.id, sr.receipt_no, sr.receipt_date, sr.grand_total, sr.received_amount, sr.payment_mode,
                    COALESCE((SELECT SUM(cpa.paid_amount) FROM customer_payment_allocations cpa WHERE cpa.service_receipt_id = sr.id), 0) AS allocated
             FROM service_receipts sr
             WHERE sr.customer_id = ? AND sr.receipt_type = 'INVOICE'
         ", [$customerId])->getResultArray();
 
         $allocations = $db->query("
-            SELECT cp.id AS payment_id, cp.payment_no, cp.payment_date, cpa.paid_amount, sr.receipt_no
+            SELECT cp.id AS payment_id, cp.payment_no, cp.payment_date, cp.payment_method, cpa.paid_amount, sr.receipt_no
             FROM customer_payment_allocations cpa
             INNER JOIN customer_payments cp ON cp.id = cpa.customer_payment_id
             INNER JOIN service_receipts sr ON sr.id = cpa.service_receipt_id
@@ -189,12 +213,54 @@ class CustomerLedger extends Controller
 
             $initial = round(max(0.0, (float) $inv['received_amount'] - (float) $inv['allocated']), 2);
             if ($initial > 0) {
-                $rows[] = $this->_row($inv['receipt_date'], 1, (int) $inv['id'], $inv['receipt_no'], 'Payment', 'Received at invoice ' . $inv['receipt_no'], 0.0, $initial, $inv['receipt_no'], '');
+                $rows[] = $this->_row($inv['receipt_date'], 1, (int) $inv['id'], $inv['receipt_no'], 'Payment', 'Received at invoice ' . $inv['receipt_no'], 0.0, $initial, $inv['receipt_no'], '', (string) ($inv['payment_mode'] ?? ''));
             }
         }
 
         foreach ($allocations as $a) {
-            $rows[] = $this->_row($a['payment_date'], 2, (int) $a['payment_id'], $a['payment_no'], 'Payment', 'Payment against invoice ' . $a['receipt_no'], 0.0, (float) $a['paid_amount'], $a['receipt_no'], $remarksOf[(int) $a['payment_id']] ?? '');
+            $rows[] = $this->_row($a['payment_date'], 2, (int) $a['payment_id'], $a['payment_no'], 'Payment', 'Payment against invoice ' . $a['receipt_no'], 0.0, (float) $a['paid_amount'], $a['receipt_no'], $remarksOf[(int) $a['payment_id']] ?? '', (string) ($a['payment_method'] ?? ''));
+        }
+
+        // Release 4.9.0AH: the separate Sales/Invoice module (sales + payments
+        // tables — distinct from Service Received above) was never read by
+        // this ledger, so its invoice debits and payment credits were
+        // invisible here. advance_applied is deliberately NOT posted as a
+        // second credit: it only spends advance money already credited once,
+        // above, from customer_payments/projects.advance_amount.
+        $sales = $db->query("
+            SELECT id, invoice_no, sale_date, total_amount, advance_applied, paid_amount, balance_amount, status
+            FROM sales
+            WHERE customer_id = ?
+        ", [$customerId])->getResultArray();
+
+        $salePayments = $db->query("
+            SELECT p.id, p.sale_id, p.amount, p.payment_date, p.reference, p.method, s.invoice_no
+            FROM payments p
+            INNER JOIN sales s ON s.id = p.sale_id
+            WHERE s.customer_id = ?
+        ", [$customerId])->getResultArray();
+
+        foreach ($sales as $s) {
+            $rows[] = $this->_row($s['sale_date'], 4, (int) $s['id'], $s['invoice_no'], 'Invoice', 'Sales invoice', (float) $s['total_amount'], 0.0, $s['invoice_no'], '');
+        }
+        foreach ($salePayments as $p) {
+            $rows[] = $this->_row($p['payment_date'], 5, (int) $p['id'], $p['invoice_no'], 'Payment', 'Payment against invoice ' . $p['invoice_no'], 0.0, (float) $p['amount'], $p['invoice_no'], (string) ($p['reference'] ?? ''), (string) ($p['method'] ?? ''));
+        }
+
+        // Release 4.9.0AH: Customer Project Cash — genuine customer money
+        // received for a project without selecting an invoice. Credit-only
+        // (no invoice, no FIFO), scoped by the receipt's own stored
+        // customer_id so it can never leak to another customer's ledger.
+        $projectCash = $db->query("
+            SELECT pcr.id, pcr.receipt_no, pcr.receipt_date, pcr.amount, pcr.reference, pcr.notes, pcr.payment_method, p.name AS project_name
+            FROM project_cash_receipts pcr
+            INNER JOIN projects p ON p.id = pcr.project_id
+            WHERE pcr.customer_id = ? AND pcr.receipt_type = 'CUSTOMER_PROJECT_CASH'
+        ", [$customerId])->getResultArray();
+
+        foreach ($projectCash as $pc) {
+            $remarks = (string) ($pc['notes'] ?? ($pc['reference'] ?? ''));
+            $rows[]  = $this->_row($pc['receipt_date'], 6, (int) $pc['id'], $pc['receipt_no'], 'Unallocated Project Receipt', 'Unallocated project receipt - ' . $pc['project_name'], 0.0, (float) $pc['amount'], (string) ($pc['reference'] ?? ''), $remarks, (string) ($pc['payment_method'] ?? ''));
         }
 
         // Advance history = every advance received, voucher-based and project-based.
@@ -204,15 +270,15 @@ class CustomerLedger extends Controller
         foreach ($vouchers as $v) {
             if ((float) $v['advance_amount'] > 0) {
                 $remarks   = (string) ($v['remarks'] ?? '');
-                $rows[]    = $this->_row($v['payment_date'], 3, (int) $v['id'], $v['payment_no'], 'Advance', 'Advance received from customer', 0.0, (float) $v['advance_amount'], '', $remarks);
-                $advRows[] = ['date' => $v['payment_date'], 'voucher' => $v['payment_no'], 'source' => 'Payment voucher', 'received' => (float) $v['advance_amount'], 'remarks' => $remarks !== '' ? $remarks : 'Advance Received'];
+                $rows[]    = $this->_row($v['payment_date'], 3, (int) $v['id'], $v['payment_no'], 'Advance', 'Advance received from customer', 0.0, (float) $v['advance_amount'], '', $remarks, (string) ($v['payment_method'] ?? ''));
+                $advRows[] = ['date' => $v['payment_date'], 'voucher' => $v['payment_no'], 'source' => 'Payment voucher', 'method' => (string) ($v['payment_method'] ?? ''), 'received' => (float) $v['advance_amount'], 'remarks' => $remarks !== '' ? $remarks : 'Advance Received'];
                 $advanceTotal += (float) $v['advance_amount'];
             }
         }
 
         // Release 4.8.4J: each project with an advance is one credit row, read from the project itself.
         $projects = $db->query("
-            SELECT id, name, advance_amount, advance_date, created_at
+            SELECT id, name, advance_amount, advance_date, advance_payment_method, created_at
             FROM projects
             WHERE customer_id = ? AND advance_amount > 0
         ", [$customerId])->getResultArray();
@@ -221,8 +287,8 @@ class CustomerLedger extends Controller
             $date      = ProjectModel::advanceDate($p);
             $no        = ProjectModel::projectNumber((int) $p['id']);
             $amt       = round((float) $p['advance_amount'], 2);
-            $rows[]    = $this->_row($date, 3, (int) $p['id'], $no, 'Advance', 'Project advance received - ' . $p['name'], 0.0, $amt, '', '');
-            $advRows[] = ['date' => $date, 'voucher' => $no, 'source' => 'Project', 'received' => $amt, 'remarks' => 'Project Advance - ' . $p['name']];
+            $rows[]    = $this->_row($date, 3, (int) $p['id'], $no, 'Advance', 'Project advance received - ' . $p['name'], 0.0, $amt, '', '', (string) ($p['advance_payment_method'] ?? ''));
+            $advRows[] = ['date' => $date, 'voucher' => $no, 'source' => 'Project', 'method' => (string) ($p['advance_payment_method'] ?? ''), 'received' => $amt, 'remarks' => 'Project Advance - ' . $p['name']];
             $advanceTotal += $amt;
         }
 
@@ -275,6 +341,24 @@ class CustomerLedger extends Controller
                 'status' => $due <= 0.004 ? 'PAID' : ($paid > 0.004 ? 'PARTIAL' : 'PENDING'),
             ];
         }
+
+        // Release 4.9.0AH: the Sales module's own invoices are now part of
+        // "Outstanding Invoices" too, using its own authoritative running
+        // fields (balance_amount already nets out advance_applied — see
+        // SaleModel::_recalculateSaleRow()) rather than re-deriving them.
+        foreach ($sales as $s) {
+            $amount = (float) $s['total_amount'];
+            $due    = round((float) $s['balance_amount'], 2);
+            $paid   = round($amount - $due, 2);
+            if ($due > 0.004) {
+                $outstanding += $due;
+                $unpaidCount++;
+            }
+            $bills[] = [
+                'no' => $s['invoice_no'], 'date' => (string) $s['sale_date'], 'amount' => $amount, 'paid' => $paid, 'outstanding' => $due,
+                'status' => $s['status'] === 'UNPAID' ? 'PENDING' : $s['status'],
+            ];
+        }
         usort($bills, static fn ($x, $y) => strcmp($x['date'], $y['date']));
         $billsShown = array_values(array_filter($bills, static function ($b) use ($f, $needle) {
             if (! $f['show_paid'] && $b['outstanding'] <= 0.004) {
@@ -312,11 +396,14 @@ class CustomerLedger extends Controller
         ];
     }
 
-    private function _row(?string $date, int $order, int $seq, string $voucher, string $ttype, string $particulars, float $debit, float $credit, string $ref, string $remarks): array
+    // Release 4.9.0CB: $method is the stored payment method of the source record
+    // ('' for invoices and anything with no method) - presentation only.
+    private function _row(?string $date, int $order, int $seq, string $voucher, string $ttype, string $particulars, float $debit, float $credit, string $ref, string $remarks, string $method = ''): array
     {
         return [
             'date' => (string) $date, 'order' => $order, 'seq' => $seq, 'voucher' => $voucher, 'ttype' => $ttype,
             'particulars' => $particulars, 'debit' => $debit, 'credit' => $credit, 'ref' => $ref, 'remarks' => $remarks,
+            'method' => $method,
         ];
     }
 }

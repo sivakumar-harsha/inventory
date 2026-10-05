@@ -81,14 +81,14 @@
 
 	/* ✅ Match height + border */
 	.select2-container .select2-selection--single {
-		height: 32px !important;
+		height: 30px !important;
 		border: 1px solid #e2e8f0 !important;
 		border-radius: 6px !important;
 	}
 
 	/* ✅ Arrow alignment */
 	.select2-container--default .select2-selection--single .select2-selection__arrow {
-		height: 30px !important;
+		height: 28px !important;
 	}
 
 	/* ✅ Native dropdown match same font */
@@ -109,8 +109,12 @@
 	#salesTable.table-compact td {
 		padding: 6px 10px;
 		font-size: 13px;
-		height: 38px;
 		vertical-align: middle;
+	}
+	/* height belongs to data cells only: on a th (content-box) 38px + 12px padding + 1px border made the
+	   header 51px against ~32px on the other tables */
+	#salesTable.table-compact td {
+		height: 38px;
 	}
 	#salesTable.table-compact thead th {
 		font-size: 12px;
@@ -142,7 +146,7 @@
 
 </style>
 
-<div class="page-title d-flex align-items-center justify-content-between flex-wrap">
+<div class="page-title d-flex align-items-center justify-content-between flex-wrap fb-title-one-row">
 
     <div class="d-flex align-items-center gap-2 flex-nowrap" style="flex-shrink:0;">
         <span class="d-flex align-items-center" style="white-space:nowrap;">
@@ -197,7 +201,7 @@
     ];
 ?>
 
-<ul class="nav nav-tabs mb-3" style="border-bottom:2px solid #e2e8f0">
+<ul class="nav nav-tabs mb-2" style="border-bottom:2px solid #e2e8f0">
     <li class="nav-item">
         <a class="nav-link <?= $tab === 'active' ? 'active' : '' ?>"
            href="<?= base_url('sales?tab=active') ?>"
@@ -231,7 +235,7 @@
         <table id="salesTable" class="table-custom table-compact">
             <thead>
                 <tr>
-                    <th style="width:40px;">#</th>
+                    <th class="sno-col">S.No.</th>
                     <th>Invoice No</th>
                     <th class="truncate-col customer-filter-col">Customer</th>
                     <th class="truncate-col">Project</th>
@@ -245,7 +249,7 @@
                 <?php $j = 1; foreach ($sales as $s): ?>
 				<?php if ($s['status'] != 'PAID' && ($s['project_billing_status'] ?? '') !== 'COMPLETED'): ?>
 				<tr>
-					<td><?= $j++ ?></td>
+					<td class="sno-col"><?= $j++ ?></td>
                     <td class="invoice-col"><?= esc($s['invoice_no'] ?: '-') ?></td>
                     <td class="truncate-col customer-col" title="<?= esc($s['customer_name'] ?: '-') ?>"><?= esc($s['customer_name'] ?: '-') ?></td>
                     <td class="truncate-col" title="<?= esc($s['project_name']) ?>"><?= esc($s['project_name']) ?></td>
@@ -253,10 +257,10 @@
                     <td class="amount-pending"><?= number_format($s['balance_amount'], 2) ?></td>
                     <td class="col-hidden"><?= (int) ($s['project_id'] ?? 0) ?></td>
                     <td>
-						<a href="<?= base_url('sales/edit/' . $s['id']) ?>" class="btn-edit"><i class="bi bi-pencil"></i></a>
-                        <a href="<?= base_url('sales/view/' . $s['id']) ?>" class="btn-view"><i class="bi bi-eye"></i> </a>
+						<a href="<?= base_url('sales/edit/' . $s['id']) ?>" class="btn-edit table-action-btn"><i class="bi bi-pencil"></i></a>
+                        <a href="<?= base_url('sales/view/' . $s['id']) ?>" class="btn-view table-action-btn"><i class="bi bi-eye"></i> </a>
                         <a href="<?= base_url('payments/create/' . $s['id']) ?>" class="btn-pay" style="width: 65px;"><i class="bi bi-cash"></i>Pay</a>
-                        <a href="<?= base_url('sales/delete/' . $s['id']) ?>" class="btn-delete" onclick="return confirm('Delete this sale? Stock will be reversed.')"><i class="bi bi-trash"></i></a>
+                        <a href="<?= base_url('sales/delete/' . $s['id']) ?>" class="btn-delete table-action-btn" onclick="return confirm('Delete this sale? Stock will be reversed.')"><i class="bi bi-trash"></i></a>
                     </td>
                 </tr>
                 <?php endif; ?>
@@ -278,7 +282,7 @@
             <table id="salesTable" class="table-custom table-compact">
                 <thead>
                     <tr>
-                        <th style="width:40px;">#</th>
+                        <th class="sno-col">S.No.</th>
                         <th>Invoice No</th>
                         <th class="truncate-col customer-filter-col">Customer</th>
                         <th class="truncate-col">Project</th>
@@ -292,7 +296,7 @@
                     <?php $i = 1; foreach ($sales as $s): ?>
 					<?php if ($s['status'] == 'PAID' && ($s['project_billing_status'] ?? '') !== 'COMPLETED'): ?>
 					<tr>
-						<td><?= $i++ ?></td>
+						<td class="sno-col"><?= $i++ ?></td>
                         <td class="invoice-col"><?= esc($s['invoice_no'] ?: '-') ?></td>
                         <td class="truncate-col customer-col" title="<?= esc($s['customer_name'] ?: '-') ?>"><?= esc($s['customer_name'] ?: '-') ?></td>
                         <td class="truncate-col" title="<?= esc($s['project_name']) ?>"><?= esc($s['project_name']) ?></td>
@@ -300,7 +304,7 @@
                         <td class="amount-paid"><?= number_format($s['paid_amount'], 2) ?></td>
                         <td class="col-hidden"><?= (int) ($s['project_id'] ?? 0) ?></td>
                         <td>
-                            <a href="<?= base_url('sales/view/' . $s['id']) ?>" class="btn-view">
+                            <a href="<?= base_url('sales/view/' . $s['id']) ?>" class="btn-view table-action-btn">
                                 <i class="bi bi-eye"></i>
                             </a>
                         </td>
@@ -324,7 +328,7 @@
             <table id="salesTable" class="table-custom table-compact">
                 <thead>
                     <tr>
-                        <th style="width:40px;">#</th>
+                        <th class="sno-col">S.No.</th>
                         <th>Invoice No</th>
                         <th class="truncate-col customer-filter-col">Customer</th>
                         <th class="truncate-col">Project</th>
@@ -340,7 +344,7 @@
                     <?php $k = 1; foreach ($sales as $s): ?>
                     <?php if (($s['project_billing_status'] ?? '') === 'COMPLETED'): ?>
                     <tr>
-                        <td><?= $k++ ?></td>
+                        <td class="sno-col"><?= $k++ ?></td>
                         <td class="invoice-col"><?= esc($s['invoice_no'] ?: '-') ?></td>
                         <td class="truncate-col customer-col" title="<?= esc($s['customer_name'] ?: '-') ?>"><?= esc($s['customer_name'] ?: '-') ?></td>
                         <td class="truncate-col" title="<?= esc($s['project_name']) ?>"><?= esc($s['project_name']) ?></td>
@@ -350,7 +354,7 @@
                         <td class="amount-pending"><?= number_format($s['balance_amount'], 2) ?></td>
                         <td class="col-hidden"><?= (int) ($s['project_id'] ?? 0) ?></td>
                         <td>
-                            <a href="<?= base_url('sales/view/' . $s['id']) ?>" class="btn-view">
+                            <a href="<?= base_url('sales/view/' . $s['id']) ?>" class="btn-view table-action-btn">
                                 <i class="bi bi-eye"></i>
                             </a>
                         </td>
@@ -389,7 +393,7 @@
 				searching: true,    // ❌ remove search box
 				lengthChange: false, // ❌ remove "show entries"
 				info: false,          // (optional) showing "1 to 10 of X"
-				ordering: true,      // (optional sorting)
+				ordering: true, order: [],      // (optional sorting)
 				pageLength: 10,      // default rows per page
 
 				dom: 'tp' ,// ✅ ONLY table + pagination + info

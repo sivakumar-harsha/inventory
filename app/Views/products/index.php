@@ -92,7 +92,7 @@
         <table id="productTable" class="table-custom">
             <thead>
                 <tr>
-                    <th>#</th>
+                    <th class="sno-col">S.No.</th>
                     <th style="width: 500px;">Name</th>
 					<th>HSN</th>
 					<th>GST %</th>
@@ -104,15 +104,15 @@
             <tbody>
                 <?php foreach ($products as $i => $p): ?>
                 <tr>
-                    <td><?= $i + 1 ?></td>
+                    <td class="sno-col"><?= $i + 1 ?></td>
                     <td><?= esc($p['name']) ?></td>
 					<td><?= esc($p['hsn_code']) ?></td>
 					<td><?= esc($p['gst_percent']) ?>%</td>
                     <td><?= esc($p['unit']) ?></td>
 					<td><?= number_format($p['selling_price'], 2) ?></td>
                     <td>
-                        <a href="<?= base_url('products/edit/' . $p['id']) ?>" class="btn-edit"><i class="bi bi-pencil"></i> </a>
-                        <a href="<?= base_url('products/delete/' . $p['id']) ?>" class="btn-delete" onclick="return confirm('Delete this product?')"><i class="bi bi-trash"></i> </a>
+                        <a href="<?= base_url('products/edit/' . $p['id']) ?>" class="btn-edit table-action-btn"><i class="bi bi-pencil"></i> </a>
+                        <a href="<?= base_url('products/delete/' . $p['id']) ?>" class="btn-delete table-action-btn" onclick="return confirm('Delete this product?')"><i class="bi bi-trash"></i> </a>
                     </td>
                 </tr>
                 <?php endforeach; ?>
@@ -131,7 +131,7 @@
 				searching: true,    // ❌ remove search box
 				lengthChange: false, // ❌ remove "show entries"
 				info: false,          // (optional) showing "1 to 10 of X"
-				ordering: true,      // (optional sorting)
+				ordering: true, order: [],      // (optional sorting)
 				pageLength: 10,      // default rows per page
 
 				dom: 'tp', // ✅ ONLY table + pagination + info

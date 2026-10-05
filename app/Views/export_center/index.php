@@ -262,13 +262,14 @@ $projectOpts  = array_map(static fn ($p) => ['value' => $p['id'], 'label' => $p[
 $customerOpts = array_map(static fn ($c) => ['value' => $c['id'], 'label' => $c['name']], $customers);
 $lenderOpts   = array_map(static fn ($l) => ['value' => $l, 'label' => $l], $lenders);
 $bankOpts     = array_map(static fn ($b) => ['value' => $b['id'], 'label' => $b['bank_name'] . ' - ' . $b['account_name']], $banks);
-$methodOpts   = array_map(static fn ($m) => ['value' => $m, 'label' => ucfirst(strtolower($m))], $expensePaymentMethods);
+$methodOpts   = array_map(static fn ($m) => ['value' => $m, 'label' => pm_label($m)], $expensePaymentMethods);
 $statusOpts   = array_map(static fn ($s) => ['value' => $s, 'label' => ucfirst(strtolower($s))], $expenseStatuses);
-$loanTypeOpts = array_map(static fn ($t) => ['value' => $t, 'label' => ucfirst(strtolower($t))], $loanTypes);
+$loanTypeLabels = \App\Models\LoanTypeModel::labels();
+$loanTypeOpts = array_map(static fn ($t) => ['value' => $t, 'label' => $loanTypeLabels[$t] ?? $t], $loanTypes);
 $loanStatusOpts = array_map(static fn ($s) => ['value' => $s, 'label' => ucfirst(strtolower($s))], $loanStatuses);
 $receiptTypeOpts = array_map(static fn ($t) => ['value' => $t, 'label' => ucfirst(strtolower($t))], $serviceReceiptTypes);
 $svcStatusOpts   = array_map(static fn ($s) => ['value' => $s, 'label' => ucfirst(strtolower($s))], $serviceStatuses);
-$svcModeOpts     = array_map(static fn ($m) => ['value' => $m, 'label' => ucfirst(strtolower($m))], $servicePaymentModes);
+$svcModeOpts     = array_map(static fn ($m) => ['value' => $m, 'label' => pm_label($m)], $servicePaymentModes);
 
 // NOTE: $this->include($view, $options) treats its 2nd argument as RENDER
 // OPTIONS (cache/debug), not view data — CodeIgniter4's View::render() never

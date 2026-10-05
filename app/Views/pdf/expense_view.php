@@ -9,7 +9,7 @@
         <tr><td><strong>Category</strong></td><td><?= esc(pdf_text($expense['category_name'] ?? '')) ?></td></tr>
         <tr><td><strong>Project</strong></td><td><?= esc(pdf_text($expense['project_name'] ?? '')) ?></td></tr>
         <tr><td><strong>Paid To</strong></td><td><?= esc(pdf_text($expense['paid_to'])) ?></td></tr>
-        <tr><td><strong>Payment Method</strong></td><td><?= esc(pdf_text($expense['payment_method'])) ?></td></tr>
+        <tr><td><strong>Payment Method</strong></td><td><?= esc(pdf_text(pm_label($expense['payment_method'], 'Not recorded'))) ?></td></tr>
         <tr><td><strong>Bank Account</strong></td><td><?= esc(pdf_text($bankLabel)) ?></td></tr>
         <tr><td><strong>Amount</strong></td><td><?= pdf_currency($expense['amount']) ?></td></tr>
         <tr><td><strong>Status</strong></td><td><?= esc(pdf_text($expense['status'])) ?></td></tr>

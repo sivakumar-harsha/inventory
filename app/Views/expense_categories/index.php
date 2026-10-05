@@ -93,18 +93,18 @@
     <div class="table-responsive">
         <table id="categoryTable" class="table-custom">
             <thead>
-                <tr><th>#</th><th>Category Name</th><th>Status</th><th>Created Date</th><th>Actions</th></tr>
+                <tr><th class="sno-col">S.No.</th><th>Category Name</th><th>Status</th><th>Created Date</th><th>Actions</th></tr>
             </thead>
             <tbody>
                 <?php foreach ($categories as $i => $c): ?>
                 <tr>
-                    <td><?= $i + 1 ?></td>
+                    <td class="sno-col"><?= $i + 1 ?></td>
                     <td><?= esc($c['category_name']) ?></td>
                     <td><span class="badge-status badge-<?= strtolower($c['status']) ?>"><?= esc($c['status']) ?></span></td>
                     <td><?= $c['created_at'] ? date('d-m-Y', strtotime($c['created_at'])) : '' ?></td>
                     <td>
-                        <a href="<?= base_url('expense-categories/edit/' . $c['id']) ?>" class="btn-edit"><i class="bi bi-pencil"></i> </a>
-                        <a href="<?= base_url('expense-categories/delete/' . $c['id']) ?>" class="btn-delete" onclick="return confirm('Delete this expense category?')"><i class="bi bi-trash"></i> </a>
+                        <a href="<?= base_url('expense-categories/edit/' . $c['id']) ?>" class="btn-edit table-action-btn"><i class="bi bi-pencil"></i> </a>
+                        <a href="<?= base_url('expense-categories/delete/' . $c['id']) ?>" class="btn-delete table-action-btn" onclick="return confirm('Delete this expense category?')"><i class="bi bi-trash"></i> </a>
                     </td>
                 </tr>
                 <?php endforeach; ?>
@@ -123,7 +123,7 @@
 				searching: true,
 				lengthChange: false,
 				info: false,
-				ordering: true,
+				ordering: true, order: [],
 				pageLength: 10,
 
 				dom: 'tp',

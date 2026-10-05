@@ -2,6 +2,7 @@
 
 namespace App\Controllers;
 
+use App\Libraries\CashOpeningGuard;
 use App\Libraries\ExcelReport;
 use App\Libraries\PdfReport;
 use App\Models\BankAccountModel;
@@ -39,7 +40,6 @@ use CodeIgniter\Controller;
  */
 class Expenses extends Controller
 {
-    private const BANK_METHODS   = ['BANK', 'CHEQUE', 'UPI'];
     private const REFERENCE_TYPE = 'EXPENSE';
 
     public function index()
@@ -107,6 +107,11 @@ class Expenses extends Controller
 
         if ($errors) {
             return $this->response->setJSON(['status' => false, 'errors' => $errors])->setStatusCode(422);
+        }
+
+        // Release 4.9.0CF: a CASH expense dated before the Cash Opening Date is warned about, never blocked.
+        if ($warn = CashOpeningGuard::gate($this->request, 'expense', 0, $input['payment_method'], $input['expense_date'], true)) {
+            return $warn;
         }
 
         $model = new ExpenseModel();
@@ -323,6 +328,11 @@ class Expenses extends Controller
             return $this->response->setJSON(['status' => false, 'errors' => $errors])->setStatusCode(422);
         }
 
+        // Release 4.9.0CF: only a PAID expense is a cash movement; cancelling one needs no warning.
+        if ($status === 'PAID' && ($warn = CashOpeningGuard::gate($this->request, 'expense', (int) $id, $input['payment_method'], $input['expense_date'], true))) {
+            return $warn;
+        }
+
         $db = \Config\Database::connect();
         $db->transStart();
 
@@ -430,7 +440,7 @@ class Expenses extends Controller
      */
     private function _postBankWithdrawal(int $expenseId, string $expenseNo, array $row): void
     {
-        if (! in_array($row['payment_method'], self::BANK_METHODS, true)) {
+        if (! BankTransactionModel::isBankMethod($row['payment_method'])) {
             return;
         }
 
@@ -462,7 +472,7 @@ class Expenses extends Controller
     private function _extractExpenseInput(): array
     {
         return [
-            'expense_date'    => (string) $this->request->getPost('expense_date'),
+            'expense_date'    => trim((string) $this->request->getPost('expense_date')),
             'category_id'     => $this->request->getPost('category_id') ? (int) $this->request->getPost('category_id') : 0,
             'project_id'      => $this->request->getPost('project_id') ? (int) $this->request->getPost('project_id') : null,
             'paid_to'         => trim((string) $this->request->getPost('paid_to')),
@@ -484,7 +494,7 @@ class Expenses extends Controller
     {
         $errors = [];
 
-        if ($input['expense_date'] === '' || ! \DateTime::createFromFormat('Y-m-d', $input['expense_date'])) {
+        if (! CashOpeningGuard::isValidDate($input['expense_date'])) { // Release 4.9.0CF: strict calendar date
             $errors[] = 'A valid expense date is required.';
         }
 

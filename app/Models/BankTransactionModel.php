@@ -283,6 +283,29 @@ class BankTransactionModel extends Model
         return [self::REF_MANUAL_DEPOSIT, self::REF_MANUAL_WITHDRAWAL, self::REF_BANK_DAYBOOK];
     }
 
+    /**
+     * Release 4.9.0AO: the first automatically-posted row (i.e. one whose
+     * reference_type is neither a manual entry nor a transfer) that matches
+     * the account, date, direction and amount of a manual entry about to be
+     * saved. Used only to warn before creating a new MANUAL_DEPOSIT /
+     * MANUAL_WITHDRAWAL / BANK_DAYBOOK row — it never blocks the save and is
+     * not a uniqueness rule, so two genuine manual entries (or a manual entry
+     * that matches another manual entry) never trigger it.
+     */
+    public function findLikelyAutomaticDuplicate(int $bankAccountId, string $date, string $transactionType, float $amount): ?array
+    {
+        $excluded = array_merge(self::manualReferenceTypes(), [self::REF_BANK_TRANSFER]);
+
+        return $this->where('bank_account_id', $bankAccountId)
+            ->where('transaction_date', $date)
+            ->where('transaction_type', $transactionType)
+            ->where('amount', round($amount, 2))
+            ->where('reference_type IS NOT NULL')
+            ->whereNotIn('reference_type', $excluded)
+            ->orderBy('id', 'ASC')
+            ->first();
+    }
+
     /** Display number of a transfer, e.g. TRF-000012 (its reference_id, shared by both rows). */
     public static function transferNo(int $transferId): string
     {
@@ -660,8 +683,13 @@ class BankTransactionModel extends Model
                 return 'Expense';
             case 'LOAN_PAYMENT':
                 return 'Loan Payment';
+            case 'LOAN_DISBURSEMENT':
+                return 'Loan Received';
             case 'PROJECT_ADVANCE':
+            case 'PROJECT_ADVANCE_DEPOSIT':
                 return 'Project Receipt';
+            case 'SALE_PAYMENT':
+                return 'Invoice Payment';
         }
 
         switch ($row['transaction_type']) {

@@ -39,8 +39,11 @@ class Reports extends Controller
         if ($startDate) { $salesWhere .= " AND s.sale_date >= ?"; $salesParams[] = $startDate; }
         if ($endDate)   { $salesWhere .= " AND s.sale_date <= ?"; $salesParams[] = $endDate; }
 
+        // Release 4.9.0F: cancelled expenses (their bank/cash posting is
+        // reversed by the Expenses module) are excluded, same as every
+        // Expense report.
         $expParams = [];
-        $expWhere  = "WHERE 1=1";
+        $expWhere  = "WHERE e.status = 'PAID'";
         if ($startDate) { $expWhere .= " AND e.expense_date >= ?"; $expParams[] = $startDate; }
         if ($endDate)   { $expWhere .= " AND e.expense_date <= ?"; $expParams[] = $endDate; }
 
@@ -138,7 +141,7 @@ class Reports extends Controller
         $data['total_cogs'] = array_sum($projectModel->getAllocatedPurchaseCostByProject($projectId, $startDate, $endDate));
 
         $expParams = [];
-        $expSql    = "SELECT COALESCE(SUM(amount),0) AS t FROM expenses e WHERE 1=1";
+        $expSql    = "SELECT COALESCE(SUM(amount),0) AS t FROM expenses e WHERE e.status = 'PAID'";
         if ($projectId) { $expSql .= " AND e.project_id = ?"; $expParams[] = $projectId; }
         if ($startDate) { $expSql .= " AND e.expense_date >= ?"; $expParams[] = $startDate; }
         if ($endDate)   { $expSql .= " AND e.expense_date <= ?"; $expParams[] = $endDate; }
@@ -160,16 +163,20 @@ class Reports extends Controller
         // Release 4.1 (Phase C): expense category breakdown, filtered by the
         // exact same project/date filters as the "Total Expenses" KPI above —
         // its grand total must equal $total_expenses.
+        // Release 4.9.0F: grouped by the category master (expenses.category is
+        // a legacy column no longer written since 4.8.6A, so grouping on it
+        // left every new expense under a blank category).
         $expCatParams = [];
-        $expCatWhere  = "WHERE 1=1";
+        $expCatWhere  = "WHERE e.status = 'PAID'";
         if ($projectId) { $expCatWhere .= " AND e.project_id = ?"; $expCatParams[] = $projectId; }
         if ($startDate) { $expCatWhere .= " AND e.expense_date >= ?"; $expCatParams[] = $startDate; }
         if ($endDate)   { $expCatWhere .= " AND e.expense_date <= ?"; $expCatParams[] = $endDate; }
         $data['expense_breakdown'] = $db->query("
-            SELECT e.category, SUM(e.amount) AS total
+            SELECT COALESCE(c.category_name, NULLIF(e.category, ''), 'Uncategorized') AS category, SUM(e.amount) AS total
             FROM expenses e
+            LEFT JOIN expense_categories c ON c.id = e.category_id
             $expCatWhere
-            GROUP BY e.category
+            GROUP BY COALESCE(c.category_name, NULLIF(e.category, ''), 'Uncategorized')
             ORDER BY total DESC
         ", $expCatParams)->getResultArray();
 
@@ -713,7 +720,7 @@ class Reports extends Controller
 		$totalCogs = array_sum($projectModel->getAllocatedPurchaseCostByProject($projectId, $startDate, $endDate));
 
 		$expParams = [];
-		$expSql    = "SELECT COALESCE(SUM(amount),0) AS t FROM expenses e WHERE 1=1";
+		$expSql    = "SELECT COALESCE(SUM(amount),0) AS t FROM expenses e WHERE e.status = 'PAID'";
 		if ($projectId) { $expSql .= " AND e.project_id = ?"; $expParams[] = $projectId; }
 		if ($startDate) { $expSql .= " AND e.expense_date >= ?"; $expParams[] = $startDate; }
 		if ($endDate)   { $expSql .= " AND e.expense_date <= ?"; $expParams[] = $endDate; }
@@ -831,7 +838,7 @@ class Reports extends Controller
 
 		$writeSection('ASSETS', [
 			['Cash Received From Customers', $data['cash_received'], 'payments.amount + project_cash_receipts.amount'],
-			['Accounts Receivable', $data['accounts_receivable'], 'sales.balance_amount (net of Project Cash)'],
+			['Accounts Receivable', $data['accounts_receivable'], 'sales.balance_amount (net of Project Receipts)'],
 			['Inventory Value', $data['inventory_value'], 'stock_ledger + purchase_items (avg cost)'],
 			['TOTAL ASSETS', $data['total_assets'], ''],
 		]);
@@ -923,7 +930,7 @@ class Reports extends Controller
 				<tr class="section-title"><td colspan="3">ASSETS</td></tr>'
 				. $rowsHtml([
 					['Cash Received From Customers', $data['cash_received'], 'payments.amount + project_cash_receipts.amount'],
-					['Accounts Receivable', $data['accounts_receivable'], 'sales.balance_amount (net of Project Cash)'],
+					['Accounts Receivable', $data['accounts_receivable'], 'sales.balance_amount (net of Project Receipts)'],
 					['Inventory Value', $data['inventory_value'], 'stock_ledger + purchase_items (avg cost)'],
 				])
 				. '<tr class="total-row"><td>TOTAL ASSETS</td><td class="right">' . number_format($data['total_assets'], 2) . '</td><td></td></tr>
@@ -967,7 +974,7 @@ class Reports extends Controller
 		$productId = $this->request->getGet('product_id');
 		$productId = ($productId === 'all' || $productId === '' || $productId === null) ? null : (int)$productId;
 
-		$whereProduct = ($productId !== null) ? " AND p.id = $productId" : "";
+		$whereProduct = ($productId !== null) ? " AND p.id = " . (int) $productId : "";
 
 		$data['stock'] = $db->query("
 			SELECT
@@ -995,7 +1002,7 @@ class Reports extends Controller
 
 		$productId = $this->request->getGet('product_id');
 		$productId = ($productId === 'all' || $productId === '') ? null : $productId;
-		$whereProduct = $productId ? " AND p.id = $productId" : "";
+		$whereProduct = $productId ? " AND p.id = " . (int) $productId : "";
 
 		$rows = $db->query("
 			SELECT
@@ -1148,7 +1155,7 @@ class Reports extends Controller
 		$db = \Config\Database::connect();
 
 		$productId = $this->request->getGet('product_id');
-		$whereProduct = $productId ? " AND p.id = $productId" : "";
+		$whereProduct = $productId ? " AND p.id = " . (int) $productId : "";
 
 		$rows = $db->query("
 			SELECT
@@ -1317,11 +1324,11 @@ class Reports extends Controller
 		$params = [];
 
 		if (!empty($projectId)) {
-			$where .= " AND s.project_id = $projectId";
+			$where .= " AND s.project_id = " . (int) $projectId;
 		}
 
 		if (!empty($customerId)) {
-			$where .= " AND s.customer_id = $customerId";
+			$where .= " AND s.customer_id = " . (int) $customerId;
 		}
 
 		if (!empty($status)) {
@@ -1397,11 +1404,11 @@ class Reports extends Controller
 		$where = "WHERE 1=1";
 
 		if (!empty($projectId)) {
-			$where .= " AND s.project_id = $projectId";
+			$where .= " AND s.project_id = " . (int) $projectId;
 		}
 
 		if (!empty($customerId)) {
-			$where .= " AND s.customer_id = $customerId";
+			$where .= " AND s.customer_id = " . (int) $customerId;
 		}
 
 		if (!empty($status)) {
@@ -1557,11 +1564,11 @@ class Reports extends Controller
 		$where = "WHERE 1=1";
 
 		if (!empty($projectId)) {
-			$where .= " AND s.project_id = $projectId";
+			$where .= " AND s.project_id = " . (int) $projectId;
 		}
 
 		if (!empty($customerId)) {
-			$where .= " AND s.customer_id = $customerId";
+			$where .= " AND s.customer_id = " . (int) $customerId;
 		}
 
 		if (!empty($status)) {
@@ -1758,11 +1765,11 @@ class Reports extends Controller
 		$params = [];
 
 		if (!empty($projectId)) {
-			$where .= " AND pu.project_id = $projectId";
+			$where .= " AND pu.project_id = " . (int) $projectId;
 		}
 
 		if (!empty($supplierId)) {
-			$where .= " AND pu.supplier_id = $supplierId";
+			$where .= " AND pu.supplier_id = " . (int) $supplierId;
 		}
 
 		if (!empty($startDate)) {
@@ -1862,11 +1869,11 @@ class Reports extends Controller
 		$where = "WHERE 1=1";
 
 		if (!empty($projectId)) {
-			$where .= " AND pu.project_id = $projectId";
+			$where .= " AND pu.project_id = " . (int) $projectId;
 		}
 
 		if (!empty($supplierId)) {
-			$where .= " AND pu.supplier_id = $supplierId";
+			$where .= " AND pu.supplier_id = " . (int) $supplierId;
 		}
 
 		$rows = $db->query("
@@ -2004,11 +2011,11 @@ class Reports extends Controller
 		$where = "WHERE 1=1";
 
 		if (!empty($projectId)) {
-			$where .= " AND pu.project_id = $projectId";
+			$where .= " AND pu.project_id = " . (int) $projectId;
 		}
 
 		if (!empty($supplierId)) {
-			$where .= " AND pu.supplier_id = $supplierId";
+			$where .= " AND pu.supplier_id = " . (int) $supplierId;
 		}
 
 		$rows = $db->query("
@@ -2181,13 +2188,13 @@ class Reports extends Controller
 		$whereArr = [];
 
 		if ($productId) {
-			$whereArr[] = "sl.product_id = $productId";
+			$whereArr[] = "sl.product_id = " . (int) $productId;
 		}
 
 		if ($projectId === 'general') {
 			$whereArr[] = "sl.project_id IS NULL";
 		} elseif ($projectId) {
-			$whereArr[] = "sl.project_id = $projectId";
+			$whereArr[] = "sl.project_id = " . (int) $projectId;
 		}
 
 		$where = !empty($whereArr) ? 'WHERE ' . implode(' AND ', $whereArr) : '';
@@ -2204,8 +2211,23 @@ class Reports extends Controller
             ORDER BY sl.created_at DESC
         ")->getResultArray();
 
-        $data['products']   = \Config\Database::connect()->query("SELECT id, name FROM products ORDER BY name ASC")->getResultArray();
+        // Release 4.9.0DJ: Product options follow the selected Project (same rule as getProductsByProject()).
+        if ($projectId === 'general') {
+            $data['products'] = $db->query("SELECT DISTINCT p.id, p.name FROM stock_ledger sl JOIN products p ON p.id = sl.product_id WHERE sl.project_id IS NULL ORDER BY p.name ASC")->getResultArray();
+        } elseif ($projectId) {
+            $data['products'] = $db->query("SELECT DISTINCT p.id, p.name FROM stock_ledger sl JOIN products p ON p.id = sl.product_id WHERE sl.project_id = ? ORDER BY p.name ASC", [(int) $projectId])->getResultArray();
+        } else {
+            $data['products'] = $db->query("SELECT id, name FROM products ORDER BY name ASC")->getResultArray();
+        }
         $data['product_id'] = $productId;
+        $data['product_cleared'] = false;
+
+        // A product that does not belong to the chosen project is not a valid combination: drop it and say so.
+        if ($productId && ! in_array((int) $productId, array_map('intval', array_column($data['products'], 'id')), true)) {
+            $data['product_id']      = '';
+            $data['product_cleared'] = true;
+            $data['ledger']          = [];
+        }
 
         return view('reports/ledger', $data);
     }
@@ -2223,13 +2245,13 @@ class Reports extends Controller
 		$whereArr = [];
 
 		if ($productId !== null) {
-			$whereArr[] = "sl.product_id = $productId";
+			$whereArr[] = "sl.product_id = " . (int) $productId;
 		}
 
 		if ($projectId === 'general') {
 			$whereArr[] = "sl.project_id IS NULL";
 		} elseif (!empty($projectId)) {
-			$whereArr[] = "sl.project_id = $projectId";
+			$whereArr[] = "sl.project_id = " . (int) $projectId;
 		}
 
 		$where = !empty($whereArr) ? 'WHERE ' . implode(' AND ', $whereArr) : '';
@@ -2369,13 +2391,13 @@ class Reports extends Controller
 		$whereArr = [];
 
 		if ($productId !== null) {
-			$whereArr[] = "sl.product_id = $productId";
+			$whereArr[] = "sl.product_id = " . (int) $productId;
 		}
 
 		if ($projectId === 'general') {
 			$whereArr[] = "sl.project_id IS NULL";
 		} elseif (!empty($projectId)) {
-			$whereArr[] = "sl.project_id = $projectId";
+			$whereArr[] = "sl.project_id = " . (int) $projectId;
 		}
 
 		$where = !empty($whereArr) ? 'WHERE ' . implode(' AND ', $whereArr) : '';

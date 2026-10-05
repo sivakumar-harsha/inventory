@@ -53,7 +53,6 @@ $ecUrl = static function (string $path, array $qs = []): string {
         <div class="card-custom">
             <div class="card-custom-header d-flex justify-content-between align-items-center">
                 <span><i class="bi bi-file-earmark-arrow-down me-2"></i>Export Center</span>
-                <a href="<?= base_url('reports/export-center') ?>" class="btn-save" style="padding:3px 10px;font-size:12px;">Open Print/Export Center</a>
             </div>
             <div class="card-custom-body">
 

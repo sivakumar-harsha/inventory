@@ -132,21 +132,36 @@ foreach ($accounts as $account) {
 		$('#saveEntryBtn').prop('disabled', false);
 	}
 
-	$('#entryForm').on('submit', function (e) {
-		e.preventDefault();
+	// Release 4.9.0AO: duplicate warning text, built from the server's plain-data summary.
+	function duplicateMessage(w) {
+		w = w || {};
+		return (w.message || 'Possible duplicate bank transaction found.') + '\n\n'
+			+ (w.date || '') + '   ' + (w.amount != null ? fmtMoney(w.amount) : '') + '\n'
+			+ (w.bank_account || '') + '\n'
+			+ (w.transaction_type || '') + (w.reference_type ? ' — ' + w.reference_type : '') + (w.reference_no ? ' ' + w.reference_no : '') + '\n\n'
+			+ 'Click OK only if this is a separate, genuine transaction.';
+	}
 
-		// Disabled while the request is in flight so a double click cannot post the entry twice.
-		$('#saveEntryBtn').prop('disabled', true);
-		$('#formErrors').hide();
+	function submitEntry(confirmDuplicate) {
+		var data = $('#entryForm').serialize();
+		if (confirmDuplicate) {
+			data += '&confirm_duplicate=1';
+		}
 
 		$.ajax({
 			url: "<?= $saveUrl ?>",
 			type: 'POST',
 			dataType: 'json',
-			data: $('#entryForm').serialize()
+			data: data
 		}).done(function (resp) {
 			if (resp.status) {
 				window.location.href = "<?= $listUrl ?>";
+			} else if (resp.duplicate) {
+				if (confirm(duplicateMessage(resp.warning))) {
+					submitEntry(true);
+				} else {
+					$('#saveEntryBtn').prop('disabled', false);
+				}
 			} else {
 				showErrors(resp.errors || ['Failed to save.']);
 			}
@@ -154,6 +169,16 @@ foreach ($accounts as $account) {
 			var data = xhr.responseJSON;
 			showErrors((data && data.errors) || ['A network error occurred.']);
 		});
+	}
+
+	$('#entryForm').on('submit', function (e) {
+		e.preventDefault();
+
+		// Disabled while the request is in flight so a double click cannot post the entry twice.
+		$('#saveEntryBtn').prop('disabled', true);
+		$('#formErrors').hide();
+
+		submitEntry(false);
 	});
 
 	$(document).ready(function () {

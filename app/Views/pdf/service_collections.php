@@ -31,7 +31,7 @@
             <td><?= esc(pdf_text($r['reference'])) ?></td>
             <td><?= esc(pdf_text($r['source'])) ?></td>
             <td><?= esc(pdf_text($r['customer'])) ?></td>
-            <td><?= esc(pdf_text($r['mode'] ?? '')) ?></td>
+            <td><?= esc(pdf_text(pm_label($r['mode'] ?? '', '-'))) ?></td>
             <td><?= esc(pdf_text($r['bank'] ?? '')) ?></td>
             <td class="pdf-right"><?= pdf_currency($r['amount']) ?></td>
             <td><?= esc(pdf_text($r['remarks'] ?? '')) ?></td>

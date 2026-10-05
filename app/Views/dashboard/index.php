@@ -1,455 +1,264 @@
 <?= $this->extend('layouts/main') ?>
 <?= $this->section('content') ?>
+<?php
+/**
+ * Dashboard (approved light design). Presentation only: every figure arrives from
+ * Dashboard::index() already calculated from its authoritative source (Cash Book closing,
+ * bank balances, Monthly Statement, P&L basis, ProjectModel). The only arithmetic here is
+ * display proportions for the little bars.
+ */
+$money = static fn ($n) => number_format((float) $n, 2);
 
-<style>
-/* KPI CARD (Release 4.3.2: compact executive dashboard) */
-.kpi-card {
-    background: #fff;
-    border-radius: 12px;
-    padding: 12px 14px;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    min-height: 70px;
-    box-shadow: 0 3px 10px rgba(0,0,0,0.05);
-    border: 1px solid #eef0f4;
-    transition: box-shadow 0.2s ease, transform 0.2s ease;
-}
-.kpi-card:hover {
-    box-shadow: 0 8px 18px rgba(0,0,0,0.10);
-    transform: translateY(-2px);
-}
-.kpi-icon {
-    width: 40px;
-    height: 40px;
-    min-width: 40px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 17px;
-}
-.kpi-value {
-    font-size: 18px;
-    font-weight: 700;
-    color: #111827;
-    line-height: 1.2;
-}
-.kpi-label {
-    font-size: 12px;
-    color: #6b7280;
-}
+// Display proportions only (never shown as financial figures).
+$pct = static fn (float $part, float $whole): float => $whole > 0.004 ? max(0, min(100, round($part / $whole * 100, 1))) : 0.0;
 
-.kpi-blue   .kpi-icon { background: #eff6ff; color: #2563eb; }
-.kpi-green  .kpi-icon { background: #dcfce7; color: #16a34a; }
-.kpi-orange .kpi-icon { background: #ffedd5; color: #d97706; }
-.kpi-red    .kpi-icon { background: #fee2e2; color: #dc2626; }
-.kpi-purple .kpi-icon { background: #f3e8ff; color: #7e22ce; }
-.kpi-pink   .kpi-icon { background: #fdf2f8; color: #db2777; }
+$moneyTotal = (float) $money_in + (float) $money_out;
+$inPct      = $pct((float) $money_in, $moneyTotal);
+$outPct     = $moneyTotal > 0.004 ? round(100 - $inPct, 1) : 0.0;
 
-/* RELEASE 4.3.3: dashboard-local card padding trim (Phase G) */
-.card-custom-body { padding: 12px 14px; }
-.card-custom-header { padding: 10px 14px; }
+// Display only: greeting by server hour, and the month's net movement (Money In - Money Out as already supplied).
+$hour      = (int) date('G');
+$greeting  = $hour < 12 ? 'Good morning' : ($hour < 17 ? 'Good afternoon' : 'Good evening');
+$netMove   = (float) $money_in - (float) $money_out;
 
-/* QUICK ACTIONS (Phase E) — same pill style as projects/view.php's
-   action-chip, scoped locally since global style.css is out of scope. */
-.quick-actions-row { display: flex; gap: 8px; flex-wrap: wrap; }
-.action-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; height: 32px; border-radius: 999px; font-size: 0.78rem; font-weight: 600; text-decoration: none; border: 1px solid transparent; }
-.action-chip-blue   { background: #eff6ff; color: #2563eb; border-color: #bfdbfe; }
-.action-chip-blue:hover   { background: #dbeafe; }
-.action-chip-purple { background: #f3e8ff; color: #7e22ce; border-color: #e9d5ff; }
-.action-chip-purple:hover { background: #e9d5ff; }
-.action-chip-green  { background: #dcfce7; color: #15803d; border-color: #bbf7d0; }
-.action-chip-green:hover  { background: #bbf7d0; }
-.action-chip-orange { background: #ffedd5; color: #c2410c; border-color: #fed7aa; }
-.action-chip-orange:hover { background: #fed7aa; }
-.action-chip-gray   { background: #f1f5f9; color: #475569; border-color: #e2e8f0; }
-.action-chip-gray:hover   { background: #e2e8f0; }
+$overdrawn = ! empty($bank_available) ? count($bank_low_balance) : 0;
+$emiLate   = ! empty($loan_available) ? (int) $loan_overdue_count : 0;
+$svcOpen   = ! empty($service_available) ? (int) $service_pending_invoices : 0;
+$plural    = static fn (int $n, string $one, string $many) => $n . ' ' . ($n === 1 ? $one : $many);
+?>
+<link rel="stylesheet" href="<?= base_url('assets/css/dashboard.css') ?>">
 
-/* PROJECT STATUS — progress-style rows (Phase D) */
-.status-progress-row { display: flex; align-items: center; gap: 12px; padding: 8px 4px; }
-.status-progress-icon {
-    width: 34px; height: 34px; min-width: 34px; border-radius: 50%;
-    display: flex; align-items: center; justify-content: center; font-size: 15px;
-}
-.status-progress-body { flex: 1; min-width: 0; }
-.status-progress-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
-.status-progress-label { font-size: 12.5px; font-weight: 600; color: #374151; }
-.status-progress-count { font-size: 13px; font-weight: 700; color: #111827; }
-.status-progress-track { width: 100%; height: 6px; border-radius: 4px; background: #eef0f4; overflow: hidden; }
-.status-progress-fill { height: 100%; border-radius: 4px; }
+<div class="dbx">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="dbx-i-cash" viewBox="0 0 16 16"><rect x="1.5" y="4" width="13" height="8" rx="1.5"/><circle cx="8" cy="8" r="1.8"/></symbol>
+  <symbol id="dbx-i-bank" viewBox="0 0 16 16"><path d="M2 6.5 8 3l6 3.5M3.5 7v5M6.5 7v5M9.5 7v5M12.5 7v5M2 13h12"/></symbol>
+  <symbol id="dbx-i-in" viewBox="0 0 16 16"><path d="M8 3v8M4.5 8 8 11.5 11.5 8M3 13.5h10"/></symbol>
+  <symbol id="dbx-i-out" viewBox="0 0 16 16"><path d="M8 13V5M4.5 8 8 4.5 11.5 8M3 2.5h10"/></symbol>
+  <symbol id="dbx-i-plus" viewBox="0 0 16 16"><path d="M8 3v10M3 8h10"/></symbol>
+  <symbol id="dbx-i-pay" viewBox="0 0 16 16"><path d="M2.5 5h11M2.5 8h11M2.5 11h6"/></symbol>
+  <symbol id="dbx-i-cart" viewBox="0 0 16 16"><path d="M2 3h2l1.5 7h6.5l1.5-5H5"/><circle cx="6.5" cy="13" r=".8"/><circle cx="11.5" cy="13" r=".8"/></symbol>
+  <symbol id="dbx-i-wallet" viewBox="0 0 16 16"><rect x="2" y="4" width="12" height="9" rx="1.5"/><path d="M2 6.5h12M10.5 9.5h1.5"/></symbol>
+  <symbol id="dbx-i-proj" viewBox="0 0 16 16"><rect x="2.5" y="3" width="11" height="10" rx="1.5"/><path d="M5.5 6.5h5M5.5 9.5h3"/></symbol>
+</svg>
 
-/* REVENUE VS COST CARD (Phase B/C) */
-.rvc-chart-col { display: flex; align-items: center; justify-content: center; }
-.rvc-summary-card {
-    display: flex; align-items: center; gap: 10px;
-    min-height: 62px; padding: 8px 12px; border-radius: 10px;
-    background: #f8fafc; border: 1px solid #e2e8f0;
-}
-.rvc-summary-icon {
-    width: 34px; height: 34px; min-width: 34px; border-radius: 50%;
-    display: flex; align-items: center; justify-content: center; font-size: 15px;
-}
-.rvc-summary-label { font-size: 11px; color: #64748b; }
-.rvc-summary-value { font-size: 15px; font-weight: 700; color: #1e293b; line-height: 1.2; }
-
-/* TABLE */
-.table-custom {
-    width: 100%;
-    border-collapse: separate;
-    border-spacing: 0 6px;
-}
-.table-custom tbody tr {
-    background: #fff;
-    box-shadow: 0 3px 8px rgba(0,0,0,0.04);
-    border-radius: 8px;
-}
-.table-custom td { padding: 8px 10px; border: none; }
-.dash-table-dense tr { height: 36px; }
-.dash-table-dense td, .dash-table-dense th {
-    padding: 6px 10px;
-    font-size: 0.82rem;
-    vertical-align: middle;
-    white-space: nowrap;
-}
-.card-custom:has(.dash-table-dense) .table-responsive { overflow-x: hidden; }
-
-/* Phase F: sticky header + status badges for Top Pending Projects */
-.dash-table-scroll { max-height: 260px; overflow-y: auto; }
-.dash-table-dense thead th { position: sticky; top: 0; background: #fff; z-index: 1; }
-.badge-pill-red   { padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; background: #fee2e2; color: #dc2626; }
-.badge-pill-green { padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; background: #dcfce7; color: #16a34a; }
-
-.card-custom, .kpi-card { animation: fadeUp 0.4s ease; }
-@keyframes fadeUp {
-    from { opacity: 0; }
-    to   { opacity: 1; transform: translateY(0); }
-}
-</style>
-
-<!-- ROW 1: BUSINESS OVERVIEW -->
-<div class="row g-3 mb-3">
-    <div class="col-md-3 col-6">
-        <div class="kpi-card kpi-blue">
-            <div class="kpi-icon"><i class="bi bi-receipt-cutoff"></i></div>
-            <div>
-                <div class="kpi-value counter" data-value="<?= $total_sales ?>"><?= number_format($total_sales, 2) ?></div>
-                <div class="kpi-label">Total Sales</div>
-            </div>
+    <div class="dbx-head">
+        <div>
+            <h1>Dashboard</h1>
+            <div class="dbx-sub"><b><?= $greeting ?></b> · Here's your business position for <?= esc(date('F Y')) ?>.</div>
         </div>
-    </div>
-    <div class="col-md-3 col-6">
-        <div class="kpi-card kpi-orange">
-            <div class="kpi-icon"><i class="bi bi-cart-fill"></i></div>
-            <div>
-                <div class="kpi-value counter" data-value="<?= $total_purchases ?>"><?= number_format($total_purchases, 2) ?></div>
-                <div class="kpi-label">Total Purchases</div>
-            </div>
+        <?php if ($overdrawn || $emiLate || $svcOpen): ?>
+        <div class="dbx-pills" aria-label="Needs attention">
+            <?php if ($overdrawn): ?>
+            <a class="dbx-pill neg" href="<?= base_url('bank-accounts') ?>"><span class="dbx-dot"></span><b><?= $overdrawn ?></b> bank <?= $overdrawn === 1 ? 'account' : 'accounts' ?> overdrawn</a>
+            <?php endif; ?>
+            <?php if ($emiLate): ?>
+            <a class="dbx-pill neg" href="<?= base_url('loan-reports/emi-due') ?>"><span class="dbx-dot"></span><b><?= $emiLate ?></b> <?= $emiLate === 1 ? 'EMI' : 'EMIs' ?> overdue</a>
+            <?php endif; ?>
+            <?php if ($svcOpen): ?>
+            <a class="dbx-pill amb" href="<?= base_url('service-reports/outstanding') ?>"><span class="dbx-dot"></span><b><?= $svcOpen ?></b> service <?= $svcOpen === 1 ? 'invoice' : 'invoices' ?> pending</a>
+            <?php endif; ?>
         </div>
+        <?php endif; ?>
     </div>
-    <div class="col-md-3 col-6">
-        <div class="kpi-card kpi-red">
-            <div class="kpi-icon"><i class="bi bi-wallet2"></i></div>
-            <div>
-                <div class="kpi-value counter" data-value="<?= $total_expenses ?>"><?= number_format($total_expenses, 2) ?></div>
-                <div class="kpi-label">Total Expenses</div>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-3 col-6">
-        <div class="kpi-card <?= $total_net_profit < 0 ? 'kpi-red' : 'kpi-green' ?>">
-            <div class="kpi-icon"><i class="bi bi-graph-up-arrow"></i></div>
-            <div>
-                <div class="kpi-value"><?= number_format($total_net_profit, 2) ?></div>
-                <div class="kpi-label">Net Profit</div>
-            </div>
-        </div>
-    </div>
-</div>
 
-<!-- ROW 2: COLLECTIONS & PROJECTS -->
-<div class="row g-3 mb-3">
-    <div class="col-md-3 col-6">
-        <div class="kpi-card kpi-red" title="Invoice-only outstanding balance (not netted against Project Cash Receipts).">
-            <div class="kpi-icon"><i class="bi bi-hourglass-split"></i></div>
-            <div>
-                <div class="kpi-value"><?= number_format($total_outstanding, 2) ?></div>
-                <div class="kpi-label">Outstanding Collection</div>
-                <?php if ($total_advance_credit > 0.004): ?>
-                <div class="kpi-sublabel" style="font-size:11px;color:#16a34a;margin-top:2px;">
-                    <i class="bi bi-arrow-up-circle"></i> Advance Credit: <?= number_format($total_advance_credit, 2) ?>
-                </div>
-                <?php endif; ?>
-            </div>
+    <!-- FINANCIAL POSITION: Cash = Cash Book closing, Bank = total bank balance, Money In/Out = this month's Monthly Statement (transfers excluded) -->
+    <section class="dbx-sheet dbx-pos" aria-label="Financial position">
+        <div class="dbx-pi cash">
+            <div class="dbx-eyebrow"><span class="dbx-ico"><svg class="dbx-i"><use href="#dbx-i-cash"/></svg></span>Cash</div>
+            <div class="dbx-val dbx-num<?= $cash_balance < 0 ? ' is-neg' : '' ?>"><s>₹</s><?= $money($cash_balance) ?></div>
+            <div class="dbx-note">Cash Book closing balance</div>
         </div>
-    </div>
-    <div class="col-md-3 col-6">
-        <div class="kpi-card kpi-blue">
-            <div class="kpi-icon"><i class="bi bi-calendar-check"></i></div>
-            <div>
-                <div class="kpi-value"><?= number_format($month_sales, 2) ?></div>
-                <div class="kpi-label">This Month Revenue</div>
-            </div>
+        <div class="dbx-pi bank">
+            <div class="dbx-eyebrow"><span class="dbx-ico"><svg class="dbx-i"><use href="#dbx-i-bank"/></svg></span>Bank</div>
+            <?php if (! empty($bank_available)): ?>
+            <div class="dbx-val dbx-num<?= $bank_total_balance < 0 ? ' is-neg' : '' ?>"><s>₹</s><?= $money($bank_total_balance) ?></div>
+            <div class="dbx-note">Total across all accounts</div>
+            <?php else: ?>
+            <div class="dbx-val">—</div>
+            <div class="dbx-note">Bank data not available</div>
+            <?php endif; ?>
         </div>
-    </div>
-    <div class="col-md-3 col-6">
-        <div class="kpi-card kpi-purple">
-            <div class="kpi-icon"><i class="bi bi-kanban"></i></div>
-            <div>
-                <div class="kpi-value"><?= $active_projects ?></div>
-                <div class="kpi-label">Active Projects</div>
-            </div>
+        <div class="dbx-pi in">
+            <div class="dbx-eyebrow"><span class="dbx-ico"><svg class="dbx-i"><use href="#dbx-i-in"/></svg></span>Money In · <?= esc(date('M Y')) ?></div>
+            <?php if (! empty($money_available)): ?>
+            <div class="dbx-val dbx-num"><s>₹</s><?= $money($money_in) ?></div>
+            <div class="dbx-note">Bank + cash receipts</div>
+            <?php else: ?>
+            <div class="dbx-val">—</div>
+            <div class="dbx-note">Not available</div>
+            <?php endif; ?>
         </div>
-    </div>
-    <div class="col-md-3 col-6">
-        <div class="kpi-card kpi-green">
-            <div class="kpi-icon"><i class="bi bi-check2-circle"></i></div>
-            <div>
-                <div class="kpi-value"><?= $completed_projects ?></div>
-                <div class="kpi-label">Completed Projects</div>
-            </div>
+        <div class="dbx-pi out">
+            <div class="dbx-eyebrow"><span class="dbx-ico"><svg class="dbx-i"><use href="#dbx-i-out"/></svg></span>Money Out · <?= esc(date('M Y')) ?></div>
+            <?php if (! empty($money_available)): ?>
+            <div class="dbx-val dbx-num"><s>₹</s><?= $money($money_out) ?></div>
+            <div class="dbx-note">Bank + cash payments</div>
+            <?php else: ?>
+            <div class="dbx-val">—</div>
+            <div class="dbx-note">Not available</div>
+            <?php endif; ?>
         </div>
-    </div>
-    <!-- Release 4.5 (Phase 8): Cash Received = Invoice Payments + Project Cash Receipts. -->
-    <div class="col-md-3 col-6">
-        <div class="kpi-card kpi-green">
-            <div class="kpi-icon"><i class="bi bi-piggy-bank"></i></div>
-            <div>
-                <div class="kpi-value"><?= number_format($total_cash_received, 2) ?></div>
-                <div class="kpi-label">Cash Received</div>
-                <div class="kpi-sublabel" style="font-size:11px;color:#16a34a;margin-top:2px;">Invoice Payments + Project Cash Receipts</div>
-            </div>
+        <?php if (! empty($money_available) && $moneyTotal > 0.004): ?>
+        <div class="dbx-ratio">
+            <span class="dbx-net">Net movement <b class="dbx-num <?= $netMove < 0 ? 'neg' : 'pos' ?>"><?= $netMove < 0 ? '−' : '+' ?>₹ <?= $money(abs($netMove)) ?></b></span>
+            <div class="dbx-meter" role="img" aria-label="Money in <?= $inPct ?> percent, money out <?= $outPct ?> percent"><i style="width:<?= $inPct ?>%;background:#7fc8a0"></i><i style="width:<?= $outPct ?>%;background:#eec77d"></i></div>
+            <span>In <b><?= $inPct ?>%</b> · Out <b><?= $outPct ?>%</b> · transfers excluded</span>
         </div>
-    </div>
-</div>
+        <?php endif; ?>
+    </section>
 
-<!-- QUICK ACTIONS (Phase E) -->
-<div class="card-custom mb-3">
-    <div class="card-custom-header"><i class="bi bi-lightning-charge me-2"></i>Quick Actions</div>
-    <div class="card-custom-body quick-actions-row">
-        <a href="<?= base_url('sales/create') ?>" class="action-chip action-chip-blue"><i class="bi bi-receipt"></i> Add Sales Invoice</a>
-        <a href="<?= base_url('payments/create') ?>" class="action-chip action-chip-purple"><i class="bi bi-cash-coin"></i> Record Payment</a>
-        <a href="<?= base_url('purchases/create') ?>" class="action-chip action-chip-green"><i class="bi bi-cart"></i> Add Purchase</a>
-        <a href="<?= base_url('expenses/create') ?>" class="action-chip action-chip-orange"><i class="bi bi-wallet2"></i> Add Expense</a>
-        <a href="<?= base_url('projects/create') ?>" class="action-chip action-chip-gray"><i class="bi bi-kanban"></i> Add Project</a>
-    </div>
-</div>
+    <div class="dbx-cols">
 
-<!-- PROJECT STATUS SUMMARY (Phase D: progress-style rows) -->
-<?php $totalProjectsAll = max(1, $active_projects + $completed_projects + $onhold_projects); ?>
-<div class="card-custom mb-3">
-    <div class="card-custom-header"><i class="bi bi-pie-chart me-2"></i>Project Status Summary</div>
-    <div class="card-custom-body">
-        <div class="row g-3">
-            <div class="col-md-4">
-                <div class="status-progress-row">
-                    <div class="status-progress-icon" style="background:#f3e8ff;color:#7e22ce;"><i class="bi bi-kanban"></i></div>
-                    <div class="status-progress-body">
-                        <div class="status-progress-top">
-                            <span class="status-progress-label">Active</span>
-                            <span class="status-progress-count"><?= $active_projects ?></span>
-                        </div>
-                        <div class="status-progress-track">
-                            <div class="status-progress-fill" style="width:<?= round($active_projects / $totalProjectsAll * 100, 1) ?>%;background:#7e22ce;"></div>
-                        </div>
+        <!-- ================= main column ================= -->
+        <div class="dbx-stack dbx-group">
+
+            <!-- BUSINESS PERFORMANCE -->
+            <?php $shareBase = max((float) $total_sales, (float) $total_purchases, (float) $total_expenses); ?>
+            <section class="dbx-sheet" aria-label="Business performance">
+                <div class="dbx-sech"><h2>Business performance</h2><a href="<?= base_url('reports/profit-loss') ?>">Profit &amp; Loss →</a></div>
+                <div class="dbx-perf">
+                    <div class="np<?= $total_net_profit < 0 ? ' is-neg' : '' ?>">
+                        <div class="dbx-lbl">Net Profit</div>
+                        <div class="dbx-val dbx-num">₹ <?= $money($total_net_profit) ?></div>
+                        <div class="dbx-note">Same basis as the P&amp;L report</div>
+                    </div>
+                    <div class="m">
+                        <div class="dbx-lbl">Total Sales</div>
+                        <div class="dbx-val dbx-num">₹ <?= $money($total_sales) ?></div>
+                        <div class="dbx-share"><i style="width:<?= $pct((float) $total_sales, $shareBase) ?>%"></i></div>
+                    </div>
+                    <div class="m">
+                        <div class="dbx-lbl">Total Purchases</div>
+                        <div class="dbx-val dbx-num">₹ <?= $money($total_purchases) ?></div>
+                        <div class="dbx-share"><i style="width:<?= $pct((float) $total_purchases, $shareBase) ?>%"></i></div>
+                    </div>
+                    <div class="m">
+                        <div class="dbx-lbl">Total Expenses</div>
+                        <div class="dbx-val dbx-num">₹ <?= $money($total_expenses) ?></div>
+                        <div class="dbx-note">Paid expenses</div>
+                        <div class="dbx-share"><i style="width:<?= $pct((float) $total_expenses, $shareBase) ?>%"></i></div>
                     </div>
                 </div>
-            </div>
-            <div class="col-md-4">
-                <div class="status-progress-row">
-                    <div class="status-progress-icon" style="background:#dcfce7;color:#16a34a;"><i class="bi bi-check2-circle"></i></div>
-                    <div class="status-progress-body">
-                        <div class="status-progress-top">
-                            <span class="status-progress-label">Completed</span>
-                            <span class="status-progress-count"><?= $completed_projects ?></span>
-                        </div>
-                        <div class="status-progress-track">
-                            <div class="status-progress-fill" style="width:<?= round($completed_projects / $totalProjectsAll * 100, 1) ?>%;background:#16a34a;"></div>
-                        </div>
+            </section>
+
+            <!-- COLLECTIONS & PROJECTS -->
+            <?php $maxOutstanding = $top_pending_projects ? max(array_column($top_pending_projects, 'outstanding_collection')) : 0; ?>
+            <section class="dbx-sheet" aria-label="Collections and projects">
+                <div class="dbx-sech"><h2>Collections &amp; projects</h2><a href="<?= base_url('projects') ?>">All projects →</a></div>
+                <div class="dbx-coll">
+                    <div>
+                        <div class="dbx-eyebrow">Outstanding Collection</div>
+                        <div class="dbx-big dbx-num<?= $total_outstanding <= 0.004 ? ' is-zero' : '' ?>">₹ <?= $money($total_outstanding) ?></div>
+                    </div>
+                    <div class="dbx-status" aria-label="Project status">
+                        <div class="dbx-st"><div class="n"><?= (int) $active_projects ?></div><div class="t"><span class="dbx-dot" style="color:#4f74e0"></span>Active</div></div>
+                        <div class="dbx-st"><div class="n"><?= (int) $completed_projects ?></div><div class="t"><span class="dbx-dot" style="color:#4fae7f"></span>Completed</div></div>
+                        <div class="dbx-st"><div class="n"><?= (int) $onhold_projects ?></div><div class="t"><span class="dbx-dot" style="color:#e0a23b"></span>On Hold</div></div>
                     </div>
                 </div>
-            </div>
-            <div class="col-md-4">
-                <div class="status-progress-row">
-                    <div class="status-progress-icon" style="background:#ffedd5;color:#d97706;"><i class="bi bi-pause-circle"></i></div>
-                    <div class="status-progress-body">
-                        <div class="status-progress-top">
-                            <span class="status-progress-label">On Hold</span>
-                            <span class="status-progress-count"><?= $onhold_projects ?></span>
-                        </div>
-                        <div class="status-progress-track">
-                            <div class="status-progress-fill" style="width:<?= round($onhold_projects / $totalProjectsAll * 100, 1) ?>%;background:#d97706;"></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- REVENUE VS COST (Phase B/C) -->
-<div class="card-custom mb-3">
-    <div class="card-custom-header"><i class="bi bi-bar-chart-line me-2"></i>Revenue vs Cost (This Month)</div>
-    <div class="card-custom-body">
-        <div class="row g-3 align-items-center">
-            <div class="col-md-5 rvc-chart-col">
-                <div id="donutChart" style="width:100%;max-width:200px;"></div>
-            </div>
-            <div class="col-md-7">
-                <div class="row g-2">
-                    <div class="col-6">
-                        <div class="rvc-summary-card">
-                            <div class="rvc-summary-icon" style="background:#eff6ff;color:#2563eb;"><i class="bi bi-graph-up-arrow"></i></div>
-                            <div>
-                                <div class="rvc-summary-value"><?= number_format($month_sales, 2) ?></div>
-                                <div class="rvc-summary-label">Revenue</div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-6">
-                        <div class="rvc-summary-card">
-                            <div class="rvc-summary-icon" style="background:#ffedd5;color:#d97706;"><i class="bi bi-cart-fill"></i></div>
-                            <div>
-                                <div class="rvc-summary-value"><?= number_format($month_purchases, 2) ?></div>
-                                <div class="rvc-summary-label">Purchase Cost</div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-6">
-                        <div class="rvc-summary-card">
-                            <div class="rvc-summary-icon" style="background:#fee2e2;color:#dc2626;"><i class="bi bi-wallet2"></i></div>
-                            <div>
-                                <div class="rvc-summary-value"><?= number_format($month_expenses, 2) ?></div>
-                                <div class="rvc-summary-label">Expenses</div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-6">
-                        <div class="rvc-summary-card">
-                            <div class="rvc-summary-icon" style="<?= $month_net_profit < 0 ? 'background:#fee2e2;color:#dc2626;' : 'background:#dcfce7;color:#16a34a;' ?>"><i class="bi bi-piggy-bank"></i></div>
-                            <div>
-                                <div class="rvc-summary-value" style="<?= $month_net_profit < 0 ? 'color:#dc2626;' : 'color:#16a34a;' ?>"><?= number_format($month_net_profit, 2) ?></div>
-                                <div class="rvc-summary-label">Net Profit</div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<?= $this->include('dashboard/partials/service_summary') ?>
-
-<?= $this->include('dashboard/partials/loan_summary') ?>
-
-<?= $this->include('dashboard/partials/expense_summary') ?>
-
-<?= $this->include('dashboard/partials/bank_summary') ?>
-
-<?= $this->include('dashboard/partials/export_center') ?>
-
-<?= $this->include('dashboard/partials/maintenance_summary') ?>
-
-<!-- TOP PENDING PROJECTS (Phase F) -->
-<div class="row g-3 mb-3">
-    <div class="col-12">
-        <div class="card-custom">
-            <div class="card-custom-header">
-                <i class="bi bi-exclamation-diamond me-2"></i>Top Pending Projects
-            </div>
-            <div class="table-responsive dash-table-scroll">
-                <table class="table-custom dash-table-dense">
-                    <thead style="font-size:12px; color:#888;">
-                        <tr>
-                            <th>Project</th>
-                            <th style="text-align:right;width:180px;">Remaining Balance</th>
-                            <th style="text-align:right;width:180px;">Outstanding Collection</th>
-                        </tr>
-                    </thead>
+                <table class="dbx-table">
+                    <colgroup><col><col style="width:25%"><col style="width:27%"></colgroup>
+                    <thead><tr><th>Top pending projects</th><th class="dbx-r">Remaining Balance</th><th class="dbx-r">Outstanding Collection</th></tr></thead>
                     <tbody>
                         <?php if (empty($top_pending_projects)): ?>
-                        <tr><td colspan="3" class="text-center text-muted">No pending collections</td></tr>
-                        <?php else: ?>
+                        <tr><td colspan="3" class="dbx-empty">No pending collections</td></tr>
+                        <?php endif; ?>
                         <?php foreach ($top_pending_projects as $pp): ?>
+                        <?php
+                            // remaining_balance = MAX(0, Contract - Advance Received - Invoiced) and over_billed = the excess,
+                            // both from ProjectModel::getFinancialSummary()['remaining_billable_value'] (one state, shown in one column).
+                            $rbOver = (float) ($pp['over_billed'] ?? 0) > 0.004;
+                            $rbText = $money($rbOver ? $pp['over_billed'] : $pp['remaining_balance']);
+                        ?>
                         <tr>
-                            <td style="font-weight:500;"><?= esc($pp['project_name']) ?></td>
-                            <td style="text-align:right; font-weight:600; color:#2563eb;">₹ <?= number_format($pp['remaining_balance'], 2) ?></td>
-                            <td style="text-align:right;">
-                                <?php if ($pp['outstanding_collection'] > 0): ?>
-                                <span class="badge-pill-red">₹ <?= number_format($pp['outstanding_collection'], 2) ?></span>
-                                <?php else: ?>
-                                <span class="badge-pill-green">Settled</span>
-                                <?php endif; ?>
-                            </td>
+                            <td><div class="dbx-pname"><?= esc($pp['project_name']) ?></div></td>
+                            <td class="dbx-r dbx-num<?= $rbOver ? ' dbx-over' : '' ?>">₹ <?= $rbText ?><span class="dbx-lab<?= $rbOver ? ' over' : '' ?>"><?= $rbOver ? 'Over Billed' : 'Remaining Balance' ?></span></td>
+                            <td class="dbx-r dbx-num"><span class="dbx-outv">₹ <?= $money($pp['outstanding_collection']) ?></span><div class="dbx-outbar"><i style="width:<?= $pct((float) $pp['outstanding_collection'], (float) $maxOutstanding) ?>%"></i></div></td>
                         </tr>
                         <?php endforeach; ?>
-                        <?php endif; ?>
                     </tbody>
                 </table>
-            </div>
+            </section>
+        </div>
+
+        <!-- ================= right column ================= -->
+        <div class="dbx-stack dbx-rail dbx-group">
+
+            <?php $calm = ! $overdrawn && ! $emiLate && ! $svcOpen; ?>
+            <section class="dbx-sheet full<?= $calm ? ' dbx-calm' : '' ?>" aria-label="Needs attention">
+                <?php if ($calm): ?>
+                <div class="dbx-sech"><h2>Needs attention</h2><span class="dbx-clear"><span class="dbx-dot"></span>All clear</span></div>
+                <?php else: ?>
+                <div class="dbx-sech"><h2>Needs attention</h2></div>
+                <ul class="dbx-att">
+                    <?php if ($overdrawn): ?>
+                    <li><span class="dbx-dot k-neg"></span><?= $overdrawn === 1 ? 'Bank account overdrawn' : $overdrawn . ' bank accounts overdrawn' ?> <span style="color:var(--d-faint)">(<?= esc(implode(', ', array_column($bank_low_balance, 'bank_name'))) ?>)</span><a href="<?= base_url('bank-accounts') ?>">Review</a></li>
+                    <?php endif; ?>
+                    <?php if ($emiLate): ?>
+                    <li><span class="dbx-dot k-neg"></span><?= $plural($emiLate, 'loan EMI overdue', 'loan EMIs overdue') ?><a href="<?= base_url('loan-reports/emi-due') ?>">View</a></li>
+                    <?php endif; ?>
+                    <?php if ($svcOpen): ?>
+                    <li><span class="dbx-dot k-amb"></span><?= $plural($svcOpen, 'service invoice pending', 'service invoices pending') ?><a href="<?= base_url('service-reports/outstanding') ?>">View</a></li>
+                    <?php endif; ?>
+                </ul>
+                <?php endif; ?>
+            </section>
+
+            <section class="dbx-sheet full" aria-label="Quick actions">
+                <div class="dbx-sech"><h2>Quick actions</h2></div>
+                <div class="dbx-acts">
+                    <a class="dbx-btn primary" href="<?= base_url('sales/create') ?>"><svg class="dbx-i"><use href="#dbx-i-plus"/></svg>Add Sales Invoice</a>
+                    <a class="dbx-btn" href="<?= base_url('payments/create') ?>"><svg class="dbx-i"><use href="#dbx-i-pay"/></svg>Record Payment</a>
+                    <a class="dbx-btn" href="<?= base_url('purchases/create') ?>"><svg class="dbx-i"><use href="#dbx-i-cart"/></svg>Add Purchase</a>
+                    <a class="dbx-btn" href="<?= base_url('expenses/create') ?>"><svg class="dbx-i"><use href="#dbx-i-wallet"/></svg>Add Expense</a>
+                    <a class="dbx-btn" href="<?= base_url('projects/create') ?>"><svg class="dbx-i"><use href="#dbx-i-proj"/></svg>Add Project</a>
+                </div>
+            </section>
+
+            <?= $this->include('dashboard/partials/loan_summary') ?>
+            <?= $this->include('dashboard/partials/service_summary') ?>
+            <?= $this->include('dashboard/partials/expense_summary') ?>
         </div>
     </div>
+
+    <?= $this->include('dashboard/partials/maintenance_summary') ?>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
-
 <script>
-// REVENUE VS COST DONUT
-new ApexCharts(document.querySelector("#donutChart"), {
-    chart: { type: 'donut', height: 190 },
-    plotOptions: {
-        pie: {
-            donut: {
-                size: '65%',
-                labels: {
-                    show: true,
-                    total: {
-                        show: true,
-                        label: 'Total',
-                        fontSize: '11px',
-                        formatter: function () {
-                            return '₹ <?= number_format($month_sales + $month_purchases + $month_expenses, 0) ?>';
-                        }
-                    }
-                }
-            }
-        }
-    },
-    series: [
-        <?= (float)$month_sales ?>,
-        <?= (float)$month_purchases ?>,
-        <?= (float)$month_expenses ?>
-    ],
-    labels: ['Sales Revenue', 'Purchase Cost', 'Expenses'],
-    dataLabels: {
-        enabled: true,
-        formatter: function(val) {
-            return val.toFixed(0) + "%";
-        }
-    },
-    colors: ['#6a11cb','#28a745','#ff9800'],
-    legend: { show: false }
-}).render();
+/* Display-only count-up (runs once). The server-rendered text is stored and restored exactly at the end. */
+(function () {
+    if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) { return; }
+    var root = document.querySelector('.dbx');
+    if (!root || !window.requestAnimationFrame) { return; }
+    var items = [
+        ['.dbx-pos .dbx-val.dbx-num', 80], ['.dbx-perf .np .dbx-val', 160], ['.dbx-perf .m .dbx-val', 200], ['.dbx-big', 240]
+    ];
+    var re = /^(-?)([\d,]+)\.(\d{2})$/;
+    function fmt(c, neg) {
+        var whole = Math.floor(c / 100), frac = c % 100;
+        return (neg ? '-' : '') + String(whole).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '.' + (frac < 10 ? '0' : '') + frac;
+    }
+    items.forEach(function (it) {
+        root.querySelectorAll(it[0]).forEach(function (el) {
+            var node = el.lastChild;
+            if (!node || node.nodeType !== 3) { return; }
+            var raw = node.nodeValue, m = re.exec(raw.trim());
+            if (!m) { return; }
+            var lead = raw.match(/^\s*/)[0], tail = raw.match(/\s*$/)[0];
+            var target = parseInt(m[2].replace(/,/g, ''), 10) * 100 + parseInt(m[3], 10), neg = m[1] === '-';
+            if (target === 0) { return; }
+            node.nodeValue = lead + fmt(0, false) + tail;
+            setTimeout(function () {
+                var t0 = null, dur = 800;
+                (function step(ts) {
+                    if (t0 === null) { t0 = ts; }
+                    var p = Math.min(1, (ts - t0) / dur), e = 1 - Math.pow(1 - p, 3);
+                    node.nodeValue = p >= 1 ? raw : lead + fmt(Math.round(target * e), neg) + tail;
+                    if (p < 1) { requestAnimationFrame(step); }
+                })(performance.now());
+            }, it[1]);
+        });
+    });
+})();
 </script>
-
-<script>
-// COUNTER ANIMATION
-document.querySelectorAll('.counter').forEach(el => {
-    let value = parseFloat(el.getAttribute('data-value')) || 0;
-    let count = 0;
-    let step = value / 50;
-
-    let interval = setInterval(() => {
-        count += step;
-        if (count >= value) {
-            el.innerText = value.toLocaleString();
-            clearInterval(interval);
-        } else {
-            el.innerText = Math.floor(count).toLocaleString();
-        }
-    }, 20);
-});
-</script>
-
 <?= $this->endSection() ?>

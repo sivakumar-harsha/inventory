@@ -28,8 +28,6 @@
 
 	.text-danger-amt { color: #b91c1c; }
 
-	.filter-toolbar .form-label { font-size: .72rem; margin-bottom: 3px; }
-	.filter-toolbar .form-control { padding: 6px 10px; font-size: .82rem; height: auto; }
 
 	@media print {
 	    .page-title a, .btn-cancel, .btn-save, .sl-breadcrumb, .filter-toolbar, .main-sidebar, .main-header { display: none !important; }
@@ -170,6 +168,7 @@
         <table id="ledgerTable" class="table-custom">
             <thead>
                 <tr>
+                    <th class="sno-col">S.No.</th>
                     <th>Date</th>
                     <th>Type</th>
                     <th>Reference</th>
@@ -181,12 +180,13 @@
             </thead>
             <tbody>
                 <?php if (empty($transactions)): ?>
-                <tr><td colspan="7" style="text-align:center; color:#94a3b8;">No transactions found for this supplier.</td></tr>
+                <tr><td colspan="8" style="text-align:center; color:#94a3b8;">No transactions found for this supplier.</td></tr>
                 <?php endif; ?>
                 <?php foreach ($transactions as $t):
                     $slug = strtolower(str_replace(['project purchase', 'general purchase', 'supplier payment', 'advance payment'], ['project', 'general', 'payment', 'advance'], strtolower($t['type'])));
                 ?>
                 <tr data-type="<?= esc($t['type']) ?>" data-date="<?= esc($t['date']) ?>">
+                    <td class="sno-col sno-auto" data-label="S.No."></td>
                     <td><?= esc($t['date']) ?></td>
                     <td><span class="badge-type type-<?= esc($slug) ?>"><?= esc($t['type']) ?></span></td>
                     <td><?= esc($t['reference'] ?: '-') ?></td>
@@ -200,7 +200,7 @@
             <?php if (! empty($transactions)): ?>
             <tfoot>
                 <tr>
-                    <td colspan="6" style="text-align:right"><strong>Closing Balance</strong></td>
+                    <td colspan="7" style="text-align:right"><strong>Closing Balance</strong></td>
                     <td style="text-align:right" class="<?= $closingBalance > 0.004 ? 'text-danger-amt' : '' ?>"><strong><?= number_format($closingBalance, 2) ?></strong></td>
                 </tr>
             </tfoot>

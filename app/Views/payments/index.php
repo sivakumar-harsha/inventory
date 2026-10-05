@@ -84,17 +84,17 @@
 		font-weight: normal !important;
 	}
 	.select2-container .select2-selection--single {
-		height: 32px !important;
+		height: 30px !important;
 		border: 1px solid #e2e8f0 !important;
 		border-radius: 6px !important;
 	}
 	.select2-container--default .select2-selection--single .select2-selection__arrow {
-		height: 30px !important;
+		height: 28px !important;
 	}
 
 </style>
 
-<div class="page-title d-flex align-items-center justify-content-between flex-wrap">
+<div class="page-title d-flex align-items-center justify-content-between flex-wrap fb-title-one-row">
     <div class="d-flex align-items-center gap-2 flex-nowrap" style="flex-shrink:0;">
         <span class="d-flex align-items-center" style="white-space:nowrap;">
             <i class="bi bi-cash-stack me-2"></i>Payments
@@ -135,23 +135,23 @@
     <div class="table-responsive">
         <table id="paymentsTable" class="table-custom">
             <thead>
-                <tr><th>#</th><th>Invoice</th><th>Project</th><th>Customer</th><th style="text-align:right">Amount</th><th>Date</th><th>Method</th><th>Actions</th></tr>
+                <tr><th class="sno-col">S.No.</th><th>Invoice</th><th>Project</th><th>Customer</th><th style="text-align:right">Amount</th><th>Date</th><th>Method</th><th>Actions</th></tr>
             </thead>
             <tbody>
                 <?php foreach ($payments as $i => $p): ?>
                 <tr>
-                    <td><?= $i + 1 ?></td>
+                    <td class="sno-col"><?= $i + 1 ?></td>
                     <td><?= esc($p['invoice_no'] ?: 'Sale #' . $p['sale_id']) ?></td>
                     <td><?= esc($p['project_name'] ?: '-') ?></td>
                     <td><?= esc($p['customer_name'] ?: '-') ?></td>
                     <td style="text-align:right"><strong><?= number_format($p['amount'], 2) ?></strong></td>
                     <td><?= $p['payment_date'] ?></td>
-                    <td><?= $p['method'] ?></td>
+                    <td><?= pm_badge($p['method'] ?? '', 'Not recorded') ?><?php if (! empty($p['bank_name'])): ?><br><small class="text-muted"><?= esc($p['bank_name']) ?></small><?php endif; ?></td>
                     <td>
-						<a href="<?= base_url('payments/edit/' . $p['id']) ?>" class="btn-edit">
+						<a href="<?= base_url('payments/edit/' . $p['id']) ?>" class="btn-edit table-action-btn">
 							<i class="bi bi-pencil"></i>
 						</a>
-                        <a href="<?= base_url('payments/delete/' . $p['id']) ?>" class="btn-delete" onclick="return confirm('Delete this payment?')"><i class="bi bi-trash"></i> </a>
+                        <a href="<?= base_url('payments/delete/' . $p['id']) ?>" class="btn-delete table-action-btn" onclick="return confirm('Delete this payment?')"><i class="bi bi-trash"></i> </a>
                     </td>
                 </tr>
                 <?php endforeach; ?>
@@ -201,7 +201,7 @@
 				searching: true,    // ❌ remove search box
 				lengthChange: false, // ❌ remove "show entries"
 				info: false,          // (optional) showing "1 to 10 of X"
-				ordering: true,      // (optional sorting)
+				ordering: true, order: [],      // (optional sorting)
 				pageLength: 10,      // default rows per page
 
 				dom: 'tp' ,// ✅ ONLY table + pagination + info

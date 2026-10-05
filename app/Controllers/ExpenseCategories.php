@@ -44,6 +44,27 @@ class ExpenseCategories extends Controller
         return redirect()->to('/expense-categories')->with('success', 'Expense category created successfully.');
     }
 
+    /**
+     * Quick-add from the Add Expense page (JSON). Same rules as store(): name required, no duplicate,
+     * new category ACTIVE. Same auth gate as the rest of this master (there is no finer-grained permission system).
+     */
+    public function quickStore()
+    {
+        $name = trim((string) $this->request->getPost('category_name'));
+
+        if ($name === '') {
+            return $this->response->setStatusCode(422)->setJSON(['status' => false, 'errors' => ['Category name is required.']]);
+        }
+
+        if ($this->model->where('category_name', $name)->first()) {
+            return $this->response->setStatusCode(422)->setJSON(['status' => false, 'errors' => ['This category already exists.']]);
+        }
+
+        $id = $this->model->insert(['category_name' => $name, 'status' => 'ACTIVE']);
+
+        return $this->response->setJSON(['status' => true, 'category' => ['id' => (int) $id, 'category_name' => $name]]);
+    }
+
     public function edit($id)
     {
         $data['category'] = $this->model->find($id);

@@ -40,7 +40,6 @@ if ($lnQs !== '') {
 </style>
 <div class="ln-toolbar ln-noprint">
     <div class="ln-toolbar-group">
-        <button type="submit" form="lnFilterForm" class="btn-save"><i class="bi bi-funnel"></i> Filter</button>
         <a href="<?= esc($lnResetUrl, 'attr') ?>" class="btn-cancel"><i class="bi bi-arrow-counterclockwise"></i> Reset</a>
     </div>
     <div class="ln-toolbar-group">

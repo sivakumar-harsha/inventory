@@ -2,6 +2,7 @@
 
 namespace App\Controllers;
 
+use App\Libraries\CashOpeningGuard;
 use App\Models\BankAccountModel;
 use App\Models\BankTransactionModel;
 use App\Models\ProjectModel;
@@ -91,14 +92,12 @@ class Projects extends Controller
             // to COMPLETED, only markBillingComplete() (user action) sets it.
             $p['billing_completion_status'] = $this->model->getBillingCompletionStatus($p, $fs);
 
-            // Release 2.3F: same remaining_billable_value used by Project View's
-            // Remaining Balance figure — no customer_pending / outstanding_collection_balance
-            // / payment_status involved in this column.
-            $p['remaining_balance'] = max(0, $fs['remaining_billable_value'] ?? 0);
-
-            if ($p['billing_completion_status'] === 'COMPLETED') {
-                $p['remaining_balance'] = 0;
-            }
+            // Release 4.9.0EC: Remaining Balance = MAX(0, Contract - Advance Received
+            // - Total Invoiced) (remaining_billable_value); the excess is Over Billed.
+            // Customer payments never enter this column.
+            $rawBillable             = (float) ($fs['remaining_billable_value'] ?? 0);
+            $p['remaining_billable'] = max(0, $rawBillable);
+            $p['over_billed']        = max(0, -$rawBillable);
         }
         unset($p);
 
@@ -122,7 +121,14 @@ class Projects extends Controller
         if ($errors = $this->_validateAdvance($adv, $this->_postedProjectValue(), $customerId)) {
             return $this->_advanceRejected($errors, null);
         }
+        $advDate = $adv['date']; // _normalizeAdvance() keeps only amount / method / bank
         $adv = $this->_normalizeAdvance($adv);
+
+        // Release 4.9.0CF: a CASH advance dated before the Cash Opening Date is warned about, never blocked.
+        // A blank advance date means "today" for a new project (the Cash Book reads DATE(created_at)).
+        if ($adv['amount'] > 0 && ($warn = CashOpeningGuard::gate($this->request, 'project-advance', 0, $adv['method'], $advDate !== '' ? $advDate : date('Y-m-d')))) {
+            return $warn;
+        }
 
         $db = \Config\Database::connect();
         $db->transStart();
@@ -199,7 +205,13 @@ class Projects extends Controller
         if ($errors = $this->_validateAdvance($adv, $this->_postedProjectValue(), $customerId)) {
             return $this->_advanceRejected($errors, $project);
         }
+        $advDate = $adv['date']; // _normalizeAdvance() keeps only amount / method / bank
         $adv = $this->_normalizeAdvance($adv);
+
+        // Release 4.9.0CF: same warning on edit. A blank advance date keeps the project's own created date.
+        if ($adv['amount'] > 0 && ($warn = CashOpeningGuard::gate($this->request, 'project-advance', $id, $adv['method'], $advDate !== '' ? $advDate : substr((string) ($project['created_at'] ?? date('Y-m-d')), 0, 10)))) {
+            return $warn;
+        }
 
         $db = \Config\Database::connect();
         $db->transStart();
@@ -720,13 +732,14 @@ class Projects extends Controller
         $sheet->getStyle('A5')->getFont()->setBold(true)->setSize(12)->getColor()->setRGB('FFFFFF');
         $sheet->getStyle('A5')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('3C5A82');
 
-        // Release 4.6.5: Cash Received / Remaining Balance / Total Customer
-        // Paid now read the model's own cash_received_combined /
-        // remaining_balance_display (Invoice Payments + Advance Receipts +
+        // Release 4.6.5: Cash Received / Total Customer Paid read the model's
+        // own cash_received_combined (Invoice Payments + Advance Receipts +
         // Direct Income) — the same consistent figures the screen uses,
         // instead of re-deriving them here from total_cash_received.
+        // Release 4.9.0EC: Remaining Balance = Contract - Advance Received - Total
+        // Invoiced (remaining_billable_value), same as the Statement/View screens.
         $exportCashReceived      = (float) ($fs['cash_received_combined'] ?? 0);
-        $exportRemainingBalance  = (float) ($fs['remaining_balance_display'] ?? 0);
+        $exportRemainingBalance  = max(0.0, (float) ($fs['remaining_billable_value'] ?? 0));
         // Release 4.8.6A-1: Total Customer Paid now includes the project Advance; the balance rows below it
         // follow the statement cards (Customer Advance Balance and/or Outstanding Collection / Settled).
         $exportTotalCustomerPaid = (float) ($fs['total_customer_paid'] ?? $fs['cash_received_combined'] ?? 0);
@@ -736,6 +749,7 @@ class Projects extends Controller
             ['Advance Received', $fs['advance_amount'] ?? 0],
             ['Total Billed', $fs['total_billed'] ?? 0],
             ['Remaining Balance', $exportRemainingBalance],
+            ['Over Billed', max(0.0, -(float) ($fs['remaining_billable_value'] ?? 0))],
             ['Total Customer Paid', $exportTotalCustomerPaid],
             ...$this->_customerBalanceRows($fs),
             ['Billing Progress (%)', $fs['billing_progress_percent'] ?? 0],
@@ -760,8 +774,13 @@ class Projects extends Controller
         }
 
         // ===== DIRECT PROJECT INCOME (Release 4.6.5.5) =====
+        // Release 4.9.0Y (2nd): total matches this section's own displayed
+        // rows (DIRECT_INCOME + CUSTOMER_PROJECT_CASH since 4.9.0X), same as
+        // the on-screen card in statement.php — not $fs['total_direct_income']
+        // (P&L-only figure used by Net Profit / Reports.php / Dashboard.php,
+        // which must stay DIRECT_INCOME-only and is left untouched).
         $directIncomeReceipts = $data['direct_income_receipts'] ?? [];
-        $totalDirectIncome    = (float) ($fs['total_direct_income'] ?? 0);
+        $totalDirectIncome    = array_sum(array_column($directIncomeReceipts, 'amount'));
 
         $diHeaderRow = $r + 1;
         $sheet->setCellValue("A$diHeaderRow", 'DIRECT PROJECT INCOME');
@@ -775,35 +794,40 @@ class Projects extends Controller
             $sheet->mergeCells("A{$r}:G{$r}");
             $r++;
         } else {
-            $diHeaders = ['Date', 'Receipt No', 'Reference Number', 'Payment Method', 'Notes', 'Amount'];
+            // Release 4.9.0X: Type column distinguishes genuine DIRECT_INCOME
+            // rows from CUSTOMER_PROJECT_CASH rows now included in this list.
+            // Release 4.9.0Y (2nd): Total Direct Income below sums this same
+            // list (see $totalDirectIncome above), matching the on-screen card.
+            $diHeaders = ['Date', 'Type', 'Receipt No', 'Reference Number', 'Payment Method', 'Notes', 'Amount'];
             foreach ($diHeaders as $i => $h) {
                 $col = chr(65 + $i);
                 $sheet->setCellValue("$col$r", $h);
             }
-            $sheet->getStyle("A{$r}:F{$r}")->getFont()->setBold(true)->getColor()->setRGB('FFFFFF');
-            $sheet->getStyle("A{$r}:F{$r}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('3C5A82');
+            $sheet->getStyle("A{$r}:G{$r}")->getFont()->setBold(true)->getColor()->setRGB('FFFFFF');
+            $sheet->getStyle("A{$r}:G{$r}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('3C5A82');
             $r++;
 
             foreach ($directIncomeReceipts as $rec) {
                 $sheet->setCellValue("A$r", $rec['receipt_date']);
-                $sheet->setCellValue("B$r", $rec['receipt_no']);
-                $sheet->setCellValue("C$r", $rec['reference']);
-                $sheet->setCellValue("D$r", $rec['payment_method']);
-                $sheet->setCellValue("E$r", $rec['notes']);
-                $sheet->setCellValue("F$r", $rec['amount']);
-                $sheet->getStyle("F$r")->getNumberFormat()->setFormatCode('#,##0.00');
+                $sheet->setCellValue("B$r", ($rec['receipt_type'] ?? '') === 'CUSTOMER_PROJECT_CASH' ? 'Unallocated Project Receipt' : 'Direct Income');
+                $sheet->setCellValue("C$r", $rec['receipt_no']);
+                $sheet->setCellValue("D$r", $rec['reference']);
+                $sheet->setCellValue("E$r", pm_label($rec['payment_method'] ?? '', 'Not recorded'));
+                $sheet->setCellValue("F$r", $rec['notes']);
+                $sheet->setCellValue("G$r", $rec['amount']);
+                $sheet->getStyle("G$r")->getNumberFormat()->setFormatCode('#,##0.00');
                 if ($r % 2 == 0) {
-                    $sheet->getStyle("A$r:F$r")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('F7FBFC');
+                    $sheet->getStyle("A$r:G$r")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('F7FBFC');
                 }
                 $r++;
             }
 
             $sheet->setCellValue("A$r", 'Total Direct Income');
-            $sheet->mergeCells("A{$r}:E{$r}");
+            $sheet->mergeCells("A{$r}:F{$r}");
             $sheet->getStyle("A$r")->getFont()->setBold(true);
-            $sheet->setCellValue("F$r", $totalDirectIncome);
-            $sheet->getStyle("F$r")->getFont()->setBold(true);
-            $sheet->getStyle("F$r")->getNumberFormat()->setFormatCode('#,##0.00');
+            $sheet->setCellValue("G$r", $totalDirectIncome);
+            $sheet->getStyle("G$r")->getFont()->setBold(true);
+            $sheet->getStyle("G$r")->getNumberFormat()->setFormatCode('#,##0.00');
             $r++;
         }
 
@@ -815,14 +839,15 @@ class Projects extends Controller
         $sheet->getStyle("A$timelineHeaderRow")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('3C5A82');
 
         $colHeaderRow = $timelineHeaderRow + 1;
-        $headers = ['Date', 'Event Type', 'Reference No.', 'Description', 'Amount', 'Category', 'Running Balance'];
+        $headers = ['Date', 'Event Type', 'Reference No.', 'Description', 'Method', 'Amount', 'Category', 'Running Balance'];
         foreach ($headers as $i => $h) {
             $col = chr(65 + $i);
             $sheet->setCellValue("$col$colHeaderRow", $h);
         }
-        $sheet->getStyle("A{$colHeaderRow}:G{$colHeaderRow}")->getFont()->setBold(true)->getColor()->setRGB('FFFFFF');
-        $sheet->getStyle("A{$colHeaderRow}:G{$colHeaderRow}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('3C5A82');
-        $sheet->getStyle("A{$colHeaderRow}:G{$colHeaderRow}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+        // Release 4.9.0CB: Method column added after Description (Amount / Category / Running Balance shift one column right).
+        $sheet->getStyle("A{$colHeaderRow}:H{$colHeaderRow}")->getFont()->setBold(true)->getColor()->setRGB('FFFFFF');
+        $sheet->getStyle("A{$colHeaderRow}:H{$colHeaderRow}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('3C5A82');
+        $sheet->getStyle("A{$colHeaderRow}:H{$colHeaderRow}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
 
         $rowNum = $colHeaderRow + 1;
         foreach ($timeline as $ev) {
@@ -830,24 +855,25 @@ class Projects extends Controller
             $sheet->setCellValue("B$rowNum", $ev['type']);
             $sheet->setCellValue("C$rowNum", $ev['reference']);
             $sheet->setCellValue("D$rowNum", $ev['description']);
-            $sheet->setCellValue("E$rowNum", $ev['amount'] !== null ? $ev['amount'] : '');
-            $sheet->setCellValue("F$rowNum", $ev['category']);
-            $sheet->setCellValue("G$rowNum", $ev['running_balance'] !== null ? $ev['running_balance'] : '');
+            $sheet->setCellValue("E$rowNum", pm_label($ev['method'] ?? '', in_array($ev['category'], ['Payment', 'Income'], true) || $ev['type'] === 'Expense' ? 'Not recorded' : '—'));
+            $sheet->setCellValue("F$rowNum", $ev['amount'] !== null ? $ev['amount'] : '');
+            $sheet->setCellValue("G$rowNum", $ev['category']);
+            $sheet->setCellValue("H$rowNum", $ev['running_balance'] !== null ? $ev['running_balance'] : '');
 
-            $sheet->getStyle("E$rowNum")->getNumberFormat()->setFormatCode('#,##0.00');
-            $sheet->getStyle("G$rowNum")->getNumberFormat()->setFormatCode('#,##0.00');
+            $sheet->getStyle("F$rowNum")->getNumberFormat()->setFormatCode('#,##0.00');
+            $sheet->getStyle("H$rowNum")->getNumberFormat()->setFormatCode('#,##0.00');
 
             if ($rowNum % 2 == 0) {
-                $sheet->getStyle("A$rowNum:G$rowNum")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('F7FBFC');
+                $sheet->getStyle("A$rowNum:H$rowNum")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('F7FBFC');
             }
             $rowNum++;
         }
         $lastTimelineRow = $rowNum - 1;
         if ($lastTimelineRow >= $colHeaderRow) {
-            $sheet->getStyle("A{$colHeaderRow}:G{$lastTimelineRow}")->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN);
+            $sheet->getStyle("A{$colHeaderRow}:H{$lastTimelineRow}")->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN);
         }
 
-        foreach (range('A', 'G') as $col) {
+        foreach (range('A', 'H') as $col) {
             $sheet->getColumnDimension($col)->setAutoSize(true);
         }
 
@@ -873,11 +899,12 @@ class Projects extends Controller
         $fs       = $data['financial_summary'];
         $timeline = $data['timeline'];
 
-        // Release 4.6.5: same field changes as statementExport() — Cash
-        // Received / Remaining Balance / Total Customer Paid all read the
-        // model's cash_received_combined / remaining_balance_display.
+        // Release 4.6.5/4.9.0J: same field changes as statementExport() —
+        // Cash Received / Total Customer Paid read cash_received_combined,
+        // Remaining Balance reads remaining_billable_value (Contract - Advance
+        // Received - Total Invoiced, 4.9.0EC).
         $pdfCashReceived      = (float) ($fs['cash_received_combined'] ?? 0);
-        $pdfRemainingBalance  = (float) ($fs['remaining_balance_display'] ?? 0);
+        $pdfRemainingBalance  = max(0.0, (float) ($fs['remaining_billable_value'] ?? 0));
         $pdfTotalCustomerPaid = (float) ($fs['total_customer_paid'] ?? $fs['cash_received_combined'] ?? 0);
 
         $summaryRows = [
@@ -885,6 +912,7 @@ class Projects extends Controller
             ['Advance Received', $fs['advance_amount'] ?? 0],
             ['Total Billed', $fs['total_billed'] ?? 0],
             ['Remaining Balance', $pdfRemainingBalance],
+            ['Over Billed', max(0.0, -(float) ($fs['remaining_billable_value'] ?? 0))],
             ['Total Customer Paid', $pdfTotalCustomerPaid],
             ...$this->_customerBalanceRows($fs),
             ['Billing Progress (%)', number_format($fs['billing_progress_percent'] ?? 0, 1) . '%'],
@@ -927,10 +955,12 @@ class Projects extends Controller
         $html .= '</table>';
 
         // Release 4.6.5.5: Direct Project Income section — after Financial
-        // Summary, before Timeline. Read-only history, no calculation beyond
-        // reusing $fs['total_direct_income'] (getFinancialSummary(), unchanged).
+        // Summary, before Timeline.
+        // Release 4.9.0Y (2nd): total matches this section's own displayed
+        // rows (DIRECT_INCOME + CUSTOMER_PROJECT_CASH since 4.9.0X) — see
+        // matching comment in statementExport() above.
         $directIncomeReceipts = $data['direct_income_receipts'] ?? [];
-        $totalDirectIncomePdf = (float) ($fs['total_direct_income'] ?? 0);
+        $totalDirectIncomePdf = array_sum(array_column($directIncomeReceipts, 'amount'));
 
         $html .= '<div class="section-title">DIRECT PROJECT INCOME</div>';
         if (empty($directIncomeReceipts)) {
@@ -939,6 +969,7 @@ class Projects extends Controller
             $html .= '<table>
                 <tr>
                     <th>Date</th>
+                    <th>Type</th>
                     <th>Receipt No</th>
                     <th>Reference Number</th>
                     <th>Payment Method</th>
@@ -946,16 +977,18 @@ class Projects extends Controller
                     <th>Amount</th>
                 </tr>';
             foreach ($directIncomeReceipts as $rec) {
+                $rowType = ($rec['receipt_type'] ?? '') === 'CUSTOMER_PROJECT_CASH' ? 'Unallocated Project Receipt' : 'Direct Income';
                 $html .= '<tr>
                     <td>' . esc($rec['receipt_date']) . '</td>
+                    <td>' . esc($rowType) . '</td>
                     <td>' . esc($rec['receipt_no']) . '</td>
                     <td>' . esc($rec['reference'] ?: '-') . '</td>
-                    <td>' . esc($rec['payment_method']) . '</td>
+                    <td>' . esc(pm_label($rec['payment_method'] ?? '', 'Not recorded')) . '</td>
                     <td>' . esc($rec['notes'] ?: '-') . '</td>
                     <td class="right">' . number_format($rec['amount'], 2) . '</td>
                 </tr>';
             }
-            $html .= '<tr><td colspan="5" class="right summary-label">Total Direct Income</td><td class="right summary-label">' . number_format($totalDirectIncomePdf, 2) . '</td></tr>';
+            $html .= '<tr><td colspan="6" class="right summary-label">Total Direct Income</td><td class="right summary-label">' . number_format($totalDirectIncomePdf, 2) . '</td></tr>';
             $html .= '</table>';
         }
 
@@ -966,6 +999,7 @@ class Projects extends Controller
                     <th>Event Type</th>
                     <th>Reference No.</th>
                     <th>Description</th>
+                    <th>Method</th>
                     <th>Amount</th>
                     <th>Category</th>
                     <th>Running Balance</th>
@@ -976,6 +1010,7 @@ class Projects extends Controller
                 <td>' . esc($ev['type']) . '</td>
                 <td>' . esc($ev['reference']) . '</td>
                 <td>' . esc($ev['description']) . '</td>
+                <td>' . esc(pm_label($ev['method'] ?? '', in_array($ev['category'], ['Payment', 'Income'], true) || $ev['type'] === 'Expense' ? 'Not recorded' : '—')) . '</td>
                 <td class="right">' . ($ev['amount'] !== null ? number_format($ev['amount'], 2) : '&mdash;') . '</td>
                 <td class="center">' . esc($ev['category']) . '</td>
                 <td class="right">' . ($ev['running_balance'] !== null ? number_format($ev['running_balance'], 2) : '&mdash;') . '</td>
@@ -1079,14 +1114,23 @@ class Projects extends Controller
 
         // Release 4.6.5.5: dedicated Direct Project Income list — plain,
         // read-only history straight from project_cash_receipts, no
-        // aggregation logic here. Total reuses financial_summary's own
-        // total_direct_income (already-computed by getFinancialSummary())
-        // rather than re-summing, so there is exactly one source of truth
-        // for that figure.
+        // aggregation logic here.
+        // Release 4.9.0X: also includes CUSTOMER_PROJECT_CASH receipts so the
+        // user can see customer cash collected through this same screen —
+        // display only, the row is tagged with its own receipt_type so the
+        // view/exports can label it "Unallocated Project Receipt". No second
+        // receipt is created — same project_cash_receipts row now simply
+        // matches a wider WHERE clause.
+        // Release 4.9.0Y (2nd): the view/exports each sum THIS list for
+        // their own "Total Direct Income" display figure (statement.php,
+        // statementExport(), statementPdf()) — deliberately separate from
+        // financial_summary's total_direct_income, which stays
+        // DIRECT_INCOME-only because it also feeds Net Profit/P&L
+        // elsewhere (see $totalDirectIncome comment in statement.php).
         $directIncomeReceipts = $db->query("
-            SELECT receipt_no, receipt_date, reference, payment_method, notes, amount
+            SELECT receipt_no, receipt_date, reference, payment_method, notes, amount, receipt_type
             FROM project_cash_receipts
-            WHERE project_id = ? AND receipt_type = 'DIRECT_INCOME'
+            WHERE project_id = ? AND receipt_type IN ('DIRECT_INCOME', 'CUSTOMER_PROJECT_CASH')
             ORDER BY receipt_date ASC, id ASC
         ", [$id])->getResultArray();
 

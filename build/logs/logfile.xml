@@ -1,9 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <testsuites>
-  <testsuite name="Tests\Unit\BankAccountsUiQATest" file="D:\xampp\htdocs\aandainventory\tests\unit\BankAccountsUiQATest.php" tests="4" assertions="27" errors="0" failures="0" skipped="0" time="49.313436">
-    <testcase name="testIndexAndCreatePagesRender" file="D:\xampp\htdocs\aandainventory\tests\unit\BankAccountsUiQATest.php" line="17" class="Tests\Unit\BankAccountsUiQATest" classname="Tests.Unit.BankAccountsUiQATest" assertions="6" time="39.284230"/>
-    <testcase name="testFullUiFlowStoreViewEditTransactionsStatement" file="D:\xampp\htdocs\aandainventory\tests\unit\BankAccountsUiQATest.php" line="30" class="Tests\Unit\BankAccountsUiQATest" classname="Tests.Unit.BankAccountsUiQATest" assertions="15" time="7.947510"/>
-    <testcase name="testMissingAccountRedirectsInsteadOfErroring" file="D:\xampp\htdocs\aandainventory\tests\unit\BankAccountsUiQATest.php" line="83" class="Tests\Unit\BankAccountsUiQATest" classname="Tests.Unit.BankAccountsUiQATest" assertions="2" time="0.484287"/>
-    <testcase name="testSupplierLedgerAndGeneralPurchaseStillRenderUnaffected" file="D:\xampp\htdocs\aandainventory\tests\unit\BankAccountsUiQATest.php" line="89" class="Tests\Unit\BankAccountsUiQATest" classname="Tests.Unit.BankAccountsUiQATest" assertions="4" time="1.597409"/>
+  <testsuite name="CLI Arguments" tests="5" assertions="28" errors="0" failures="0" skipped="0" time="0.227688">
+    <testsuite name="CashOpeningGuardTest" file="D:\xampp\htdocs\aandainventory\tests\unit\CashOpeningGuardTest.php" tests="3" assertions="25" errors="0" failures="0" skipped="0" time="0.107957">
+      <testcase name="testAcceptsOnlyRealCalendarDates" file="D:\xampp\htdocs\aandainventory\tests\unit\CashOpeningGuardTest.php" line="13" class="CashOpeningGuardTest" classname="CashOpeningGuardTest" assertions="22" time="0.098833"/>
+      <testcase name="testFlattenKeepsNestedFieldNamesAndValues" file="D:\xampp\htdocs\aandainventory\tests\unit\CashOpeningGuardTest.php" line="28" class="CashOpeningGuardTest" classname="CashOpeningGuardTest" assertions="1" time="0.002913"/>
+      <testcase name="testFingerprintIgnoresOrderTokenAndLineEndingsButNotValues" file="D:\xampp\htdocs\aandainventory\tests\unit\CashOpeningGuardTest.php" line="35" class="CashOpeningGuardTest" classname="CashOpeningGuardTest" assertions="2" time="0.006211"/>
+    </testsuite>
+    <testsuite name="HealthTest" file="D:\xampp\htdocs\aandainventory\tests\unit\HealthTest.php" tests="2" assertions="3" errors="0" failures="0" skipped="0" time="0.119730">
+      <testcase name="testIsDefinedAppPath" file="D:\xampp\htdocs\aandainventory\tests\unit\HealthTest.php" line="12" class="HealthTest" classname="HealthTest" assertions="1" time="0.001546"/>
+      <testcase name="testBaseUrlHasBeenSet" file="D:\xampp\htdocs\aandainventory\tests\unit\HealthTest.php" line="17" class="HealthTest" classname="HealthTest" assertions="2" time="0.118184"/>
+    </testsuite>
   </testsuite>
 </testsuites>

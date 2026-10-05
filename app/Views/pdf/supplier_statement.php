@@ -27,6 +27,7 @@
             <th>Voucher No</th>
             <th>Type</th>
             <th>Particulars</th>
+            <th>Method</th>
             <th class="pdf-right">Debit</th>
             <th class="pdf-right">Credit</th>
             <th class="pdf-right">Balance</th>
@@ -34,10 +35,10 @@
     </thead>
     <tbody>
         <?php if (empty($rows)): ?>
-        <tr><td colspan="7" class="pdf-center">No transactions found.</td></tr>
+        <tr><td colspan="8" class="pdf-center"><?= ($has_any ?? true) ? 'No transactions found.' : 'No ledger transactions found for this supplier.' ?></td></tr>
         <?php else: ?>
         <?php if (abs($opening) > 0.004): ?>
-        <tr><td colspan="6"><em>Opening balance</em></td><td class="pdf-right"><?= pdf_currency($opening) ?></td></tr>
+        <tr><td colspan="7"><em>Opening balance</em></td><td class="pdf-right"><?= pdf_currency($opening) ?></td></tr>
         <?php endif; ?>
         <?php foreach ($rows as $t): ?>
         <tr>
@@ -45,6 +46,7 @@
             <td><?= esc(pdf_text($t['voucher'])) ?></td>
             <td><?= esc($t['ttype']) ?></td>
             <td><?= esc(pdf_text($t['particulars'])) ?></td>
+            <td><?= esc(pm_label($t["method"] ?? "", in_array($t["ttype"], ["Payment", "Advance"], true) ? "Not recorded" : "—")) ?></td>
             <td class="pdf-right"><?= $t['debit'] > 0 ? pdf_currency($t['debit']) : '-' ?></td>
             <td class="pdf-right"><?= $t['credit'] > 0 ? pdf_currency($t['credit']) : '-' ?></td>
             <td class="pdf-right"><?= pdf_currency($t['balance']) ?></td>
@@ -55,7 +57,7 @@
     <?php if (! empty($rows)): ?>
     <tfoot>
         <tr>
-            <td colspan="6" class="pdf-right">Closing Balance</td>
+            <td colspan="7" class="pdf-right">Closing Balance</td>
             <td class="pdf-right"><?= pdf_currency($closing) ?></td>
         </tr>
     </tfoot>

@@ -338,6 +338,18 @@ class ExcelReport
     {
         $cell = $this->_cell($col, $row);
 
+        // Release 4.9.0BT: a cell may be given as ['v' => value, 't' => type|'blank', 'b' => bold] to override
+        // its column type (e.g. a date inside a currency column) or to be bold. Plain values behave as before.
+        $bold = false;
+        if (is_array($value) && array_key_exists('v', $value)) {
+            $bold  = ! empty($value['b']);
+            $type  = $value['t'] ?? $type;
+            $value = $value['v'];
+            if ($type === 'blank') {
+                return;
+            }
+        }
+
         switch ($type) {
             case 'currency':
                 $this->sheet->setCellValue($cell, round((float) $value, 2));
@@ -354,7 +366,9 @@ class ExcelReport
             case 'date':
                 $ts = $value ? strtotime((string) $value) : false;
                 if ($ts) {
-                    $this->sheet->setCellValue($cell, ExcelDate::PHPToExcel(new \DateTime('@' . $ts)));
+                    // Release 4.9.0BT: build the DateTime in the app timezone. new DateTime('@ts') is UTC, which
+                    // turned a Kolkata midnight (2026-09-01) into 31-08-2026 18:30 and exported the previous day.
+                    $this->sheet->setCellValue($cell, ExcelDate::PHPToExcel((new \DateTime())->setTimestamp($ts)));
                     $this->sheet->getStyle($cell)->getNumberFormat()->setFormatCode('dd-mm-yyyy');
                 } else {
                     $this->sheet->setCellValueExplicit($cell, '-', DataType::TYPE_STRING);
@@ -364,6 +378,10 @@ class ExcelReport
             default:
                 $v = $value === null || $value === '' ? '-' : (string) $value;
                 $this->sheet->setCellValueExplicit($cell, $v, DataType::TYPE_STRING);
+        }
+
+        if ($bold) {
+            $this->sheet->getStyle($cell)->getFont()->setBold(true);
         }
     }
 

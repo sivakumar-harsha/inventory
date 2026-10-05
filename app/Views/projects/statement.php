@@ -10,11 +10,23 @@
     $csBilled    = (float) ($financial_summary['total_billed'] ?? 0);
     $csPercent   = (float) ($financial_summary['billing_progress_percent'] ?? 0);
 
-    // Release 4.6.5: Remaining Balance (display) now comes from the model's
-    // own remaining_balance_display — same formula as before this release,
-    // just named/shared instead of re-derived inline. remaining_billable_value
-    // itself (financial_summary) is untouched.
-    $csRemaining = (float) ($financial_summary['remaining_balance_display'] ?? 0);
+    // Release 4.9.0J (bug fix): this "Remaining Balance / Over Billed / Fully
+    // Billed" figure is a pure Contract vs Invoiced concept — how much of
+    // total_project_value has not yet been raised as an invoice — and must
+    // never be reduced by money collected through a different channel.
+    // remaining_balance_display (used here through 4.9.0I) also nets out
+    // Project Cash Receipts (ADVANCE/DIRECT_INCOME, an independent ledger —
+    // see ProjectModel::getFinancialSummary()), which is a customer
+    // collection concept, not a billing one; a project with direct income
+    // but no invoice for it would show a smaller "Remaining Balance" (or
+    // even "Over Billed") than the contract actually justifies.
+    // remaining_billable_value is exactly total_project_value - total_billed
+    // (no advance, no cash receipts) — already the field Projects::index()'s
+    // own Remaining Balance column and Dashboard's "Top Pending Projects"
+    // widget use — so this just makes the Statement/View cards agree with
+    // them instead of applying a second, different formula.
+    // $csRemaining = remaining_billable_value (Contract - Advance Received - Invoiced); 4.9.0EC: card shows it clamped at 0.
+    $csRemaining = (float) ($financial_summary['remaining_billable_value'] ?? 0);
 
     // Release 4.6.5: Total Customer Paid = same cash_received_combined figure
     // as the Cash Received card above (both now include invoice payments).
@@ -25,8 +37,11 @@
     $csPaidInvoice       = (float) ($financial_summary['total_paid'] ?? 0);
 
     $billingCompletionStatus = $billing_completion_status ?? 'ACTIVE';
-    $bcsMap = ['ACTIVE' => 'active', 'PARTIAL' => 'partial', 'COMPLETED' => 'completed'];
+    // Release 4.9.0K: OVER_BILLED (total_billed > contract value) — see
+    // ProjectModel::getBillingCompletionStatus().
+    $bcsMap = ['ACTIVE' => 'active', 'PARTIAL' => 'partial', 'COMPLETED' => 'completed', 'FULLY_BILLED' => 'completed', 'OVER_BILLED' => 'over-billed'];
     $bcsCls = $bcsMap[$billingCompletionStatus] ?? 'active';
+    $billingCompletionStatusLabel = str_replace('_', ' ', $billingCompletionStatus);
 
     // Release 4.8.6A-2 Final UI Constitution Patch (presentation only): ONE dynamic KPI card, chosen
     // from two independent model figures (unused_customer_advance / invoice_outstanding) plus whether
@@ -35,13 +50,18 @@
     $csAdvReceived = (float) ($financial_summary['advance_amount'] ?? 0);
     $csAdvApplied  = (float) ($financial_summary['total_advance_applied'] ?? 0);
     $csUnused      = (float) ($financial_summary['unused_customer_advance'] ?? 0);
-    $csOutstanding = (float) ($financial_summary['invoice_outstanding'] ?? 0);
+    // Release 4.9.0U: branch decision stays on invoice_outstanding (TRUE,
+    // invoice-only figure) — see app/Views/projects/view.php's identical
+    // comment. Only the displayed VALUE reads the CUSTOMER_PROJECT_CASH-
+    // aware project_outstanding_collection.
+    $csOutstanding        = (float) ($financial_summary['invoice_outstanding'] ?? 0);
+    $csOutstandingDisplay = (float) ($financial_summary['project_outstanding_collection'] ?? $csOutstanding);
     $csHasInvoices = $csBilled > 0.004;
     $dynSubtitle   = '';
     if ($csHasInvoices && $csOutstanding > 0.004) {
         $dynKpiCls = 'kpi-orange'; $dynIcon = 'bi-hourglass-split';
         $dynLabel  = 'Outstanding Collection';
-        $dynValue  = '₹' . number_format($csOutstanding, 2) . ' Dr';
+        $dynValue  = '₹' . number_format($csOutstandingDisplay, 2) . ' Dr';
         if ($csUnused > 0.004) {
             $dynSubtitle = 'Unused Advance Available : ₹' . number_format($csUnused, 2);
         }
@@ -67,7 +87,7 @@
             <span class="project-subheader-sep">•</span>
             <span><i class="bi bi-person me-1"></i><?= esc($project['customer_name'] ?: 'No Customer') ?></span>
             <span class="badge-status badge-<?= strtolower($project['status']) ?>" title="Work Status">Work: <?= str_replace('_', ' ', $project['status']) ?></span>
-            <span class="badge-status badge-<?= $bcsCls ?>" title="Billing Status">Billing: <?= $billingCompletionStatus ?></span>
+            <span class="badge-status badge-<?= $bcsCls ?>" title="Billing Status">Billing: <?= $billingCompletionStatusLabel ?></span>
         </div>
         <div class="project-header-dates">
             <i class="bi bi-calendar3 me-1"></i><?= esc($project['start_date']) ?> &rarr; <?= $project['end_date'] ? esc($project['end_date']) : 'Ongoing' ?>
@@ -114,18 +134,19 @@
     </div>
     <div class="col-md-3 col-6">
         <?php
-            if ($csRemaining > 0.004) {
-                $remKpiCls = 'kpi-orange'; $remIcon = 'bi-wallet2';
-                $remLabel  = 'Remaining Balance';
-                $remValue  = number_format($csRemaining, 2);
-            } elseif ($csRemaining < -0.004) {
+            // Release 4.9.0EB: one state - Over Billed or Remaining Balance.
+            if ($csRemaining < -0.004) {
                 $remKpiCls = 'kpi-red'; $remIcon = 'bi-exclamation-triangle';
-                $remLabel  = 'Over Billed';
                 $remValue  = number_format(abs($csRemaining), 2);
+                $remLabel  = 'Over Billed';
+            } elseif ($csRemaining > 0.004) {
+                $remKpiCls = 'kpi-orange'; $remIcon = 'bi-wallet2';
+                $remValue  = number_format($csRemaining, 2);
+                $remLabel  = 'Remaining Balance';
             } else {
                 $remKpiCls = 'kpi-green'; $remIcon = 'bi-check-circle';
-                $remLabel  = 'Fully Billed';
-                $remValue  = '';
+                $remValue  = '0.00';
+                $remLabel  = 'Remaining Balance';
             }
         ?>
         <div class="kpi-card <?= $remKpiCls ?>">
@@ -194,15 +215,38 @@
 
 <?php
     // Release 4.6.5.7 (UI only): Direct Project Income data, unchanged from
-    // Release 4.6.5.5 — total still reuses financial_summary's own
-    // total_direct_income (getFinancialSummary()), $directIncomeReceipts is
-    // still the same ASC-ordered read from Projects::_buildStatementData().
-    // Latest Receipt Date is simply the last element of that already-ordered
-    // list — a display pick, not a new calculation.
+    // Release 4.6.5.5 — $directIncomeReceipts is still the same ASC-ordered
+    // read from Projects::_buildStatementData(). Latest Receipt Date is
+    // simply the last element of that already-ordered list — a display
+    // pick, not a new calculation.
     $directIncomeReceipts = $direct_income_receipts ?? [];
-    $totalDirectIncome    = (float) ($financial_summary['total_direct_income'] ?? 0);
     $directIncomeCount    = count($directIncomeReceipts);
     $latestReceiptDate    = $directIncomeCount > 0 ? end($directIncomeReceipts)['receipt_date'] : null;
+
+    // Release 4.9.0Y (2nd): this card's "Total Direct Income" must equal the
+    // sum of the receipts actually shown in THIS section's history — which,
+    // since 4.9.0X, includes CUSTOMER_PROJECT_CASH rows alongside genuine
+    // DIRECT_INCOME rows. That is deliberately NOT the same figure as
+    // financial_summary['total_direct_income'] (still DIRECT_INCOME-only),
+    // which stays untouched because it also feeds Net Profit / P&L
+    // (Projects::_buildStatementData()'s $projectRevenue, Reports.php,
+    // Dashboard.php) — CUSTOMER_PROJECT_CASH is customer cash already
+    // counted in Total Customer Paid, not accounting revenue, so it must
+    // never enter those calculations. This is a section-local display sum
+    // only, scoped to this card and its table footer below.
+    $totalDirectIncome = array_sum(array_column($directIncomeReceipts, 'amount'));
+
+    // Release 4.9.0X: the history list above now also carries
+    // CUSTOMER_PROJECT_CASH rows (Projects::_buildStatementData()) purely so
+    // the user can see customer cash collected through this screen.
+    // Release 4.9.0Y (2nd): $totalDirectIncome above is now this section's
+    // own sum of that list (see comment further up), not financial_summary's
+    // total_direct_income — see that comment for why the two are allowed to
+    // differ.
+    $receiptTypeLabels = [
+        'DIRECT_INCOME'          => 'Direct Income',
+        'CUSTOMER_PROJECT_CASH'  => 'Unallocated Project Receipt',
+    ];
 ?>
 
 <!-- Release 4.6.5.7 (Phase C): compact Direct Project Income summary card —
@@ -240,12 +284,10 @@
             <span class="billing-strip-sep">•</span>
             <span><span class="billing-strip-label">Total Invoiced</span> ₹<?= number_format($csBilled, 2) ?></span>
             <span class="billing-strip-sep">•</span>
-            <?php if ($csRemaining > 0.004): ?>
-            <span><span class="billing-strip-label">Remaining Balance</span> ₹<?= number_format($csRemaining, 2) ?></span>
-            <?php elseif ($csRemaining < -0.004): ?>
+            <?php if ($csRemaining < -0.004): ?>
             <span class="billing-strip-overbilled"><span class="billing-strip-label">Over Billed</span> ₹<?= number_format(abs($csRemaining), 2) ?></span>
             <?php else: ?>
-            <span><span class="billing-strip-label">Remaining Balance</span> ₹0.00</span>
+            <span><span class="billing-strip-label">Remaining Balance</span> ₹<?= number_format(max(0, $csRemaining), 2) ?></span>
             <?php endif; ?>
             <span class="billing-strip-pct ms-auto"><?= number_format($csPercent, 0) ?>% Billed</span>
         </div>
@@ -316,7 +358,9 @@
                 <table class="table-custom" id="directIncomeTable">
                     <thead>
                         <tr>
+                            <th class="sno-col">S.No.</th>
                             <th>Date</th>
+                            <th>Type</th>
                             <th>Receipt No</th>
                             <th>Reference Number</th>
                             <th>Payment Method</th>
@@ -326,11 +370,20 @@
                     </thead>
                     <tbody>
                         <?php foreach ($directIncomeReceipts as $r): ?>
+                        <?php $rType = $receiptTypeLabels[$r['receipt_type'] ?? 'DIRECT_INCOME'] ?? 'Direct Income'; ?>
                         <tr>
+                            <td class="sno-col sno-auto" data-label="S.No."></td>
                             <td><?= esc($r['receipt_date']) ?></td>
+                            <td>
+                                <?php if (($r['receipt_type'] ?? '') === 'CUSTOMER_PROJECT_CASH'): ?>
+                                <span class="event-badge event-badge-payment"><?= esc($rType) ?></span>
+                                <?php else: ?>
+                                <span class="event-badge event-badge-income"><?= esc($rType) ?></span>
+                                <?php endif; ?>
+                            </td>
                             <td><?= esc($r['receipt_no']) ?></td>
                             <td><?= esc($r['reference'] ?: '—') ?></td>
-                            <td><?= esc($r['payment_method']) ?></td>
+                            <td><?= pm_badge($r["payment_method"] ?? "", "Not recorded") ?></td>
                             <td><?= esc($r['notes'] ?: '—') ?></td>
                             <td style="text-align:right"><?= number_format($r['amount'], 2) ?></td>
                         </tr>
@@ -338,7 +391,7 @@
                     </tbody>
                     <tfoot>
                         <tr>
-                            <td colspan="5" style="text-align:right;font-weight:700">Total Direct Income</td>
+                            <td colspan="7" style="text-align:right;font-weight:700">Total Direct Income</td>
                             <td style="text-align:right;font-weight:700"><?= number_format($totalDirectIncome, 2) ?></td>
                         </tr>
                     </tfoot>
@@ -359,24 +412,31 @@
             <table class="table-custom" id="timelineTable">
                 <thead>
                     <tr>
+                        <th class="sno-col">S.No.</th>
                         <th>Date</th>
                         <th>Event</th>
                         <th>Reference</th>
+                        <th>Method</th>
                         <th style="text-align:right">Amount</th>
                         <th style="text-align:right">Running Collection Balance</th>
                     </tr>
                 </thead>
                 <tbody>
                     <?php if (empty($timeline)): ?>
-                    <tr><td colspan="5" class="text-center text-muted">No timeline events for this project</td></tr>
+                    <tr><td colspan="7" class="text-center text-muted">No timeline events for this project</td></tr>
                     <?php else: ?>
                     <?php
                         $typeLabels = [
                             'Project Advance' => 'Customer Advance Received',
                             'Sales Invoice'    => 'Billing Raised to Customer',
                             'Invoice Payment'  => 'Payment Collected from Customer',
-                            'Advance Receipt' => 'Advance Received (Cash)',
+                            'Advance Receipt' => 'Advance Received',
                             'Direct Project Income' => 'Direct Project Income',
+                            // Release 4.9.0X: explicit entry (was relying on
+                            // the $ev['type'] fallback, which already read
+                            // "Unallocated Project Receipt" (was "Customer Project Cash") — this just adds the
+                            // matching icon/badge/tooltip below).
+                            'Unallocated Project Receipt' => 'Unallocated Project Receipt',
                             'Purchase'         => 'Purchased Materials for Project',
                             'Expense'          => 'Project Expense Recorded',
                         ];
@@ -386,6 +446,7 @@
                             'Invoice Payment'  => 'bi-cash-coin',
                             'Advance Receipt' => 'bi-piggy-bank',
                             'Direct Project Income' => 'bi-cash-coin',
+                            'Unallocated Project Receipt' => 'bi-cash-coin',
                             'Purchase'         => 'bi-cart',
                             'Expense'          => 'bi-credit-card',
                         ];
@@ -400,12 +461,18 @@
                             // badge so it reads as revenue, not a collection.
                             'Advance Receipt' => 'event-badge-payment',
                             'Direct Project Income' => 'event-badge-income',
+                            // Unallocated Project Receipt is a genuine customer
+                            // collection (reduces running balance like
+                            // Invoice Payment/Advance Receipt), so it shares
+                            // their badge — never the Direct Income green.
+                            'Unallocated Project Receipt' => 'event-badge-payment',
                             'Purchase'         => 'event-badge-purchase',
                             'Expense'          => 'event-badge-expense',
                         ];
                         $typeTooltips = [
-                            'Advance Receipt' => 'Cash received without invoice allocation — held against a future invoice.',
+                            'Advance Receipt' => 'Money received without invoice allocation — held against a future invoice (see Method for how it was paid).',
                             'Direct Project Income' => 'Cash received with no invoice ever raised — recognized as revenue immediately.',
+                            'Unallocated Project Receipt' => 'Customer money received for this project without selecting an invoice (any payment method — see Method). Reduces Outstanding Collection; not counted as Direct Income.',
                         ];
                     ?>
                     <?php foreach ($timeline as $ev): ?>
@@ -416,9 +483,11 @@
                         $typeTooltip = $typeTooltips[$ev['type']] ?? '';
                     ?>
                     <tr data-date="<?= esc($ev['date']) ?>" data-category="<?= esc($ev['category']) ?>" data-type="<?= esc($ev['type']) ?>">
+                        <td class="sno-col sno-auto" data-label="S.No."></td>
                         <td><?= esc($ev['date']) ?></td>
                         <td><span class="event-badge <?= $badgeCls ?>" <?= $typeTooltip ? 'title="' . esc($typeTooltip) . '"' : '' ?>><i class="bi <?= $typeIcon ?>"></i><?= esc($typeLabel) ?></span></td>
                         <td><?= esc($ev['reference']) ?></td>
+                        <td><?= pm_badge($ev["method"] ?? "", in_array($ev["category"], ["Payment", "Income"], true) || $ev["type"] === "Expense" ? "Not recorded" : "—") ?></td>
                         <td style="text-align:right">
                             <?= $ev['amount'] !== null ? number_format($ev['amount'], 2) : '—' ?>
                         </td>

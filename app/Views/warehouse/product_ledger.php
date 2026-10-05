@@ -95,6 +95,7 @@
         <table id="productLedgerTable" class="table-custom">
             <thead>
                 <tr>
+                    <th class="sno-col">S.No.</th>
                     <th>Date</th>
                     <th>Type</th>
                     <th style="text-align:right">Quantity</th>
@@ -106,6 +107,7 @@
             <tbody>
                 <?php foreach ($ledger as $row): ?>
                 <tr>
+                    <td class="sno-col" data-label="S.No."></td>
                     <td><?= esc($row['transaction_date']) ?></td>
                     <td><span class="badge-txn badge-<?= strtolower($row['transaction_type']) ?>"><?= esc($row['transaction_type']) ?></span></td>
                     <td style="text-align:right"><?= number_format($row['quantity'], 2) ?> <?= esc($product['unit'] ?: '') ?></td>
@@ -138,6 +140,7 @@
 			lengthChange: false,
 			info: false,
 			ordering: true,
+			order: [[1, 'asc']],
 			pageLength: 15,
 			dom: 'tp',
 			language: {

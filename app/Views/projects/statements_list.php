@@ -11,7 +11,7 @@
             <table class="table-custom">
                 <thead>
                     <tr>
-                        <th>#</th>
+                        <th class="sno-col">S.No.</th>
                         <th>Project Name</th>
                         <th>Customer</th>
                         <th>Status</th>
@@ -24,7 +24,7 @@
                     <?php else: ?>
                     <?php foreach ($projects as $i => $p): ?>
                     <tr>
-                        <td><?= $i + 1 ?></td>
+                        <td class="sno-col"><?= $i + 1 ?></td>
                         <td><strong><?= esc($p['name']) ?></strong></td>
                         <td><?= esc($p['customer_name']) ?></td>
                         <td>

@@ -163,6 +163,10 @@ $routes->get('bank-statement', 'BankStatement::index', ['filter' => 'auth']);
 
 // Cash Book (Release 4.9.0E — read-only cash ledger derived from cash-method records; exports via ?export=excel|pdf)
 $routes->get('cash-book', 'CashBook::index', ['filter' => 'auth']);
+$routes->get('cash-book/opening-balance', 'CashOpeningBalance::index', ['filter' => 'auth']);
+$routes->post('cash-book/opening-balance', 'CashOpeningBalance::save', ['filter' => 'auth']);
+// Overall Monthly Statement (Release 4.9.0BT — read-only cash/bank movement of one month; ?export=excel|pdf)
+$routes->get('monthly-statement', 'MonthlyStatement::index', ['filter' => 'auth']);
 
 // Warehouse (Release 4.8.1E — read-only reporting on existing stock_ledger)
 $routes->get('warehouse/stock-summary', 'Warehouse::stockSummary', ['filter' => 'auth']);
@@ -215,11 +219,11 @@ $routes->get('service-reports/export/excel/customer-summary', 'ServiceReports::e
 $routes->get('loans', 'Loans::index', ['filter' => 'auth']);
 $routes->get('loans/create', 'Loans::create', ['filter' => 'auth']);
 $routes->post('loans/store', 'Loans::store', ['filter' => 'auth']);
+$routes->post('loan-types/quick-store', 'LoanTypes::quickStore', ['filter' => 'auth']);
 $routes->get('loans/view/(:num)', 'Loans::view/$1', ['filter' => 'auth']);
 $routes->get('loans/edit/(:num)', 'Loans::edit/$1', ['filter' => 'auth']);
 $routes->post('loans/update/(:num)', 'Loans::update/$1', ['filter' => 'auth']);
 $routes->post('loans/delete/(:num)', 'Loans::delete/$1', ['filter' => 'auth']);
-$routes->post('loans/generate-schedule', 'Loans::ajaxGenerateSchedule', ['filter' => 'auth']);
 
 // Loan payments + ledger (Release 4.8.5C — EMI payment engine, bank posting, loan ledger)
 $routes->get('loans/payments/(:num)', 'Loans::payments/$1', ['filter' => 'auth']);
@@ -229,6 +233,13 @@ $routes->post('loans/payments/delete/(:num)', 'Loans::deletePayment/$1', ['filte
 $routes->get('loans/ledger/(:num)', 'Loans::ledger/$1', ['filter' => 'auth']);
 $routes->get('loans/export/pdf/(:num)', 'Loans::exportLedgerPdf/$1', ['filter' => 'auth']);
 $routes->get('loans/ledger/export/excel/(:num)', 'Loans::exportLedgerExcel/$1', ['filter' => 'auth']);
+
+// Loan receipts / disbursement (Release 4.9.0AT — actual money received against a sanctioned loan)
+$routes->get('loans/receive/(:num)', 'Loans::receiveLoan/$1', ['filter' => 'auth']);
+$routes->post('loans/receipts/store', 'Loans::storeReceipt', ['filter' => 'auth']);
+$routes->get('loans/receipts/edit/(:num)', 'Loans::editReceipt/$1', ['filter' => 'auth']);
+$routes->post('loans/receipts/update/(:num)', 'Loans::updateReceipt/$1', ['filter' => 'auth']);
+$routes->post('loans/receipts/delete/(:num)', 'Loans::deleteReceipt/$1', ['filter' => 'auth']);
 
 // Loan Reports (Release 4.8.5D — read-only reports over loans, EMIs and loan payments)
 $routes->get('loan-reports', 'LoanReports::index', ['filter' => 'auth']);
@@ -284,6 +295,7 @@ $routes->post('project-cash-receipts/store', 'ProjectCashReceipts::store', ['fil
 $routes->get('expense-categories', 'ExpenseCategories::index', ['filter' => 'auth']);
 $routes->get('expense-categories/create', 'ExpenseCategories::create', ['filter' => 'auth']);
 $routes->post('expense-categories/store', 'ExpenseCategories::store', ['filter' => 'auth']);
+$routes->post('expense-categories/quick-store', 'ExpenseCategories::quickStore', ['filter' => 'auth']);
 $routes->get('expense-categories/edit/(:num)', 'ExpenseCategories::edit/$1', ['filter' => 'auth']);
 $routes->post('expense-categories/update/(:num)', 'ExpenseCategories::update/$1', ['filter' => 'auth']);
 $routes->get('expense-categories/delete/(:num)', 'ExpenseCategories::delete/$1', ['filter' => 'auth']);

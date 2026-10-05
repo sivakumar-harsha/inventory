@@ -78,8 +78,6 @@
 
 	/* compact filter toolbar */
 	.filter-toolbar .form-section { margin-bottom: 0; }
-	.filter-toolbar .form-label { font-size: .72rem; margin-bottom: 3px; }
-	.filter-toolbar .form-control { padding: 6px 10px; font-size: .82rem; height: auto; }
 	.filter-toolbar .btn-save,
 	.filter-toolbar .btn.btn-secondary { padding: 6px 12px; font-size: .8rem; white-space: nowrap; }
 
@@ -138,7 +136,7 @@
 <div class="card-custom mb-3">
     <div class="card-custom-header">Filters</div>
     <div class="card-custom-body">
-        <form method="GET" action="<?= base_url('reports/sales') ?>" class="filter-toolbar">
+        <form method="GET" data-auto-filter action="<?= base_url('reports/sales') ?>" class="filter-toolbar">
             <div class="row g-2 align-items-end">
 
                 <div class="col-6 col-md-2">
@@ -218,9 +216,6 @@
                 <!-- BUTTONS -->
                 <div class="col-12 col-md-9" style="display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap">
 
-                    <button type="submit" class="btn-save">
-                        <i class="bi bi-search"></i> Filter
-                    </button>
 
                     <a href="<?= base_url('reports/sales') ?>" class="btn btn-sm btn-secondary">
                        <i class="bi bi-arrow-clockwise"></i> Reset
@@ -248,7 +243,7 @@
         <table id="salesTable" class="table-custom">
             <thead>
                 <tr>
-                    <th>#</th>
+                    <th class="sno-col">S.No.</th>
                     <th>Invoice No</th>
                     <th>Date</th>
                     <th>Project</th>
@@ -274,7 +269,7 @@
 					$grandBalance += $s['balance_amount'];
 				?>
 				<tr>
-					<td><?= $i + 1 ?></td>
+					<td class="sno-col"><?= $i + 1 ?></td>
 					<td><?= esc($s['invoice_no'] ?: '-') ?></td>
 					<td><?= $s['sale_date'] ?></td>
 					<td><?= esc($s['project_name']) ?></td>
@@ -285,7 +280,7 @@
 					<td style="text-align:right"><?= number_format($s['balance_amount'], 2) ?></td>
 					<td><span class="badge-status badge-<?= strtolower($s['status']) ?>"><?= $s['status'] ?></span></td>
 					<td>
-						<a href="<?= base_url('sales/view/' . $s['id']) ?>" class="btn-view"><i class="bi bi-eye"></i></a>
+						<a href="<?= base_url('sales/view/' . $s['id']) ?>" class="btn-view table-action-btn"><i class="bi bi-eye"></i></a>
 					</td>
 				</tr>
 				<?php endforeach; ?>
@@ -316,7 +311,7 @@
 				searching: false,    // ❌ remove search box
 				lengthChange: false, // ❌ remove "show entries"
 				info: false,          // (optional) showing "1 to 10 of X"
-				ordering: true,      // (optional sorting)
+				ordering: true, order: [],      // (optional sorting)
 				pageLength: 10,      // default rows per page
 
 				dom: 'tpi' , // ✅ ONLY table + pagination + info

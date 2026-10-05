@@ -107,7 +107,7 @@
         <table id="stockSummaryTable" class="table-custom">
             <thead>
                 <tr>
-                    <th>#</th>
+                    <th class="sno-col">S.No.</th>
                     <th>Product</th>
                     <th>HSN</th>
                     <th>Unit</th>
@@ -120,7 +120,7 @@
             <tbody>
                 <?php foreach ($products as $i => $p): ?>
                 <tr>
-                    <td><?= $i + 1 ?></td>
+                    <td class="sno-col"><?= $i + 1 ?></td>
                     <td><?= esc($p['product_name']) ?></td>
                     <td><?= esc($p['hsn_code'] ?: '-') ?></td>
                     <td><?= esc($p['unit'] ?: '-') ?></td>
@@ -147,7 +147,7 @@
 			searching: true,
 			lengthChange: false,
 			info: false,
-			ordering: true,
+			ordering: true, order: [],
 			pageLength: 10,
 			dom: 'tp',
 			language: {

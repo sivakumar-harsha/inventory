@@ -190,13 +190,14 @@ class Sales extends Controller
 
             // Release 2.0C: block a new invoice once the project's contract value
             // has already been fully billed by existing invoices. Reuses the
-            // existing financial summary (total_project_value/total_billed) —
-            // no new calculation.
+            // existing financial summary — no new calculation.
+            // Release 4.9.0EC: the advance consumes the contract too, so this
+            // reads the one authoritative Remaining Balance (Contract - Advance
+            // Received - Total Invoiced) instead of comparing billed alone.
             if ($project) {
                 $summary       = $projectModel->getFinancialSummary((int) $projectId);
                 $contractValue = (float) ($summary['total_project_value'] ?? 0);
-                $totalBilled   = (float) ($summary['total_billed'] ?? 0);
-                if ($contractValue > 0 && $totalBilled >= $contractValue - 0.005) {
+                if ($contractValue > 0 && (float) ($summary['remaining_billable_value'] ?? 0) <= 0.005) {
                     return redirect()->back()->with('error', "This project's contract value has already been fully billed. Create a new project for additional work.");
                 }
             }

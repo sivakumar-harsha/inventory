@@ -944,6 +944,17 @@ $('#voucherForm').on('submit', function (e) {
 });
 
 toggleAdvance(false);
+
+// Release 4.9.0Z: the Pending Payables tab links here as
+// ?supplier_id=123 so the voucher opens with that supplier's bills
+// already loaded, reusing this same create screen unchanged.
+(function preselectSupplierFromQuery() {
+    var params = new URLSearchParams(window.location.search);
+    var supplierId = params.get('supplier_id');
+    if (supplierId && $('#supplierSelect option[value="' + supplierId + '"]').length) {
+        $('#supplierSelect').val(supplierId).trigger('change');
+    }
+})();
 </script>
 <?= $this->endSection() ?>
 

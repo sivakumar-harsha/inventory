@@ -2,22 +2,34 @@
 
 namespace App\Controllers;
 
+use App\Libraries\CashOpeningGuard;
 use App\Models\SaleModel;
 use App\Models\ProjectModel;
+use App\Models\BankAccountModel;
+use App\Models\BankTransactionModel;
 use CodeIgniter\Controller;
 
 class Payments extends Controller
 {
+    // Release 4.9.0I: reference_type for the automatic bank DEPOSIT posted by
+    // an Invoice Payment (payments.id). Deliberately distinct from
+    // CustomerPayments' own CUSTOMER_PAYMENT reference_type — the two
+    // controllers key off different tables (payments vs customer_payments),
+    // whose ids can collide, and createBankTransaction() de-dupes purely on
+    // (reference_type, reference_id).
+    private const REFERENCE_TYPE = 'SALE_PAYMENT';
+
     public function index()
     {
         $db = \Config\Database::connect();
         $data['payments'] = $db->query("
             SELECT py.*, s.invoice_no, s.total_amount,
-                   p.name AS project_name, c.name AS customer_name
+                   p.name AS project_name, c.name AS customer_name, ba.bank_name AS bank_name
             FROM payments py
             LEFT JOIN sales s ON py.sale_id = s.id
             LEFT JOIN projects p ON s.project_id = p.id
             LEFT JOIN customers c ON s.customer_id = c.id
+            LEFT JOIN bank_accounts ba ON ba.id = py.bank_account_id
             ORDER BY py.created_at DESC
         ")->getResultArray();
 
@@ -85,6 +97,13 @@ class Payments extends Controller
             array_merge(array_column($data['sales'], 'project_id'), array_column($data['projects'], 'id'))
         );
 
+        // Release 4.9.0I: active bank accounts for the Invoice Payment form's
+        // new Bank Account field (Bank Transfer/Check only) — the Project
+        // Cash Receipt form below already falls back to this same query
+        // under the same $bankAccounts name if it isn't set, so this one
+        // query now serves both.
+        $data['bankAccounts'] = (new BankAccountModel())->where('is_active', 1)->orderBy('bank_name', 'ASC')->findAll();
+
         $data['selected_sale_id'] = $saleId;
         return view('payments/create', $data);
     }
@@ -111,11 +130,28 @@ class Payments extends Controller
             if ($pid && !isset($map[$pid])) {
                 $summary       = $projectModel->getFinancialSummary($pid);
                 $cashReceived  = (float) ($summary['total_cash_received'] ?? 0);
+                // Release 4.9.0Q (bug fix): this map's key is named 'total_customer_paid'
+                // and the Cash Receipt form's own chip is labeled "Customer Paid Total
+                // After Receipt" — it must read the model's actual total_customer_paid
+                // field (advance_amount + total_advance_receipts + total_paid, excludes
+                // Direct Income per Release 4.8.6A-1's own "not a customer collection"
+                // rule), the same field Project Detail/Statement/Exports show under the
+                // identical "Total Customer Paid" label. It previously read
+                // cash_received_combined instead — a different concept (excludes the
+                // upfront Advance, includes Direct Income) that happens to share the
+                // word "paid"/"received" but is not what this label means (Release
+                // 4.9.0O, Finding #2). remaining_balance/cash_received above are
+                // untouched — those preview a genuinely different concept
+                // (remaining_balance_display) on purpose, unrelated to this fix.
                 $map[$pid] = [
                     'cash_received'       => $cashReceived,
                     'net_outstanding'     => (float) ($summary['net_outstanding_collection_balance'] ?? 0),
-                    'remaining_balance'   => (float) ($summary['remaining_balance_display'] ?? 0),
-                    'total_customer_paid' => (float) ($summary['cash_received_combined'] ?? 0),
+                    // Release 4.9.0EC: the one authoritative Project Remaining Balance
+                    // (Contract - Advance Received - Total Invoiced), same as Project
+                    // View/Statement/List/Dashboard. remaining_balance_display (net of
+                    // receipts) is a different concept and is no longer read here.
+                    'remaining_balance'   => (float) ($summary['remaining_billable_value'] ?? 0),
+                    'total_customer_paid' => (float) ($summary['total_customer_paid'] ?? 0),
                 ];
             }
         }
@@ -129,10 +165,18 @@ class Payments extends Controller
 
         $saleId    = (int) $this->request->getPost('sale_id');
         $amount    = (float) $this->request->getPost('amount');
-        $payDate   = $this->request->getPost('payment_date');
+        $payDate   = trim((string) $this->request->getPost('payment_date'));
         $method    = $this->request->getPost('method');
         $reference = $this->request->getPost('reference');
         $notes     = $this->request->getPost('notes');
+        // Release 4.9.0I: the receiving bank account for Bank Transfer/Check;
+        // never stored (and never required) for Cash/Other.
+        $bankAccountId = (int) $this->request->getPost('bank_account_id');
+
+        // Release 4.9.0CF: a real calendar date is required (a blank or 0000-00-00 date used to be stored).
+        if (! CashOpeningGuard::isValidDate($payDate)) {
+            return redirect()->back()->withInput()->with('error', 'Enter a valid payment date.');
+        }
 
         $sale = $db->query("SELECT * FROM sales WHERE id = ?", [$saleId])->getRowArray();
         if (!$sale) {
@@ -147,23 +191,54 @@ class Payments extends Controller
                 'Payment amount (' . number_format($amount, 2) . ') exceeds the pending amount (' . number_format($pending, 2) . ') for this invoice.');
         }
 
+        // Release 4.9.0I: server-side gate — Bank Transfer/Check must name a
+        // real, active bank account before anything is written. Never rely
+        // on the JS toggle alone.
+        $bankError = $this->_validateBankAccount($method, $bankAccountId);
+        if ($bankError) {
+            return redirect()->back()->withInput()->with('error', $bankError);
+        }
+
+        // Release 4.9.0CF: a CASH payment dated before the Cash Opening Date is warned about, never blocked.
+        if ($warn = CashOpeningGuard::gate($this->request, 'invoice-payment', 0, $method, $payDate)) {
+            return $warn;
+        }
+
         $db->transStart();
 
-        $db->table('payments')->insert([
-            'sale_id'      => $saleId,
-            'amount'       => $amount,
-            'payment_date' => $payDate,
-            'method'       => $method,
-            'reference'    => $reference,
-            'notes'        => $notes,
-        ]);
+        try {
+            $db->table('payments')->insert([
+                'sale_id'         => $saleId,
+                'amount'          => $amount,
+                'payment_date'    => $payDate,
+                'method'          => $method,
+                'reference'       => $reference,
+                'notes'           => $notes,
+                'bank_account_id' => BankTransactionModel::isBankMethod($method) ? $bankAccountId : null,
+            ]);
+            $paymentId = (int) $db->insertID();
 
-        // Release 1.6.4 (Rules 6-7): paid_amount/balance_amount/status
-        // recomputed from source (advance_applied stays untouched — a
-        // payment never re-triggers advance FIFO).
-        $saleModel->recalculatePaymentState($saleId);
+            // Release 1.6.4 (Rules 6-7): paid_amount/balance_amount/status
+            // recomputed from source (advance_applied stays untouched — a
+            // payment never re-triggers advance FIFO).
+            $saleModel->recalculatePaymentState($saleId);
+
+            // Release 4.9.0I: the actual cash inflow — posted only for
+            // Bank Transfer/Check, never for the advance already applied to
+            // this invoice (that was posted, if at all, when the advance
+            // itself was received).
+            $this->_postBankDeposit($paymentId, (string) ($sale['invoice_no'] ?: ('Sale #' . $saleId)), $bankAccountId, $amount, (string) $payDate, $method);
+        } catch (\Throwable $e) {
+            $db->transRollback();
+            return redirect()->back()->withInput()->with('error', 'Failed to record payment: ' . $e->getMessage());
+        }
 
         $db->transComplete();
+
+        if ($db->transStatus() === false) {
+            return redirect()->back()->withInput()->with('error', 'Failed to record payment due to a database error.');
+        }
+
         return redirect()->to('/payments')->with('success', 'Payment recorded successfully.');
     }
 
@@ -214,6 +289,11 @@ class Payments extends Controller
 
         $data['project_financials'] = $this->buildProjectFinancialsMap(array_column($data['sales'], 'project_id'));
 
+        // Release 4.9.0I: same active-bank-accounts list as create(), so the
+        // edit screen's Bank Account field can render and pre-select
+        // $payment['bank_account_id'].
+        $data['bankAccounts'] = (new BankAccountModel())->where('is_active', 1)->orderBy('bank_name', 'ASC')->findAll();
+
         return view('payments/edit', $data);
     }
 
@@ -232,10 +312,15 @@ class Payments extends Controller
 
         $newSaleId = (int) $this->request->getPost('sale_id');
         $newAmount = (float) $this->request->getPost('amount');
-        $payDate   = $this->request->getPost('payment_date');
+        $payDate   = trim((string) $this->request->getPost('payment_date'));
         $method    = $this->request->getPost('method');
         $reference = $this->request->getPost('reference');
         $notes     = $this->request->getPost('notes');
+        $bankAccountId = (int) $this->request->getPost('bank_account_id');
+
+        if (! CashOpeningGuard::isValidDate($payDate)) {
+            return redirect()->back()->withInput()->with('error', 'Enter a valid payment date.');
+        }
 
         $newSale = $db->query("SELECT * FROM sales WHERE id=?", [$newSaleId])->getRowArray();
         if (!$newSale) {
@@ -256,25 +341,53 @@ class Payments extends Controller
                 'Payment amount (' . number_format($newAmount, 2) . ') exceeds the pending amount (' . number_format($pendingBeforeThisPayment, 2) . ') for this invoice.');
         }
 
+        $bankError = $this->_validateBankAccount($method, $bankAccountId);
+        if ($bankError) {
+            return redirect()->back()->withInput()->with('error', $bankError);
+        }
+
+        // Release 4.9.0CF: a CASH payment dated before the Cash Opening Date is warned about, never blocked.
+        if ($warn = CashOpeningGuard::gate($this->request, 'invoice-payment', (int) $id, $method, $payDate)) {
+            return $warn;
+        }
+
         $db->transStart();
 
-        $db->table('payments')->where('id', $id)->update([
-            'sale_id'      => $newSaleId,
-            'amount'       => $newAmount,
-            'payment_date' => $payDate,
-            'method'       => $method,
-            'reference'    => $reference,
-            'notes'        => $notes,
-        ]);
+        try {
+            // Release 4.9.0I: reverse this payment's existing bank posting
+            // (if any) before reposting under the possibly-new
+            // method/account/amount — same reverse-then-repost pattern as
+            // CustomerPayments::update()/ProjectCashReceipts.
+            $this->_deleteBankDeposit((int) $id);
 
-        // Release 1.6.4 (Rule 6): recompute from source for the (possibly
-        // two) affected invoices — advance_applied is never touched here.
-        $saleModel->recalculatePaymentState($newSaleId);
-        if ($oldSaleId !== $newSaleId) {
-            $saleModel->recalculatePaymentState($oldSaleId);
+            $db->table('payments')->where('id', $id)->update([
+                'sale_id'         => $newSaleId,
+                'amount'          => $newAmount,
+                'payment_date'    => $payDate,
+                'method'          => $method,
+                'reference'       => $reference,
+                'notes'           => $notes,
+                'bank_account_id' => BankTransactionModel::isBankMethod($method) ? $bankAccountId : null,
+            ]);
+
+            // Release 1.6.4 (Rule 6): recompute from source for the (possibly
+            // two) affected invoices — advance_applied is never touched here.
+            $saleModel->recalculatePaymentState($newSaleId);
+            if ($oldSaleId !== $newSaleId) {
+                $saleModel->recalculatePaymentState($oldSaleId);
+            }
+
+            $this->_postBankDeposit((int) $id, (string) ($newSale['invoice_no'] ?: ('Sale #' . $newSaleId)), $bankAccountId, $newAmount, (string) $payDate, $method);
+        } catch (\Throwable $e) {
+            $db->transRollback();
+            return redirect()->back()->withInput()->with('error', 'Failed to update payment: ' . $e->getMessage());
         }
 
         $db->transComplete();
+
+        if ($db->transStatus() === false) {
+            return redirect()->back()->withInput()->with('error', 'Failed to update payment due to a database error.');
+        }
 
         return redirect()->to('/payments')->with('success', 'Payment updated successfully.');
     }
@@ -288,16 +401,80 @@ class Payments extends Controller
 
         $db->transStart();
 
-        $db->table('payments')->where('id', $id)->delete();
+        try {
+            // Release 4.9.0I: reverse whatever bank DEPOSIT this payment
+            // posted before the row itself disappears (0 rows is fine for a
+            // Cash/Other payment or one saved before this release).
+            $this->_deleteBankDeposit((int) $id);
 
-        // Release 1.6.4 (Rule 6): recompute from source — advance_applied
-        // stays attached to the project/invoice, never removed by a
-        // payment deletion.
-        if ($payment) {
-            $saleModel->recalculatePaymentState((int) $payment['sale_id']);
+            $db->table('payments')->where('id', $id)->delete();
+
+            // Release 1.6.4 (Rule 6): recompute from source — advance_applied
+            // stays attached to the project/invoice, never removed by a
+            // payment deletion.
+            if ($payment) {
+                $saleModel->recalculatePaymentState((int) $payment['sale_id']);
+            }
+        } catch (\Throwable $e) {
+            $db->transRollback();
+            return redirect()->to('/payments')->with('error', 'Failed to delete payment: ' . $e->getMessage());
         }
 
         $db->transComplete();
         return redirect()->to('/payments')->with('success', 'Payment deleted successfully.');
+    }
+
+    // =========================================================
+    // BANK INTEGRATION (Release 4.9.0I)
+    // Mirrors ProjectCashReceipts' _validateBankAccount()/_createBankTransaction()
+    // and CustomerPayments' reverse-then-repost edit pattern — no new
+    // accounting mechanism, just this controller's own reference_type.
+    // =========================================================
+
+    /** Returns an error message, or null when no bank account is needed or the one given is usable. */
+    private function _validateBankAccount(?string $method, int $bankAccountId): ?string
+    {
+        if (! BankTransactionModel::isBankMethod($method)) {
+            return null;
+        }
+        if ($bankAccountId <= 0) {
+            return 'A bank account is required for Bank Transfer and Check payments.';
+        }
+
+        $account = (new BankAccountModel())->find($bankAccountId);
+        if (! $account) {
+            return 'The selected bank account was not found.';
+        }
+        if ((int) $account['is_active'] !== 1) {
+            return 'Payments cannot be posted against an inactive bank account.';
+        }
+
+        return null;
+    }
+
+    /** Posts the DEPOSIT for one invoice payment; no-op unless paid through a bank. */
+    private function _postBankDeposit(int $paymentId, string $invoiceNo, int $bankAccountId, float $amount, string $date, ?string $method): void
+    {
+        if (! BankTransactionModel::isBankMethod($method)) {
+            return;
+        }
+
+        (new BankTransactionModel())->createBankTransaction([
+            'bank_account_id'  => $bankAccountId,
+            'transaction_date' => $date,
+            'transaction_type' => 'DEPOSIT',
+            'amount'           => $amount,
+            'reference_type'   => self::REFERENCE_TYPE,
+            'reference_id'     => $paymentId,
+            'reference_no'     => $invoiceNo,
+            'remarks'          => 'Invoice Payment - ' . $invoiceNo,
+            'created_by'       => session()->get('user_id'),
+        ]);
+    }
+
+    /** Reverses and removes whatever was posted for one invoice payment (0 rows is fine). */
+    private function _deleteBankDeposit(int $paymentId): void
+    {
+        (new BankTransactionModel())->deleteBankTransaction(self::REFERENCE_TYPE, $paymentId);
     }
 }

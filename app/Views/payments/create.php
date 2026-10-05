@@ -18,7 +18,7 @@
                 <i class="bi bi-receipt"></i> Invoice Payment
             </button>
             <button type="button" class="ptype-btn" data-type="cash" aria-pressed="false">
-                <i class="bi bi-piggy-bank"></i> Project Cash Receipt
+                <i class="bi bi-piggy-bank"></i> Unallocated Project Receipt
             </button>
         </div>
     </div>
@@ -144,7 +144,7 @@
                     <span class="pay-chip-value text-pending" id="detPending">0.00</span>
                 </div>
                 <div class="pay-chip">
-                    <span class="pay-chip-label">Project Cash Received</span>
+                    <span class="pay-chip-label">Project Receipts Received</span>
                     <span class="pay-chip-value text-cash" id="detCashReceived">0.00</span>
                 </div>
                 <div class="pay-chip">
@@ -169,11 +169,28 @@
                 <div class="col-md-4">
                     <div class="form-section">
                         <label class="form-label">Method <span class="text-danger">*</span></label>
-                        <select name="method" class="form-control" required>
+                        <select name="method" id="invoicePayMethod" class="form-control" required>
                             <option value="CASH">Cash</option>
                             <option value="BANK_TRANSFER">Bank Transfer</option>
                             <option value="CHECK">Check</option>
                             <option value="OTHER">Other</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+            <!-- Release 4.9.0I: shown only for Bank Transfer/Check — the
+                 selected account receives the automatic DEPOSIT for this
+                 invoice payment. Mirrors the Cash Receipt form's own
+                 #cashBankAccountSection below. -->
+            <div class="row pcr-hidden" id="invoiceBankAccountRow">
+                <div class="col-md-4">
+                    <div class="form-section">
+                        <label class="form-label">Bank Account <span class="text-danger">*</span></label>
+                        <select name="bank_account_id" id="invoiceBankAccount" class="form-control">
+                            <option value="">-- Select Bank Account --</option>
+                            <?php foreach ($bankAccounts as $b): ?>
+                            <option value="<?= $b['id'] ?>"><?= esc($b['bank_name'] . ' - ' . $b['account_name']) ?> (<?= esc($b['account_number']) ?>)</option>
+                            <?php endforeach; ?>
                         </select>
                     </div>
                 </div>
@@ -210,7 +227,7 @@
      project_cash_receipts, never to payments. -->
 <div id="cashReceiptMode" class="pcr-hidden">
     <div class="card-custom mb-2">
-        <div class="card-custom-header">Project Cash Receipt</div>
+        <div class="card-custom-header">Unallocated Project Receipt</div>
         <div class="card-custom-body">
             <form action="<?= base_url('project-cash-receipts/store') ?>" method="POST">
                 <div class="form-section">
@@ -231,29 +248,44 @@
 
                 <!-- Release 4.6.5: Receipt Type — Advance (held against a future
                      invoice, excluded from revenue until invoiced) vs Direct
-                     Income (no invoice will ever be raised, recognized as
-                     revenue immediately). Defaults to Advance to match the
-                     column's DB default and preserve pre-4.6.5 behavior unless
-                     explicitly chosen otherwise. -->
+                     Income. Defaults to Advance to match the column's DB
+                     default and preserve pre-4.6.5 behavior unless explicitly
+                     chosen otherwise.
+                     Release 4.9.0W: the "Customer Payment" third button
+                     (4.9.0T) is removed per explicit instruction — this screen
+                     must stay exactly two buttons, Advance / Direct Income.
+                     The Direct Income button now submits receipt_type
+                     CUSTOMER_PROJECT_CASH instead of DIRECT_INCOME: this is
+                     the only Project Cash entry point in the app, and it is
+                     used exclusively to record customer cash received for a
+                     project without an invoice — genuine Direct Income (money
+                     that is not a customer collection at all) has no separate
+                     workflow, so financially this button must behave as a
+                     customer collection (increases Total Customer Paid,
+                     reduces Outstanding Collection) rather than as revenue.
+                     See ProjectModel::getFinancialSummary() — DIRECT_INCOME
+                     as a receipt_type still exists and is still honored for
+                     any pre-existing row, only nothing in the UI creates a
+                     new one any more. -->
                 <div class="form-section">
                     <label class="form-label">Receipt Type <span class="text-danger">*</span></label>
                     <div class="payment-type-toggle" role="group" aria-label="Receipt Type">
                         <button type="button" class="ptype-btn rtype-btn" data-rtype="ADVANCE" aria-pressed="false">
                             <i class="bi bi-piggy-bank"></i> Advance
                         </button>
-                        <button type="button" class="ptype-btn rtype-btn active" data-rtype="DIRECT_INCOME" aria-pressed="true">
+                        <button type="button" class="ptype-btn rtype-btn active" data-rtype="CUSTOMER_PROJECT_CASH" aria-pressed="true">
                             <i class="bi bi-cash-coin"></i> Direct Income
                         </button>
                     </div>
-                    <input type="hidden" name="receipt_type" id="cashReceiptType" value="DIRECT_INCOME">
+                    <input type="hidden" name="receipt_type" id="cashReceiptType" value="CUSTOMER_PROJECT_CASH">
                     <div class="pf-chip-sub-info" style="display:block;margin-top:4px;color:#64748b;font-weight:400">
-                        Advance: held against a future invoice, not yet revenue. Direct Income: no invoice will ever be raised for this — recognized as revenue immediately.
+                        Advance: held against a future invoice, not yet revenue. Direct Income: customer cash received for this project without picking an invoice — increases Total Customer Paid and reduces Outstanding Collection; no invoice is auto-selected.
                     </div>
                 </div>
 
                 <div id="cashSummary" class="pay-summary-row">
                     <div class="pay-chip">
-                        <span class="pay-chip-label">Project Cash Received</span>
+                        <span class="pay-chip-label">Project Receipts Received</span>
                         <span class="pay-chip-value text-cash" id="cashReceivedTotal">0.00</span>
                     </div>
                     <div class="pay-chip">
@@ -382,7 +414,15 @@
 // same figures as Dashboard/Statement/Balance Sheet.
 var PROJECT_FINANCIALS_MAP = <?= json_encode($project_financials) ?>;
 </script>
-<script src="<?= base_url('assets/js/payments-workflow.js') ?>"></script>
+<!-- Release 4.9.0M: cache-busted with the file's own mtime. The browser
+     applies heuristic caching to this script (Apache sends Last-Modified/
+     ETag but no Cache-Control), so a tab that loaded an older copy — e.g.
+     one predating 4.9.0I's initInvoicePayBankToggle() — could keep serving
+     it from disk cache indefinitely without ever revalidating, silently
+     breaking the Bank Account show/hide even though the server-rendered
+     HTML and route are correct. A version query string forces a refetch
+     whenever this file actually changes. -->
+<script src="<?= base_url('assets/js/payments-workflow.js') ?>?v=<?= @filemtime(FCPATH . 'assets/js/payments-workflow.js') ?: time() ?>"></script>
 <script>
 $(document).ready(function() {
     // Release 2.1F (Phase 4): Create and Edit now share one implementation
@@ -391,6 +431,8 @@ $(document).ready(function() {
     // Release 4.5.4 (Phase B/D): Payment Type toggle + Cash Receipt mode
     // preview — no-ops on payments/edit.php, which has neither element.
     initPaymentTypeToggle();
+    // Release 4.9.0I: Invoice Payment form's own Bank Account show/hide.
+    initInvoicePayBankToggle();
 
     // Release 4.6.5: Receipt Type toggle (Advance / Direct Income) for the
     // Project Cash Receipt form — mirrors the Payment Type toggle's own
@@ -402,14 +444,15 @@ $(document).ready(function() {
         $('#cashReceiptType').val($(this).data('rtype'));
     });
 
-    // Release 4.6.5.4: explicit initial state on page load, matching the
-    // view's own default active button/hidden input value — Direct Income,
-    // not Advance. Idempotent against the HTML default above; kept here so
-    // the default is asserted in one place rather than relying solely on
-    // markup.
+    // Release 4.6.5.4 / 4.9.0W: explicit initial state on page load, matching
+    // the view's own default active button/hidden input value — the "Direct
+    // Income" button (now data-rtype=CUSTOMER_PROJECT_CASH, see the form's
+    // own comment above), not Advance. Idempotent against the HTML default
+    // above; kept here so the default is asserted in one place rather than
+    // relying solely on markup.
     $('.rtype-btn').removeClass('active').attr('aria-pressed', 'false');
-    $('.rtype-btn[data-rtype="DIRECT_INCOME"]').addClass('active').attr('aria-pressed', 'true');
-    $('#cashReceiptType').val('DIRECT_INCOME');
+    $('.rtype-btn[data-rtype="CUSTOMER_PROJECT_CASH"]').addClass('active').attr('aria-pressed', 'true');
+    $('#cashReceiptType').val('CUSTOMER_PROJECT_CASH');
 
     // Release 4.8.3D: Bank Account applies to Bank Transfer / Check only. The
     // hidden select isn't required (and is cleared) so Cash/Other still save.

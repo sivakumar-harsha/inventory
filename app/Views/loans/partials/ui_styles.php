@@ -17,7 +17,6 @@
 	.ln-badge-blue       { background: #dbeafe; color: #1d4ed8; border-color: #93c5fd; }
 	.ln-badge-darkorange { background: #c2410c; color: #fff;    border-color: #9a3412; }
 	.ln-badge-red        { background: #dc2626; color: #fff;    border-color: #b91c1c; }   /* the top of the due scale: darker than orange, like dark orange */
-	.ln-badge-prepay     { background: #fef9c3; color: #854d0e; border-color: #fde047; }
 	.ln-badge-emi        { background: #e0e7ff; color: #3730a3; border-color: #c7d2fe; }
 	.ln-badge-m-cash     { background: #ecfccb; color: #3f6212; border-color: #bef264; }
 	.ln-badge-m-bank     { background: #e0f2fe; color: #0369a1; border-color: #7dd3fc; }

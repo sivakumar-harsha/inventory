@@ -37,7 +37,7 @@ $balCls = static fn ($b) => $b > 0.004 ? 'bal-pos' : ($b < -0.004 ? 'bal-neg' : 
 	/* Ledger table */
 	.slg-scroll { max-height: 62vh; overflow: auto; }
 	.slg-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: .8rem; }
-	.slg-table thead th { position: sticky; top: 0; z-index: 2; background: #f1f5f9; padding: 0 10px; height: 34px; font-size: .68rem; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); border-bottom: 1px solid var(--border-color); white-space: nowrap; }
+	.slg-table thead th { position: sticky; top: 0; z-index: 2; background: #f1f5f9; padding: 0 10px; height: 34px; font-size: .68rem; text-transform: none; letter-spacing: .03em; color: var(--text-muted); border-bottom: 1px solid var(--border-color); white-space: nowrap; }
 	.slg-table td { height: 44px; padding: 0 10px; border-bottom: 1px solid #eef2f7; vertical-align: middle; }
 	.slg-table td.num, .slg-table th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 	.slg-table td.part { min-width: 220px; }
@@ -144,23 +144,26 @@ $balCls = static fn ($b) => $b > 0.004 ? 'bal-pos' : ($b < -0.004 ? 'bal-neg' : 
         <table class="slg-table" id="ledgerTable">
             <thead>
                 <tr>
-                    <th>Date</th><th>Voucher No</th><th>Type</th><th>Particulars</th>
+                    <th class="sno-col">S.No.</th>
+                    <th>Date</th><th>Voucher No</th><th>Type</th><th>Particulars</th><th>Method</th>
                     <th class="num">Debit</th><th class="num">Credit</th><th class="num">Running Balance</th>
                 </tr>
             </thead>
             <tbody>
                 <?php if (empty($rows)): ?>
-                <tr><td colspan="7" class="slg-empty" style="display:table-cell">No transactions found.</td></tr>
+                <tr><td colspan="9" class="slg-empty" style="display:table-cell"><?= $has_any ? 'No transactions found.' : 'No ledger transactions found for this supplier.' ?></td></tr>
                 <?php else: ?>
                 <?php if (abs($opening) > 0.004): ?>
-                <tr class="opening"><td colspan="6">Opening balance brought forward</td><td class="num <?= $balCls($opening) ?>"><?= $fmt($opening) ?></td></tr>
+                <tr class="opening"><td colspan="8">Opening balance brought forward</td><td class="num <?= $balCls($opening) ?>"><?= $fmt($opening) ?></td></tr>
                 <?php endif; ?>
                 <?php foreach ($rows as $t): ?>
                 <tr>
+                    <td class="sno-col sno-auto" data-label="S.No."></td>
                     <td data-label="Date"><?= $dmy($t['date']) ?></td>
                     <td data-label="Voucher"><?= esc($t['voucher'] ?: '-') ?></td>
                     <td data-label="Type"><span class="tbadge t-<?= $slug($t['ttype']) ?>"><?= esc($t['ttype']) ?></span></td>
                     <td data-label="Particulars" class="part"><?= esc($t['particulars']) ?></td>
+                    <td data-label="Method"><?= pm_badge($t["method"] ?? "", in_array($t["ttype"], ["Payment", "Advance"], true) ? "Not recorded" : "—") ?></td>
                     <td data-label="Debit" class="num <?= $t['debit'] > 0 ? 'amt-debit' : 'amt-nil' ?>"><?= $t['debit'] > 0 ? $fmt($t['debit']) : '-' ?></td>
                     <td data-label="Credit" class="num <?= $t['credit'] > 0 ? 'amt-credit' : 'amt-nil' ?>"><?= $t['credit'] > 0 ? $fmt($t['credit']) : '-' ?></td>
                     <td data-label="Balance" class="num <?= $balCls($t['balance']) ?>"><?= $fmt($t['balance']) ?></td>
@@ -169,7 +172,7 @@ $balCls = static fn ($b) => $b > 0.004 ? 'bal-pos' : ($b < -0.004 ? 'bal-neg' : 
                 <?php endif; ?>
             </tbody>
             <?php if (! empty($rows)): ?>
-            <tfoot><tr><td colspan="6" class="num">Closing Balance</td><td class="num <?= $balCls($closing) ?>"><?= $fmt($closing) ?></td></tr></tfoot>
+            <tfoot><tr><td colspan="8" class="num">Closing Balance</td><td class="num <?= $balCls($closing) ?>"><?= $fmt($closing) ?></td></tr></tfoot>
             <?php endif; ?>
         </table>
     </div>
@@ -183,14 +186,15 @@ $balCls = static fn ($b) => $b > 0.004 ? 'bal-pos' : ($b < -0.004 ? 'bal-neg' : 
     <div class="slg-scroll" style="max-height:none">
         <table class="slg-table">
             <thead>
-                <tr><th>GP No</th><th>Bill No</th><th>Bill Date</th><th class="num">Bill Amount</th><th class="num">Paid Amount</th><th class="num">Outstanding</th><th>Status</th></tr>
+                <tr><th class="sno-col">S.No.</th><th>GP No</th><th>Bill No</th><th>Bill Date</th><th class="num">Bill Amount</th><th class="num">Paid Amount</th><th class="num">Outstanding</th><th>Status</th></tr>
             </thead>
             <tbody>
                 <?php if (empty($bills)): ?>
-                <tr><td colspan="7" class="slg-empty" style="display:table-cell">No outstanding bills.</td></tr>
+                <tr><td colspan="8" class="slg-empty" style="display:table-cell">No outstanding bills.</td></tr>
                 <?php endif; ?>
                 <?php foreach ($bills as $b): ?>
                 <tr>
+                    <td class="sno-col sno-auto" data-label="S.No."></td>
                     <td data-label="GP No"><?= esc($b['gp_no']) ?></td>
                     <td data-label="Bill No"><?= esc($b['bill_no'] ?: '-') ?></td>
                     <td data-label="Bill Date"><?= $dmy($b['date']) ?></td>
@@ -210,16 +214,18 @@ $balCls = static fn ($b) => $b > 0.004 ? 'bal-pos' : ($b < -0.004 ? 'bal-neg' : 
     <div class="slg-scroll" style="max-height:none">
         <table class="slg-table">
             <thead>
-                <tr><th>Date</th><th>Voucher</th><th class="num">Advance Paid</th><th class="num">Advance Used</th><th class="num">Remaining Advance</th><th>Remarks</th></tr>
+                <tr><th class="sno-col">S.No.</th><th>Date</th><th>Voucher</th><th>Method</th><th class="num">Advance Paid</th><th class="num">Advance Used</th><th class="num">Remaining Advance</th><th>Remarks</th></tr>
             </thead>
             <tbody>
                 <?php if (empty($advance_rows)): ?>
-                <tr><td colspan="6" class="slg-empty" style="display:table-cell">No standalone advances.</td></tr>
+                <tr><td colspan="8" class="slg-empty" style="display:table-cell">No standalone advances.</td></tr>
                 <?php endif; ?>
                 <?php foreach ($advance_rows as $a): ?>
                 <tr>
+                    <td class="sno-col sno-auto" data-label="S.No."></td>
                     <td data-label="Date"><?= $dmy($a['date']) ?></td>
                     <td data-label="Voucher"><?= esc($a['voucher']) ?></td>
+                    <td data-label="Method"><?= pm_badge($a["method"] ?? "", "—") ?></td>
                     <td data-label="Paid" class="num <?= $a['paid'] > 0 ? 'amt-credit' : 'amt-nil' ?>"><?= $a['paid'] > 0 ? $fmt($a['paid']) : '-' ?></td>
                     <td data-label="Used" class="num <?= $a['used'] > 0 ? 'amt-debit' : 'amt-nil' ?>"><?= $a['used'] > 0 ? $fmt($a['used']) : '-' ?></td>
                     <td data-label="Remaining" class="num bal-neg"><?= $fmt($a['remaining']) ?></td>

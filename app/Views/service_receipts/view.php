@@ -9,6 +9,18 @@ $grand    = (float) $receipt['grand_total'];
 $roundOff = round($grand) - $grand;
 $status = ucfirst(strtolower($receipt['payment_status']));
 
+// Release 4.9.0BM: a full-payment receipt with plain Description + Amount rows gets the simple view
+// (Subtotal / Grand Total / Amount Received). A historical receipt with a real balance, or with
+// qty x rate / GST lines, keeps the full accounting view so its saved figures stay readable.
+$simple = (float) $receipt['outstanding_amount'] <= 0.004
+    && abs((float) $receipt['received_amount'] - $grand) <= 0.004;
+foreach ($items as $it) {
+    if ((float) $it['qty'] !== 1.0 || (float) $it['gst_percent'] !== 0.0 || abs((float) $it['rate'] - (float) $it['line_total']) >= 0.005) {
+        $simple = false;
+        break;
+    }
+}
+
 // Prefer the customer's live contact details; fall back to the receipt's own snapshot.
 $custName    = $customer['name']    ?? $receipt['customer_name'];
 $custAddress = $customer['address'] ?? $receipt['customer_address'];
@@ -38,6 +50,11 @@ $custAddress = $customer['address'] ?? $receipt['customer_address'];
 .sr-items-table tfoot td { border-top: 1px solid #e2e8f0; font-size: .85rem; }
 .sr-items-table tfoot tr.grand td { font-weight: 700; border-top: 1px solid #cbd5e1; border-bottom: 1px solid #cbd5e1; }
 
+/* Release 4.9.0BM: the four header buttons wrap and shrink on phones instead of widening the page. */
+@media (max-width: 575.98px) {
+    .sr-actions .btn-save, .sr-actions .btn-cancel { padding: 6px 10px; font-size: .78rem; white-space: nowrap; }
+}
+
 /* Same print rules as Supplier Payment view (sidebar/topbar are hidden by the shared stylesheet) */
 @media print {
     .page-title a, .btn-cancel, .btn-save, .sr-breadcrumb { display: none !important; }
@@ -55,7 +72,7 @@ $custAddress = $customer['address'] ?? $receipt['customer_address'];
 
 <div class="page-title d-flex align-items-center justify-content-between flex-wrap">
     <span class="d-flex align-items-center"><i class="bi bi-receipt-cutoff me-2"></i>Service Receipt — <?= esc($receipt['receipt_no']) ?></span>
-    <div class="d-flex gap-2">
+    <div class="d-flex gap-2 flex-wrap sr-actions">
         <a href="<?= base_url('service-receipts') ?>" class="btn-cancel"><i class="bi bi-arrow-left"></i> Back</a>
         <a href="<?= base_url('service-receipts/edit/' . $receipt['id']) ?>" class="btn-save"><i class="bi bi-pencil"></i> Edit</a>
         <a href="javascript:window.print()" class="btn-save" style="background:#6c757d;"><i class="bi bi-printer"></i> Print</a>
@@ -100,6 +117,13 @@ $custAddress = $customer['address'] ?? $receipt['customer_address'];
         <div class="card-custom">
             <div class="card-custom-header">Payment Summary</div>
             <div class="card-custom-body">
+                <?php if ($simple): ?>
+                <table class="table-custom">
+                    <tr><td>Subtotal</td><td style="text-align:right"><?= number_format((float) $receipt['subtotal'], 2) ?></td></tr>
+                    <tr><td><strong>Grand Total</strong></td><td style="text-align:right"><strong><?= number_format($grand, 2) ?></strong></td></tr>
+                    <tr><td>Amount Received</td><td style="text-align:right"><?= number_format((float) $receipt['received_amount'], 2) ?></td></tr>
+                </table>
+                <?php else: ?>
                 <table class="table-custom">
                     <tr><td>Subtotal</td><td style="text-align:right"><?= number_format((float) $receipt['subtotal'], 2) ?></td></tr>
                     <tr><td>GST</td><td style="text-align:right"><?= number_format((float) $receipt['gst_total'], 2) ?></td></tr>
@@ -111,6 +135,7 @@ $custAddress = $customer['address'] ?? $receipt['customer_address'];
                 <div class="mt-2">
                     <span class="badge-sr badge-<?= esc(strtolower($receipt['payment_status'])) ?>"><?= esc($status) ?></span>
                 </div>
+                <?php endif; ?>
             </div>
         </div>
     </div>
@@ -119,10 +144,35 @@ $custAddress = $customer['address'] ?? $receipt['customer_address'];
         <div class="card-custom">
             <div class="card-custom-header">Service Items</div>
             <div class="table-responsive">
+                <?php if ($simple): ?>
+                <table class="table-custom sr-items-table" style="min-width:0">
+                    <thead>
+                        <tr>
+                            <th class="sno-col">S.No.</th>
+                            <th>Description</th>
+                            <th style="text-align:right">Amount</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($items as $i => $item): ?>
+                        <tr>
+                            <td class="sno-col"><?= $i + 1 ?></td>
+                            <td><?= esc($item['description']) ?></td>
+                            <td style="text-align:right"><?= number_format((float) $item['line_total'], 2) ?></td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                    <tfoot>
+                        <tr><td colspan="2" style="text-align:right">Subtotal</td><td style="text-align:right"><?= number_format((float) $receipt['subtotal'], 2) ?></td></tr>
+                        <tr class="grand"><td colspan="2" style="text-align:right">Grand Total</td><td style="text-align:right"><?= number_format($grand, 2) ?></td></tr>
+                        <tr><td colspan="2" style="text-align:right">Amount Received</td><td style="text-align:right"><?= number_format((float) $receipt['received_amount'], 2) ?></td></tr>
+                    </tfoot>
+                </table>
+                <?php else: ?>
                 <table class="table-custom sr-items-table">
                     <thead>
                         <tr>
-                            <th>#</th>
+                            <th class="sno-col">S.No.</th>
                             <th>Description</th>
                             <th style="text-align:right">Qty</th>
                             <th style="text-align:right">Rate</th>
@@ -134,7 +184,7 @@ $custAddress = $customer['address'] ?? $receipt['customer_address'];
                     <tbody>
                         <?php foreach ($items as $i => $item): ?>
                         <tr>
-                            <td><?= $i + 1 ?></td>
+                            <td class="sno-col"><?= $i + 1 ?></td>
                             <td><?= esc($item['description']) ?></td>
                             <td style="text-align:right"><?= number_format((float) $item['qty'], 3) ?></td>
                             <td style="text-align:right"><?= number_format((float) $item['rate'], 2) ?></td>
@@ -154,6 +204,7 @@ $custAddress = $customer['address'] ?? $receipt['customer_address'];
                         <tr><td colspan="6" style="text-align:right">Status</td><td style="text-align:right"><span class="badge-sr badge-<?= esc(strtolower($receipt['payment_status'])) ?>"><?= esc($status) ?></span></td></tr>
                     </tfoot>
                 </table>
+                <?php endif; ?>
             </div>
         </div>
     </div>

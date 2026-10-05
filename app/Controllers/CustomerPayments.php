@@ -2,6 +2,7 @@
 
 namespace App\Controllers;
 
+use App\Libraries\CashOpeningGuard;
 use App\Models\BankAccountModel;
 use App\Models\BankTransactionModel;
 use App\Models\CustomerModel;
@@ -44,7 +45,6 @@ use CodeIgniter\Controller;
 class CustomerPayments extends Controller
 {
     private const PAYMENT_METHODS = ['CASH', 'BANK', 'CHEQUE', 'UPI', 'OTHER'];
-    private const BANK_METHODS    = ['BANK', 'CHEQUE', 'UPI'];
     private const REFERENCE_TYPE  = 'CUSTOMER_PAYMENT';
     private const LEGACY_REFERENCE_TYPE = 'SERVICE_RECEIPT_PAYMENT';
 
@@ -92,6 +92,11 @@ class CustomerPayments extends Controller
         $errors = $this->_validateInput($input);
         if ($errors) {
             return $this->_error($errors, 422);
+        }
+
+        // Release 4.9.0CF: a CASH voucher dated before the Cash Opening Date is warned about, never blocked.
+        if ($warn = CashOpeningGuard::gate($this->request, 'customer-payment', 0, $input['payment_method'], $input['payment_date'], true)) {
+            return $warn;
         }
 
         $db = \Config\Database::connect();
@@ -185,6 +190,11 @@ class CustomerPayments extends Controller
         $errors = $this->_validateInput($input);
         if ($errors) {
             return $this->_error($errors, 422);
+        }
+
+        // Release 4.9.0CF: a CASH voucher dated before the Cash Opening Date is warned about, never blocked.
+        if ($warn = CashOpeningGuard::gate($this->request, 'customer-payment', (int) $id, $input['payment_method'], $input['payment_date'], true)) {
+            return $warn;
         }
 
         $db = \Config\Database::connect();
@@ -445,7 +455,7 @@ class CustomerPayments extends Controller
     /** Posts the DEPOSIT for one voucher; no-op unless paid through a bank. */
     private function _postBankDeposit(int $paymentId, string $paymentNo, array $input): void
     {
-        if (! in_array($input['payment_method'], self::BANK_METHODS, true)) {
+        if (! BankTransactionModel::isBankMethod($input['payment_method'])) {
             return;
         }
 
@@ -516,7 +526,7 @@ class CustomerPayments extends Controller
             'customer_id'     => (int) $this->request->getPost('customer_id'),
             'payment_date'    => trim((string) $this->request->getPost('payment_date')),
             'payment_method'  => $method,
-            'bank_account_id' => in_array($method, self::BANK_METHODS, true) ? (int) $this->request->getPost('bank_account_id') : 0,
+            'bank_account_id' => BankTransactionModel::isBankMethod($method) ? (int) $this->request->getPost('bank_account_id') : 0,
             'reference_no'    => trim((string) $this->request->getPost('reference_no')),
             'remarks'         => trim((string) $this->request->getPost('remarks')),
             'total_amount'    => $this->_amount($this->request->getPost('total_amount')),
@@ -638,7 +648,7 @@ class CustomerPayments extends Controller
         }
 
         // Bank account: required only for BANK/CHEQUE/UPI, and must be usable.
-        if (in_array($input['payment_method'], self::BANK_METHODS, true)) {
+        if (BankTransactionModel::isBankMethod($input['payment_method'])) {
             if ($input['bank_account_id'] <= 0) {
                 $errors[] = 'A bank account is required for Bank, Cheque and UPI payments.';
             } else {

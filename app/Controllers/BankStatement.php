@@ -4,6 +4,7 @@ namespace App\Controllers;
 
 use App\Libraries\ExcelReport;
 use App\Libraries\PdfReport;
+use App\Libraries\TransactionMethods;
 use App\Models\BankAccountModel;
 use App\Models\BankTransactionModel;
 use CodeIgniter\Controller;
@@ -97,26 +98,32 @@ class BankStatement extends Controller
 
         $db   = \Config\Database::connect();
         $refs = [];
-        foreach ($db->table('bank_transactions')->select('id, reference_id, party_name')->whereIn('id', array_column($lines, 'id'))->get()->getResultArray() as $r) {
-            $refs[(int) $r['id']] = ['ref' => (int) $r['reference_id'], 'party' => (string) ($r['party_name'] ?? '')];
+        foreach ($db->table('bank_transactions')->select('id, reference_id, party_name, payment_mode')->whereIn('id', array_column($lines, 'id'))->get()->getResultArray() as $r) {
+            $refs[(int) $r['id']] = ['ref' => (int) $r['reference_id'], 'party' => (string) ($r['party_name'] ?? ''), 'mode' => (string) ($r['payment_mode'] ?? '')];
         }
 
         $ids = [];
         foreach ($lines as $l) {
             $ids[$l['reference_type']][] = $refs[$l['id']]['ref'] ?? 0;
         }
-        $info = $this->_lookups($db, $ids);
+        $info    = $this->_lookups($db, $ids);
+        $methods = TransactionMethods::forBankTransactions(array_column($lines, 'id'));
 
         foreach ($lines as &$l) {
             $rt   = (string) $l['reference_type'];
+            if ($rt === 'LOAN_DISBURSEMENT') {
+                // Display only (Release 4.9.0BB): older rows carry the remark "Loan Disbursement – lender".
+                $l['remarks'] = str_replace('Loan Disbursement', 'Loan Received', (string) $l['remarks']);
+            }
             $ref  = $refs[$l['id']] ?? ['ref' => 0, 'party' => ''];
             $i    = $info[$rt . ':' . $ref['ref']] ?? [];
             $docs = $i['docs'] ?? '';
 
             switch (true) {
-                case in_array($rt, ['CUSTOMER_PAYMENT', 'SERVICE_RECEIPT'], true) && ! empty($i['party']):
+                case in_array($rt, ['CUSTOMER_PAYMENT', 'SERVICE_RECEIPT', 'SALE_PAYMENT'], true) && ! empty($i['party']):
                     $ttype = 'Customer Receipt';
-                    $text  = 'Customer: ' . $i['party'] . ($docs !== '' ? ' — Invoice ' . $docs : '');
+                    // Release 4.9.0CB: a DIRECT service receipt is not an invoice, so it is not labelled one.
+                    $text  = 'Customer: ' . $i['party'] . ($docs !== '' ? ' — ' . ($i['doc_label'] ?? 'Invoice') . ' ' . $docs : '');
                     break;
                 case $rt === 'SUPPLIER_PAYMENT' && ! empty($i['party']):
                     $ttype = 'Supplier Payment';
@@ -132,7 +139,7 @@ class BankStatement extends Controller
                     break;
                 case in_array($rt, ['PROJECT_ADVANCE', 'PROJECT_ADVANCE_DEPOSIT'], true) && ! empty($i['project']):
                     $ttype = 'Project Transaction';
-                    $text  = 'Project: ' . $i['project'] . (! empty($i['party']) ? ' — ' . $i['party'] : '');
+                    $text  = (($i['receipt_type'] ?? '') === 'CUSTOMER_PROJECT_CASH' ? 'Unallocated Project Receipt — ' : '') . 'Project: ' . $i['project'] . (! empty($i['party']) ? ' — ' . $i['party'] : '');
                     break;
                 case $l['label'] === 'Transfer In' || $l['label'] === 'Transfer Out':
                     $ttype   = 'Transfer';
@@ -140,9 +147,9 @@ class BankStatement extends Controller
                     $isOut   = $l['label'] === 'Transfer Out';
                     $text    = 'Transfer: ' . ($isOut ? $account['bank_name'] . ' → ' . $other : $other . ' → ' . $account['bank_name']);
                     break;
-                case in_array($rt, ['CUSTOMER_PAYMENT', 'SERVICE_RECEIPT', 'SERVICE_RECEIPT_PAYMENT'], true):
+                case in_array($rt, ['CUSTOMER_PAYMENT', 'SERVICE_RECEIPT', 'SERVICE_RECEIPT_PAYMENT', 'SALE_PAYMENT'], true):
                     $ttype = 'Customer Receipt';
-                    $text  = $this->_plain($l['remarks'], ['Customer Payment - ', 'Service Receipt - '], 'Customer: ');
+                    $text  = $this->_plain($l['remarks'], ['Customer Payment - ', 'Service Receipt - ', 'Invoice Payment - '], 'Customer: ');
                     break;
                 case $rt === 'SUPPLIER_PAYMENT' || $rt === 'SUPPLIER_ADVANCE':
                     $ttype = 'Supplier Payment';
@@ -154,24 +161,28 @@ class BankStatement extends Controller
                     break;
                 case str_starts_with($rt, 'PROJECT_ADVANCE'):
                     $ttype = 'Project Transaction';
-                    $text  = $this->_plain($l['remarks'], ['Project Advance Received - ', 'Project Advance - '], 'Project: ');
+                    $text  = $this->_plain($l['remarks'], ['Project Advance Received - ', 'Project Advance - ', 'Unallocated Project Receipt — '], 'Project: ');
                     break;
                 default:
                     // Manual vouchers (deposit / withdrawal / daybook) and loan EMIs: who it was from / to.
                     $ttype = 'Manual Entry';
-                    $who   = $ref['party'] !== '' ? $ref['party'] : ($rt === 'LOAN_PAYMENT' ? $this->_plain($l['remarks'], ['Loan EMI Payment – '], 'Loan: ') : '');
+                    $who   = $ref['party'] !== '' ? $ref['party'] : ($rt === 'LOAN_PAYMENT' ? $this->_plain($l['remarks'], ['Loan EMI Payment – ', 'Loan Payment – '], 'Loan: ') : '');
                     $text  = $who !== '' && $ref['party'] !== ''
                         ? ($l['deposit'] > 0 ? 'Received from ' : 'Paid to ') . $who
                         : ($who !== '' ? $who : ($l['remarks'] !== '' ? $l['remarks'] : ($l['deposit'] > 0 ? 'Bank deposit' : 'Bank withdrawal')));
             }
 
+            // Release 4.9.0CB: HOW it was paid, read from the owning record (never inferred from the ledger being a bank ledger).
+            // Manual vouchers carry their own payment_mode; a transfer between accounts has no payment method.
+            $method           = $methods[$l['id']] ?? '';
+            $l['method']      = $method;
             $l['ttype']       = $ttype;
             $l['voucher']     = $l['reference'];
             $l['particulars'] = $text;
             // Hidden search text: everything the row can be found by, including the raw remarks.
             $l['search'] = mb_strtolower(implode(' ', [
                 $l['voucher'], $l['reference_sub'], $text, $l['remarks'], $ttype, $l['label'], $l['category'], $l['counterparty'],
-                $docs, $i['party'] ?? '', $i['project'] ?? '', $i['category'] ?? '', $i['paid_to'] ?? '', $ref['party'],
+                $docs, $i['party'] ?? '', $i['project'] ?? '', $i['category'] ?? '', $i['paid_to'] ?? '', $ref['party'], pm_label($method, ''),
             ]));
         }
         unset($l);
@@ -201,11 +212,27 @@ class BankStatement extends Controller
         }
         if (! empty($ids['SERVICE_RECEIPT'])) {
             $rows = $db->query(
-                'SELECT sr.id, c.name AS party, sr.receipt_no AS docs FROM service_receipts sr INNER JOIN customers c ON c.id = sr.customer_id WHERE sr.id IN ?',
+                'SELECT sr.id, c.name AS party, sr.receipt_no AS docs, sr.receipt_type FROM service_receipts sr INNER JOIN customers c ON c.id = sr.customer_id WHERE sr.id IN ?',
                 [$ids['SERVICE_RECEIPT']]
             )->getResultArray();
             foreach ($rows as $r) {
-                $out['SERVICE_RECEIPT:' . $r['id']] = ['party' => $r['party'], 'docs' => (string) $r['docs']];
+                $out['SERVICE_RECEIPT:' . $r['id']] = ['party' => $r['party'], 'docs' => (string) $r['docs'], 'doc_label' => $r['receipt_type'] === 'INVOICE' ? 'Invoice' : 'Receipt'];
+            }
+        }
+        // Release 4.9.0I: Project Invoice Payment (payments.id) — the
+        // invoice's own customer/invoice_no, same shape as CUSTOMER_PAYMENT/
+        // SERVICE_RECEIPT above so it classifies as "Customer Receipt" too.
+        if (! empty($ids['SALE_PAYMENT'])) {
+            $rows = $db->query(
+                'SELECT py.id, c.name AS party, s.invoice_no AS docs
+                 FROM payments py
+                 INNER JOIN sales s ON s.id = py.sale_id
+                 LEFT JOIN customers c ON c.id = s.customer_id
+                 WHERE py.id IN ?',
+                [$ids['SALE_PAYMENT']]
+            )->getResultArray();
+            foreach ($rows as $r) {
+                $out['SALE_PAYMENT:' . $r['id']] = ['party' => (string) $r['party'], 'docs' => (string) $r['docs']];
             }
         }
         if (! empty($ids['SUPPLIER_PAYMENT'])) {
@@ -256,7 +283,7 @@ class BankStatement extends Controller
         }
         if (! empty($ids['PROJECT_ADVANCE'])) {
             $rows = $db->query(
-                'SELECT r.id, p.name AS project, c.name AS party
+                'SELECT r.id, r.receipt_type, p.name AS project, c.name AS party
                  FROM project_cash_receipts r
                  INNER JOIN projects p ON p.id = r.project_id
                  LEFT JOIN customers c ON c.id = COALESCE(r.customer_id, p.customer_id)
@@ -264,7 +291,7 @@ class BankStatement extends Controller
                 [$ids['PROJECT_ADVANCE']]
             )->getResultArray();
             foreach ($rows as $r) {
-                $out['PROJECT_ADVANCE:' . $r['id']] = ['project' => (string) $r['project'], 'party' => (string) $r['party']];
+                $out['PROJECT_ADVANCE:' . $r['id']] = ['project' => (string) $r['project'], 'party' => (string) $r['party'], 'receipt_type' => (string) $r['receipt_type']];
             }
         }
 
@@ -320,7 +347,7 @@ class BankStatement extends Controller
 
         $excelRows = [];
         foreach ($rows as $r) {
-            $excelRows[] = [$r['date'], $r['voucher'], $r['ttype'], $r['particulars'], $r['deposit'], $r['withdrawal'], $r['balance']];
+            $excelRows[] = [$r['date'], $r['voucher'], $r['ttype'], $r['particulars'], $this->_methodText($r), $r['deposit'], $r['withdrawal'], $r['balance']];
         }
 
         (new ExcelReport())->ledger(
@@ -334,16 +361,22 @@ class BankStatement extends Controller
                 'Money Out'      => number_format($statement['withdrawals'], 2),
             ],
             $statement['opening'],
-            ['Date', 'Voucher No', 'Type', 'Particulars', 'Money In', 'Money Out', 'Balance'],
+            ['Date', 'Voucher No', 'Type', 'Particulars', 'Method', 'Money In', 'Money Out', 'Balance'],
             $excelRows,
-            ['date', 'text', 'text', 'text', 'currency', 'currency', 'currency'],
-            6,
+            ['date', 'text', 'text', 'text', 'text', 'currency', 'currency', 'currency'],
+            7,
             $statement['closing'],
-            [4, 5],
+            [5, 6],
             'landscape'
         )->stream($file);
 
         return null;
+    }
+
+    /** Method text for an export: a transfer between accounts has no payment method; anything else with none stored is "Not recorded". */
+    private function _methodText(array $r): string
+    {
+        return pm_label($r['method'] ?? '', $r['ttype'] === 'Transfer' ? '—' : 'Not recorded');
     }
 
     /** A valid Y-m-d query parameter, or null. */

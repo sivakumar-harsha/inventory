@@ -34,7 +34,7 @@ $filtered = ($type !== '' || $q !== '');
 
 	.blg-scroll { max-height: 62vh; overflow: auto; }
 	.blg-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: .8rem; }
-	.blg-table thead th { position: sticky; top: 0; z-index: 2; background: #f1f5f9; padding: 0 10px; height: 34px; font-size: .68rem; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); border-bottom: 1px solid var(--border-color); white-space: nowrap; }
+	.blg-table thead th { position: sticky; top: 0; z-index: 2; background: #f1f5f9; padding: 0 10px; height: 34px; font-size: .68rem; text-transform: none; letter-spacing: .03em; color: var(--text-muted); border-bottom: 1px solid var(--border-color); white-space: nowrap; }
 	.blg-table td { height: 44px; padding: 0 10px; border-bottom: 1px solid #eef2f7; vertical-align: middle; }
 	.blg-table td:first-child { border-left: 3px solid transparent; }
 	.blg-table tr.edge-in td:first-child { border-left-color: #16a34a; }
@@ -146,35 +146,40 @@ $filtered = ($type !== '' || $q !== '');
         <table class="blg-table" id="ledgerTable">
             <thead>
                 <tr>
-                    <th>Date</th><th>Voucher No</th><th>Transaction Type</th><th>Particulars</th>
+                    <th class="sno-col">S.No.</th>
+                    <th>Date</th><th>Voucher No</th><th>Transaction Type</th><th>Particulars</th><th>Method</th>
                     <th class="num">Money In</th><th class="num">Money Out</th><th class="num">Running Balance</th>
                 </tr>
             </thead>
             <tbody>
                 <tr class="open-row edge-open">
+                    <td class="sno-col" data-label="S.No."></td>
                     <td data-label="Date"><?= $from ? $dmy($from) : '' ?></td>
                     <td data-label="Voucher">-</td>
                     <td data-label="Type"><span class="tbadge t-opening-balance">Opening Balance</span></td>
                     <td data-label="Particulars" class="part">Opening balance<?= $from ? ' as on ' . $dmy($from) : '' ?></td>
+                    <td data-label="Method"><?= pm_badge('') ?></td>
                     <td class="num amt-nil">-</td><td class="num amt-nil">-</td>
                     <td data-label="Balance" class="num bal <?= $statement['opening'] < 0 ? 'bal-neg' : '' ?>"><?= $fmt($statement['opening']) ?></td>
                 </tr>
                 <?php if (empty($rows)): ?>
-                <tr><td colspan="7" class="blg-empty" style="display:table-cell">No transactions in this period.</td></tr>
+                <tr><td colspan="9" class="blg-empty" style="display:table-cell">No transactions in this period.</td></tr>
                 <?php endif; ?>
                 <?php foreach ($rows as $r): ?>
                 <tr class="<?= $rowCls($r) ?>">
+                    <td class="sno-col sno-auto" data-label="S.No."></td>
                     <td data-label="Date"><?= $dmy($r['date']) ?></td>
                     <td data-label="Voucher"><?= esc($r['voucher'] !== '' ? $r['voucher'] : '-') ?><?php if ($r['reference_sub'] !== ''): ?> <small class="text-muted">(<?= esc($r['reference_sub']) ?>)</small><?php endif; ?></td>
                     <td data-label="Type"><span class="tbadge t-<?= $slug($r['ttype']) ?>"><?= esc($r['ttype']) ?></span></td>
                     <td data-label="Particulars" class="part"><?= esc($r['particulars']) ?></td>
+                    <td data-label="Method"><?= pm_badge($r['method'] ?? '', $r['ttype'] === 'Transfer' ? '—' : 'Not recorded') ?></td>
                     <td data-label="Money In" class="num <?= $r['deposit'] > 0 ? 'amt-in' : 'amt-nil' ?>"><?= $r['deposit'] > 0 ? $fmt($r['deposit']) : '-' ?></td>
                     <td data-label="Money Out" class="num <?= $r['withdrawal'] > 0 ? 'amt-out' : 'amt-nil' ?>"><?= $r['withdrawal'] > 0 ? $fmt($r['withdrawal']) : '-' ?></td>
                     <td data-label="Balance" class="num bal <?= $r['balance'] < 0 ? 'bal-neg' : '' ?>"><?= $fmt($r['balance']) ?></td>
                 </tr>
                 <?php endforeach; ?>
             </tbody>
-            <tfoot><tr><td colspan="6" class="num">Closing Balance</td><td class="num"><?= $fmt($statement['closing']) ?></td></tr></tfoot>
+            <tfoot><tr><td colspan="8" class="num">Closing Balance</td><td class="num"><?= $fmt($statement['closing']) ?></td></tr></tfoot>
         </table>
     </div>
 </div>

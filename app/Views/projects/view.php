@@ -19,14 +19,25 @@
     // Dashboard's own "Cash Received" definition.
     $projectCashReceived = (float) ($financial_summary['cash_received_combined'] ?? 0);
 
-    // Release 4.6.5: Remaining Balance (display) now comes from the model's
-    // own remaining_balance_display — same formula as before this release
-    // (Project Value - Advance - Total Invoiced - Project Cash Receipts),
-    // just named and shared instead of re-derived inline here.
-    // remaining_billable_value itself is untouched — it still governs
-    // invoice eligibility (Sales Create), never this display figure.
-    $csRemaining = max(0, (float) ($financial_summary['remaining_balance_display'] ?? 0));
-
+    // Release 4.9.0J (bug fix): same fix as Project Statement — this card is
+    // a pure Contract vs Invoiced figure (Project Value - Total Invoiced)
+    // and must not be reduced by Project Cash Receipts (a separate customer
+    // collection ledger; see ProjectModel::getFinancialSummary()).
+    // remaining_billable_value carries exactly that formula and is already
+    // what Projects::index()'s own Remaining Balance column and Dashboard
+    // use.
+    // Release 4.9.0R (presentation fix): no longer clamped to 0. Clamping
+    // hid a genuinely over-billed project behind "Remaining Balance
+    // ₹0.00" while Project Statement, for the identical figure, already
+    // showed "Over Billed ₹X" (Release 4.9.0J) — two contradictory
+    // readings of the same remaining_billable_value on two screens for the
+    // same project (4.9.0O, Finding #3). $remKpiCls/$remIcon/$remLabel/
+    // $remValue below reproduce Project Statement's own 3-branch
+    // presentation verbatim, so both screens now agree. The underlying
+    // figure itself is unchanged — this is presentation only.
+    // $csRemaining = remaining_billable_value (Contract - Advance Received - Invoiced);
+    // 4.9.0EC: shown (clamped at 0) as the Remaining Balance card, Over Billed separately.
+    $csRemaining = (float) ($financial_summary['remaining_billable_value'] ?? 0);
     // Release 4.6.5: Total Customer Paid = Invoice Payments + Advance
     // Receipts + Direct Income (cash_received_combined) — same formula as
     // the Cash Received card above; both are the same figure now that Cash
@@ -42,13 +53,19 @@
     $csAdvReceived = (float) ($financial_summary['advance_amount'] ?? 0);
     $csAdvApplied  = (float) ($financial_summary['total_advance_applied'] ?? 0);
     $csUnused      = (float) ($financial_summary['unused_customer_advance'] ?? 0);
-    $csOutstanding = (float) ($financial_summary['invoice_outstanding'] ?? 0);
+    // Release 4.9.0U: the branch decision below stays on invoice_outstanding
+    // (the TRUE, invoice-only figure) so this card can never flip to
+    // "Settled" purely because of an unallocated CUSTOMER_PROJECT_CASH
+    // receipt — only the displayed VALUE reads the CUSTOMER_PROJECT_CASH-
+    // aware project_outstanding_collection.
+    $csOutstanding        = (float) ($financial_summary['invoice_outstanding'] ?? 0);
+    $csOutstandingDisplay = (float) ($financial_summary['project_outstanding_collection'] ?? $csOutstanding);
     $csHasInvoices = $csBilled > 0.004;
     $dynSubtitle   = '';
     if ($csHasInvoices && $csOutstanding > 0.004) {
         $dynKpiCls = 'kpi-orange'; $dynIcon = 'bi-hourglass-split';
         $dynLabel  = 'Outstanding Collection';
-        $dynValue  = '₹' . number_format($csOutstanding, 2) . ' Dr';
+        $dynValue  = '₹' . number_format($csOutstandingDisplay, 2) . ' Dr';
         if ($csUnused > 0.004) {
             $dynSubtitle = 'Unused Advance Available : ₹' . number_format($csUnused, 2);
         }
@@ -70,13 +87,35 @@
     // expected, not whether existing invoices are collected.
     $billingCompletionStatus = $billing_completion_status ?? 'ACTIVE';
     $isBillingCompleted      = $billingCompletionStatus === 'COMPLETED';
-    $bcsMap = ['ACTIVE' => 'active', 'PARTIAL' => 'partial', 'COMPLETED' => 'completed'];
+    // Release 4.9.0K: OVER_BILLED (total_billed > contract value) — see
+    // ProjectModel::getBillingCompletionStatus().
+    $bcsMap = ['ACTIVE' => 'active', 'PARTIAL' => 'partial', 'COMPLETED' => 'completed', 'FULLY_BILLED' => 'completed', 'OVER_BILLED' => 'over-billed'];
     $bcsCls = $bcsMap[$billingCompletionStatus] ?? 'active';
+    $billingCompletionStatusLabel = str_replace('_', ' ', $billingCompletionStatus);
     // Display-only: once billing is manually marked complete, Remaining
     // Balance reads as 0 on this page regardless of unbilled contract value.
     // remaining_billable_value itself (financial_summary) is never changed.
-    if ($isBillingCompleted) {
+    if ($isBillingCompleted && $csRemaining > 0) {
         $csRemaining = 0.0;
+    }
+
+    // Release 4.9.0EA: the KPI card is Remaining Billable = MAX(0, Contract -
+    // Invoiced) (remaining_billable_value, clamped). Customer payment/advance
+    // never reduce it; Over Billed is shown separately in the billing strip.
+    // Release 4.9.0EB: the card has ONE state - Over Billed (invoiced > contract)
+    // or Remaining Balance (incl. exactly 0.00).
+    if ($csRemaining < -0.004) {
+        $remKpiCls = 'kpi-red'; $remIcon = 'bi-exclamation-triangle';
+        $remValue  = number_format(abs($csRemaining), 2);
+        $remLabel  = 'Over Billed';
+    } elseif ($csRemaining > 0.004) {
+        $remKpiCls = 'kpi-blue'; $remIcon = 'bi-wallet2';
+        $remValue  = number_format($csRemaining, 2);
+        $remLabel  = 'Remaining Balance';
+    } else {
+        $remKpiCls = 'kpi-green'; $remIcon = 'bi-check-circle';
+        $remValue  = '0.00';
+        $remLabel  = 'Remaining Balance';
     }
 
     $projectCostTillDate = $total_purchases + $total_expenses;
@@ -92,7 +131,7 @@
             <span class="project-subheader-sep">•</span>
             <span><i class="bi bi-person me-1"></i><?= esc($project['customer_name'] ?: 'No Customer') ?></span>
             <span class="badge-status badge-<?= strtolower($project['status']) ?>" title="Work Status">Work: <?= str_replace('_', ' ', $project['status']) ?></span>
-            <span class="badge-status badge-<?= $bcsCls ?>" title="Billing Status">Billing: <?= $billingCompletionStatus ?></span>
+            <span class="badge-status badge-<?= $bcsCls ?>" title="Billing Status">Billing: <?= $billingCompletionStatusLabel ?></span>
         </div>
         <div class="project-header-dates">
             <i class="bi bi-calendar3 me-1"></i><?= esc($project['start_date']) ?> &rarr; <?= $project['end_date'] ? esc($project['end_date']) : 'Ongoing' ?>
@@ -138,11 +177,11 @@
         </div>
     </div>
     <div class="col-md-4 col-6">
-        <div class="kpi-card kpi-blue">
-            <div class="kpi-icon"><i class="bi bi-wallet2"></i></div>
+        <div class="kpi-card <?= $remKpiCls ?>">
+            <div class="kpi-icon"><i class="bi <?= $remIcon ?>"></i></div>
             <div>
-                <div class="kpi-value"><?= number_format($csRemaining, 2) ?></div>
-                <div class="kpi-label">Remaining Balance</div>
+                <div class="kpi-value"><?= $remValue ?></div>
+                <div class="kpi-label"><?= $remLabel ?></div>
             </div>
         </div>
     </div>
@@ -206,7 +245,11 @@
             <span class="billing-strip-sep">•</span>
             <span><span class="billing-strip-label">Total Invoiced</span> ₹<?= number_format($csBilled, 2) ?></span>
             <span class="billing-strip-sep">•</span>
-            <span><span class="billing-strip-label">Remaining Balance</span> ₹<?= number_format($csRemaining, 2) ?></span>
+            <?php if ($csRemaining < -0.004): ?>
+            <span class="billing-strip-overbilled"><span class="billing-strip-label">Over Billed</span> ₹<?= number_format(abs($csRemaining), 2) ?></span>
+            <?php else: ?>
+            <span><span class="billing-strip-label">Remaining Balance</span> ₹<?= number_format(max(0, $csRemaining), 2) ?></span>
+            <?php endif; ?>
             <span class="billing-strip-pct ms-auto"><?= number_format($csPercent, 0) ?>% Billed</span>
         </div>
     </div>
@@ -238,7 +281,7 @@
             </div>
             <div class="project-info-cell">
                 <div class="project-info-label">Billing Status</div>
-                <div><span class="badge-status badge-<?= $bcsCls ?>"><?= $billingCompletionStatus ?></span></div>
+                <div><span class="badge-status badge-<?= $bcsCls ?>"><?= $billingCompletionStatusLabel ?></span></div>
             </div>
         </div>
         <?php if (!empty($project['description'])): ?>
@@ -254,15 +297,16 @@
     <div class="table-responsive">
         <table class="table-custom recent-sales-table">
             <thead>
-                <tr><th>Invoice</th><th>Date</th><th class="text-end">Amount</th><th class="text-end">Pending</th><th>Status</th><th class="text-center">Action</th></tr>
+                <tr><th class="sno-col">S.No.</th><th>Invoice</th><th>Date</th><th class="text-end">Amount</th><th class="text-end">Pending</th><th>Status</th><th class="text-center">Action</th></tr>
             </thead>
             <tbody>
                 <?php $recentSales = array_slice($sales, 0, 5); ?>
                 <?php if (empty($recentSales)): ?>
-                <tr><td colspan="6" class="text-center text-muted">No sales invoices yet</td></tr>
+                <tr><td colspan="7" class="text-center text-muted">No sales invoices yet</td></tr>
                 <?php else: ?>
                 <?php foreach ($recentSales as $s): ?>
                 <tr>
+                    <td class="sno-col sno-auto" data-label="S.No."></td>
                     <td><a href="<?= base_url('sales/view/' . $s['id']) ?>"><?= esc($s['invoice_no'] ?: '#' . $s['id']) ?></a></td>
                     <td><?= esc($s['sale_date']) ?></td>
                     <td class="text-end"><?= number_format($s['total_amount'], 2) ?></td>
@@ -329,6 +373,9 @@
 .billing-strip-figures { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 0.76rem; color: #1e293b; margin-top: 4px; }
 .billing-strip-label { color: #64748b; text-transform: uppercase; letter-spacing: .02em; font-size: 0.66rem; margin-right: 3px; }
 .billing-strip-sep { color: #cbd5e1; }
+/* Release 4.9.0R: matches Project Statement's own .billing-strip-overbilled rule verbatim. */
+.billing-strip-overbilled { color: #b91c1c; font-weight: 700; }
+.billing-strip-overbilled .billing-strip-label { color: #b91c1c; }
 .billing-mini-card { display: flex; align-items: center; gap: 10px; padding: 7px 12px; min-height: 52px; border-radius: 8px; background: #f8fafc; border: 1px solid #e2e8f0; }
 .billing-mini-icon { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.9rem; flex-shrink: 0; }
 .billing-mini-green .billing-mini-icon { background: #dcfce7; color: #15803d; }

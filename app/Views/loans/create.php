@@ -2,7 +2,7 @@
 <?= $this->section('content') ?>
 
 <?php
-$typeLabels = ['BANK' => 'Bank Loan', 'PERSONAL' => 'Personal', 'VEHICLE' => 'Vehicle', 'OD' => 'Overdraft', 'OTHER' => 'Other'];
+$typeLabels = \App\Models\LoanTypeModel::labels();
 ?>
 
 <style>
@@ -11,41 +11,6 @@ $typeLabels = ['BANK' => 'Bank Loan', 'PERSONAL' => 'Personal', 'VEHICLE' => 'Ve
 	.ln-breadcrumb .breadcrumb-item a { color: #2F7E8A; text-decoration: none; }
 	.ln-breadcrumb .breadcrumb-item a:hover { text-decoration: underline; }
 	.ln-breadcrumb .breadcrumb-item.active { color: #64748b; }
-
-	/* Form + schedule on the left, sticky EMI summary on the right (desktop).
-	   Below 992px everything stacks: form, then summary, then schedule. */
-	.loan-grid {
-		display: grid;
-		gap: 16px;
-		grid-template-columns: minmax(0, 1fr);
-		grid-template-areas: "form" "summary" "schedule";
-	}
-	.loan-grid > * { min-width: 0; }
-	.loan-area-form { grid-area: form; }
-	.loan-area-summary { grid-area: summary; }
-	.loan-area-schedule { grid-area: schedule; }
-	@media (min-width: 992px) {
-		.loan-grid {
-			grid-template-columns: minmax(0, 1fr) 340px;
-			grid-template-areas: "form summary" "schedule summary";
-			align-items: start;
-		}
-		.loan-area-summary { align-self: stretch; }
-		.loan-area-summary .card-custom { position: sticky; top: 12px; }
-	}
-
-	.ln-summary-table { width: 100%; font-size: .85rem; }
-	.ln-summary-table td { padding: 6px 2px; border-bottom: 1px dashed #e2e8f0; }
-	.ln-summary-table tr:last-child td { border-bottom: none; }
-	.ln-summary-table td.amt { text-align: right; }
-	.ln-summary-table tr.grand td { font-weight: 700; font-size: .95rem; border-top: 1px solid #cbd5e1; border-bottom: 1px solid #cbd5e1; }
-
-	.ln-schedule-wrap { max-height: 420px; overflow: auto; }
-	#schedTable { min-width: 720px; }
-	#schedTable th, #schedTable td { padding: 6px 10px; font-size: .78rem; white-space: nowrap; }
-	#schedTable thead th { position: sticky; top: 0; background: #f8fafc; z-index: 1; }
-	#schedTable .num { text-align: right; }
-	.ln-empty { text-align: center; color: #94a3b8; padding: 18px 10px; }
 
 	.form-label .req { color: #dc2626; }
 	.invalid-feedback { font-size: .75rem; }
@@ -65,138 +30,96 @@ $typeLabels = ['BANK' => 'Bank Loan', 'PERSONAL' => 'Personal', 'VEHICLE' => 'Ve
 </div>
 
 <form id="loanForm" novalidate>
-<div class="loan-grid">
-
-    <!-- LOAN INFORMATION -->
-    <div class="loan-area-form">
-        <div class="card-custom">
-            <div class="card-custom-header">Loan Information</div>
-            <div class="card-custom-body">
-                <div class="row g-3">
-                    <div class="col-md-6">
-                        <label class="form-label">Loan Number</label>
-                        <input type="text" id="loanNo" class="form-control" value="<?= esc($next_loan_no) ?>" readonly>
-                        <div class="form-text">Assigned automatically when the loan is saved.</div>
-                    </div>
-                    <div class="col-md-6">
-                        <label class="form-label">Lender Name <span class="req">*</span></label>
-                        <input type="text" name="lender_name" id="lenderName" class="form-control" maxlength="150" autocomplete="off">
-                        <div class="invalid-feedback" data-for="lender_name"></div>
-                    </div>
-                    <div class="col-md-6">
-                        <label class="form-label">Loan Type <span class="req">*</span></label>
+<div class="card-custom">
+    <div class="card-custom-header">Loan Information</div>
+    <div class="card-custom-body">
+        <div class="row g-3">
+            <div class="col-md-6">
+                <label class="form-label">Loan Number</label>
+                <input type="text" id="loanNo" class="form-control" value="<?= esc($next_loan_no) ?>" readonly>
+                <div class="form-text">Assigned automatically when the loan is saved.</div>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Lender Name <span class="req">*</span></label>
+                <input type="text" name="lender_name" id="lenderName" class="form-control" maxlength="150" autocomplete="off">
+                <div class="invalid-feedback" data-for="lender_name"></div>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Loan Type <span class="req">*</span></label>
+                <div class="d-flex align-items-start gap-2">
+                    <div class="flex-grow-1" style="min-width:0;">
                         <select name="loan_type" id="loanType" class="form-control no-search">
                             <?php foreach ($loan_types as $t): ?>
                             <option value="<?= esc($t) ?>"><?= esc($typeLabels[$t] ?? $t) ?></option>
                             <?php endforeach; ?>
                         </select>
                     </div>
-                    <div class="col-md-6" id="bankRow">
-                        <label class="form-label">Bank Account <span class="req" id="bankReq">*</span></label>
-                        <select name="bank_account_id" id="bankAccount" class="form-control" data-placeholder="Select bank account">
-                            <option value=""></option>
-                            <?php foreach ($bank_accounts as $b): ?>
-                            <option value="<?= (int) $b['id'] ?>"><?= esc($b['bank_name'] . ' - ' . $b['account_name'] . ' (' . $b['account_number'] . ')') ?></option>
-                            <?php endforeach; ?>
-                        </select>
-                        <div class="invalid-feedback" data-for="bank_account_id"></div>
-                    </div>
-                    <div class="col-md-6">
-                        <label class="form-label">Account Number</label>
-                        <input type="text" name="account_number" id="accountNumber" class="form-control" maxlength="50" autocomplete="off" placeholder="Loan account number at the lender">
-                        <div class="invalid-feedback" data-for="account_number"></div>
-                    </div>
-                    <div class="col-md-6">
-                        <label class="form-label">Sanctioned Amount <span class="req">*</span></label>
-                        <input type="number" name="sanctioned_amount" id="sanctionedAmount" class="form-control" step="0.01" min="0" inputmode="decimal">
-                        <div class="invalid-feedback" data-for="sanctioned_amount"></div>
-                    </div>
-                    <div class="col-md-6">
-                        <label class="form-label">Interest Rate (% per year) <span class="req">*</span></label>
-                        <input type="number" name="interest_rate" id="interestRate" class="form-control" step="0.001" min="0" max="100" inputmode="decimal">
-                        <div class="invalid-feedback" data-for="interest_rate"></div>
-                    </div>
-                    <div class="col-md-6">
-                        <label class="form-label">Tenure (Months) <span class="req">*</span></label>
-                        <input type="number" name="tenure_months" id="tenureMonths" class="form-control" step="1" min="1" max="600" inputmode="numeric">
-                        <div class="invalid-feedback" data-for="tenure_months"></div>
-                    </div>
-                    <div class="col-md-6">
-                        <label class="form-label">Start Date <span class="req">*</span></label>
-                        <input type="date" name="start_date" id="startDate" class="form-control">
-                        <div class="invalid-feedback" data-for="start_date"></div>
-                    </div>
-                    <div class="col-md-6">
-                        <label class="form-label">End Date</label>
-                        <input type="text" id="endDatePreview" class="form-control" value="—" readonly>
-                        <div class="form-text">Calculated from the schedule (last EMI due date).</div>
-                    </div>
-                    <div class="col-12">
-                        <label class="form-label">Remarks</label>
-                        <textarea name="remarks" id="remarks" class="form-control" rows="2"></textarea>
-                    </div>
-                </div>
-
-                <div id="formErrors" class="alert alert-danger mt-3" style="display:none;"></div>
-            </div>
-        </div>
-    </div>
-
-    <!-- EMI PREVIEW (sticky on desktop) -->
-    <div class="loan-area-summary">
-        <div class="card-custom">
-            <div class="card-custom-header">EMI Preview</div>
-            <div class="card-custom-body">
-                <table class="ln-summary-table">
-                    <tr class="grand"><td>Monthly EMI</td><td class="amt">₹<span id="sumEmi">—</span></td></tr>
-                    <tr><td>Total Interest</td><td class="amt">₹<span id="sumInterest">—</span></td></tr>
-                    <tr><td>Total Payable</td><td class="amt">₹<span id="sumPayable">—</span></td></tr>
-                    <tr><td>Loan End Date</td><td class="amt" id="sumEnd">—</td></tr>
-                    <tr><td>Outstanding Principal</td><td class="amt">₹<span id="sumOutstanding">—</span></td></tr>
-                </table>
-
-                <div class="mt-3">
-                    <button type="submit" id="btnSave" class="btn-save w-100" disabled><i class="bi bi-save"></i> Save Loan</button>
-                    <a href="<?= base_url('loans') ?>" class="btn-cancel w-100 mt-2 d-block text-center"><i class="bi bi-x"></i> Cancel</a>
-                    <div class="form-text mt-2" id="saveHint">Fill in all required fields to enable Save.</div>
+                    <button type="button" class="btn-cancel" id="quickLoanTypeBtn" title="Add Loan Type" aria-label="Add Loan Type" style="padding:0;width:38px;height:38px;justify-content:center;flex:0 0 auto;"><i class="bi bi-plus-lg"></i></button>
                 </div>
             </div>
-        </div>
-    </div>
-
-    <!-- EMI SCHEDULE PREVIEW -->
-    <div class="loan-area-schedule">
-        <div class="card-custom">
-            <div class="card-custom-header d-flex align-items-center justify-content-between">
-                <span>EMI Schedule Preview</span>
-                <span id="schedSpinner" style="display:none;"><span class="spinner-border spinner-border-sm" role="status"></span> <small>Calculating...</small></span>
+            <div class="col-md-6">
+                <label class="form-label">Account Number</label>
+                <input type="text" name="account_number" id="accountNumber" class="form-control" maxlength="50" autocomplete="off" placeholder="Loan account number at the lender">
+                <div class="invalid-feedback" data-for="account_number"></div>
             </div>
-            <div class="card-custom-body">
-                <div id="previewError" class="alert alert-warning py-2" style="display:none;"></div>
-                <div class="ln-schedule-wrap">
-                    <table id="schedTable" class="table-custom">
-                        <thead>
-                            <tr>
-                                <th>EMI</th>
-                                <th>Due Date</th>
-                                <th class="num">Opening Balance</th>
-                                <th class="num">Principal</th>
-                                <th class="num">Interest</th>
-                                <th class="num">EMI</th>
-                                <th class="num">Closing Balance</th>
-                            </tr>
-                        </thead>
-                        <tbody id="schedBody">
-                            <tr><td colspan="7" class="ln-empty">Enter the amount, interest rate, tenure and start date to see the schedule.</td></tr>
-                        </tbody>
-                    </table>
-                </div>
+            <div class="col-md-6">
+                <label class="form-label">Sanctioned Amount <span class="req">*</span></label>
+                <input type="number" name="sanctioned_amount" id="sanctionedAmount" class="form-control" step="0.01" min="0" inputmode="decimal">
+                <div class="invalid-feedback" data-for="sanctioned_amount"></div>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Loan Date / Start Date <span class="req">*</span></label>
+                <input type="date" name="start_date" id="startDate" class="form-control">
+                <div class="invalid-feedback" data-for="start_date"></div>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Interest Rate (% per year)</label>
+                <input type="number" name="interest_rate" id="interestRate" class="form-control" step="0.001" min="0" max="100" inputmode="decimal">
+                <div class="form-text">Optional, for information only.</div>
+                <div class="invalid-feedback" data-for="interest_rate"></div>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Tenure (Months)</label>
+                <input type="number" name="tenure_months" id="tenureMonths" class="form-control" step="1" min="1" max="600" inputmode="numeric">
+                <div class="form-text">Optional, for information only.</div>
+                <div class="invalid-feedback" data-for="tenure_months"></div>
+            </div>
+            <div class="col-12">
+                <label class="form-label">Remarks</label>
+                <textarea name="remarks" id="remarks" class="form-control" rows="2"></textarea>
             </div>
         </div>
-    </div>
 
+        <div id="formErrors" class="alert alert-danger mt-3" style="display:none;"></div>
+
+        <div class="mt-3 d-flex gap-2">
+            <button type="submit" id="btnSave" class="btn-save" disabled><i class="bi bi-save"></i> Save Loan</button>
+            <a href="<?= base_url('loans') ?>" class="btn-cancel"><i class="bi bi-x"></i> Cancel</a>
+        </div>
+        <div class="form-text mt-2" id="saveHint">Fill in all required fields to enable Save.</div>
+    </div>
 </div>
 </form>
+
+<div class="modal fade" id="quickLoanTypeModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Add Loan Type</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <label class="form-label">Loan Type Name <span class="req">*</span></label>
+                <input type="text" id="quickLoanTypeName" class="form-control" maxlength="100" autocomplete="off">
+                <div class="invalid-feedback" id="quickLoanTypeName_error"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-cancel" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn-save" id="quickLoanTypeSave">Save Loan Type</button>
+            </div>
+        </div>
+    </div>
+</div>
 
 <?= $this->endSection() ?>
 
@@ -204,34 +127,21 @@ $typeLabels = ['BANK' => 'Bank Loan', 'PERSONAL' => 'Personal', 'VEHICLE' => 'Ve
 <script>
 (function () {
 	var MAX_AMOUNT = 9999999999999.99, MAX_TENURE = 600, MAX_RATE = 100;
-	var BANK_REQUIRED = <?= json_encode($bank_required) ?>;
-	var PREVIEW_URL = "<?= base_url('loans/generate-schedule') ?>";
-	var previewTimer = null, previewXhr = null, previewSeq = 0;
 
 	var FIELDS = {
 		lender_name: '#lenderName',
-		bank_account_id: '#bankAccount',
 		account_number: '#accountNumber',
 		sanctioned_amount: '#sanctionedAmount',
 		interest_rate: '#interestRate',
 		tenure_months: '#tenureMonths',
 		start_date: '#startDate'
 	};
-	var TERM_KEYS = ['sanctioned_amount', 'interest_rate', 'tenure_months', 'start_date'];
 
-	function money(n) {
-		return Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-	}
-	function dmy(s) {
-		var p = String(s).split('-');
-		return p.length === 3 ? p[2] + '-' + p[1] + '-' + p[0] : s;
-	}
 	function decimals(v) {
 		var i = v.indexOf('.');
 		return i < 0 ? 0 : v.length - i - 1;
 	}
 	function val(sel) { return $.trim($(sel).val() || ''); }
-	function bankRequired() { return BANK_REQUIRED.indexOf($('#loanType').val()) !== -1; }
 
 	// ---------- validation (client side only; the server re-validates) ----------
 	function fieldErrors() {
@@ -241,8 +151,6 @@ $typeLabels = ['BANK' => 'Bank Loan', 'PERSONAL' => 'Personal', 'VEHICLE' => 'Ve
 		if (!v) e.lender_name = 'Lender name is required.';
 		else if (v.length > 150) e.lender_name = 'Lender name cannot be longer than 150 characters.';
 
-		if (bankRequired() && !$('#bankAccount').val()) e.bank_account_id = 'A bank account is required for Bank and Overdraft loans.';
-
 		if (val('#accountNumber').length > 50) e.account_number = 'Account number cannot be longer than 50 characters.';
 
 		v = val('#sanctionedAmount');
@@ -251,19 +159,22 @@ $typeLabels = ['BANK' => 'Bank Loan', 'PERSONAL' => 'Personal', 'VEHICLE' => 'Ve
 		else if (+v > MAX_AMOUNT) e.sanctioned_amount = 'Sanctioned amount is too large.';
 		else if (decimals(v) > 2) e.sanctioned_amount = 'No more than two decimal places.';
 
+		// interest rate and tenure are optional
 		v = val('#interestRate');
-		if (v === '' || isNaN(v)) e.interest_rate = 'Enter the interest rate (0 if none).';
-		else if (+v < 0) e.interest_rate = 'Interest rate cannot be negative.';
-		else if (+v > MAX_RATE) e.interest_rate = 'Interest rate cannot be more than ' + MAX_RATE + '%.';
-		else if (decimals(v) > 3) e.interest_rate = 'No more than three decimal places.';
+		if (v !== '') {
+			if (isNaN(v)) e.interest_rate = 'Interest rate must be a number.';
+			else if (+v < 0) e.interest_rate = 'Interest rate cannot be negative.';
+			else if (+v > MAX_RATE) e.interest_rate = 'Interest rate cannot be more than ' + MAX_RATE + '%.';
+			else if (decimals(v) > 3) e.interest_rate = 'No more than three decimal places.';
+		}
 
 		v = val('#tenureMonths');
-		if (v === '') e.tenure_months = 'Enter the tenure in months.';
-		else if (!/^\d+$/.test(v)) e.tenure_months = 'Tenure must be a whole number of months.';
-		else if (+v < 1) e.tenure_months = 'Tenure must be at least 1 month.';
-		else if (+v > MAX_TENURE) e.tenure_months = 'Tenure cannot be more than ' + MAX_TENURE + ' months.';
+		if (v !== '') {
+			if (!/^\d+$/.test(v)) e.tenure_months = 'Tenure must be a whole number of months.';
+			else if (+v > MAX_TENURE) e.tenure_months = 'Tenure cannot be more than ' + MAX_TENURE + ' months.';
+		}
 
-		if (!val('#startDate')) e.start_date = 'Start date is required.';
+		if (!val('#startDate')) e.start_date = 'Loan date / start date is required.';
 
 		return e;
 	}
@@ -285,106 +196,11 @@ $typeLabels = ['BANK' => 'Bank Loan', 'PERSONAL' => 'Personal', 'VEHICLE' => 'Ve
 		return e;
 	}
 
-	function termsValid(e) {
-		return TERM_KEYS.every(function (k) { return !e[k]; });
-	}
-
-	// ---------- bank account row: BANK / OD need one; others only keep it if chosen ----------
-	function syncBankRow() {
-		var req = bankRequired();
-		$('#bankReq').toggle(req);
-		$('#bankRow').toggle(req || !!$('#bankAccount').val());
-	}
-
-	// ---------- live EMI preview (the server is the only place the EMI is calculated) ----------
-	function clearPreview(message) {
-		if (previewXhr) previewXhr.abort();
-		previewSeq++;
-		clearTimeout(previewTimer);
-		$('#schedSpinner').hide();
-		$('#previewError').hide();
-		$('#sumEmi, #sumInterest, #sumPayable, #sumOutstanding').text('—');
-		$('#sumEnd').text('—');
-		$('#endDatePreview').val('—');
-		$('#schedBody').html('<tr><td colspan="7" class="ln-empty">' + message + '</td></tr>');
-	}
-
-	function renderPreview(r) {
-		var rows = [];
-		$.each(r.schedule, function (i, s) {
-			rows.push('<tr><td>' + s.emi_no + '</td><td>' + dmy(s.due_date) + '</td>'
-				+ '<td class="num">' + money(s.opening_balance) + '</td>'
-				+ '<td class="num">' + money(s.principal_amount) + '</td>'
-				+ '<td class="num">' + money(s.interest_amount) + '</td>'
-				+ '<td class="num">' + money(s.emi_amount) + '</td>'
-				+ '<td class="num">' + money(s.closing_balance) + '</td></tr>');
-		});
-		$('#schedBody').html(rows.join(''));
-		$('#sumEmi').text(money(r.emi_amount));
-		$('#sumInterest').text(money(r.total_interest));
-		$('#sumPayable').text(money(r.total_payable));
-		$('#sumEnd').text(dmy(r.end_date));
-		$('#sumOutstanding').text(money(r.schedule[0].opening_balance));
-		$('#endDatePreview').val(dmy(r.end_date));
-	}
-
-	function runPreview() {
-		if (previewXhr) previewXhr.abort();
-		var seq = ++previewSeq;
-		$('#schedSpinner').show();
-		$('#previewError').hide();
-
-		previewXhr = $.ajax({
-			url: PREVIEW_URL,
-			type: 'POST',
-			dataType: 'json',
-			data: {
-				sanctioned_amount: val('#sanctionedAmount'),
-				interest_rate: val('#interestRate'),
-				tenure_months: val('#tenureMonths'),
-				start_date: val('#startDate')
-			}
-		}).done(function (r) {
-			if (seq !== previewSeq) return;
-			if (r.status) renderPreview(r);
-		}).fail(function (xhr) {
-			if (seq !== previewSeq || xhr.statusText === 'abort') return;
-			var d = xhr.responseJSON;
-			clearPreview('Schedule not available for these terms.');
-			$('#previewError').text((d && d.errors && d.errors.join(' ')) || 'Could not calculate the schedule. Please try again.').show();
-		}).always(function () {
-			if (seq === previewSeq) $('#schedSpinner').hide();
-		});
-	}
-
-	function queuePreview(e) {
-		clearTimeout(previewTimer);
-		if (!termsValid(e)) {
-			clearPreview('Enter the amount, interest rate, tenure and start date to see the schedule.');
-			return;
-		}
-		$('#schedSpinner').show();
-		previewTimer = setTimeout(runPreview, 400);
-	}
-
 	// ---------- events ----------
 	$.each(FIELDS, function (key, sel) {
 		$(sel).on('blur change', function () { $(this).data('touched', true); refresh(false); });
+		$(sel).on('input change', function () { refresh(false); });
 	});
-
-	$('#lenderName, #accountNumber, #sanctionedAmount, #interestRate, #tenureMonths, #startDate, #bankAccount').on('input change', function () {
-		refresh(false);
-	});
-
-	$('#sanctionedAmount, #interestRate, #tenureMonths, #startDate').on('input change', function () {
-		queuePreview(fieldErrors());
-	});
-
-	$('#loanType').on('change', function () {
-		syncBankRow();
-		refresh(false);
-	});
-	$('#bankAccount').on('change', syncBankRow);
 
 	$('#loanForm').on('submit', function (ev) {
 		ev.preventDefault();
@@ -415,10 +231,44 @@ $typeLabels = ['BANK' => 'Bank Loan', 'PERSONAL' => 'Personal', 'VEHICLE' => 'Ve
 		});
 	});
 
-	$(document).ready(function () {
-		syncBankRow();
-		refresh(false);
+	// Quick-add Loan Type (stores into the Loan Type master via loan-types/quick-store).
+	var quickTypeModal = null;
+	$('#quickLoanTypeBtn').on('click', function () {
+		quickTypeModal = quickTypeModal || new bootstrap.Modal(document.getElementById('quickLoanTypeModal'));
+		$('#quickLoanTypeName').val('').removeClass('is-invalid');
+		$('#quickLoanTypeName_error').text('').css('display', 'none');
+		quickTypeModal.show();
 	});
+	$('#quickLoanTypeModal').on('shown.bs.modal', function () { $('#quickLoanTypeName').trigger('focus'); });
+	$('#quickLoanTypeName').on('keydown', function (e) {
+		if (e.key === 'Enter') { e.preventDefault(); $('#quickLoanTypeSave').trigger('click'); }
+	});
+	$('#quickLoanTypeSave').on('click', function () {
+		var $btn = $(this), name = $.trim($('#quickLoanTypeName').val());
+		function showErr(msg) {
+			$('#quickLoanTypeName').addClass('is-invalid');
+			$('#quickLoanTypeName_error').text(msg).css('display', 'block');
+		}
+		$('#quickLoanTypeName').removeClass('is-invalid');
+		$('#quickLoanTypeName_error').text('').css('display', 'none');
+		if (name === '') { showErr('Loan type name is required.'); return; }
+		$btn.prop('disabled', true);
+		$.ajax({ url: "<?= base_url('loan-types/quick-store') ?>", type: 'POST', dataType: 'json', data: { loan_type_name: name } })
+			.done(function (resp) {
+				if (resp.status) {
+					var t = resp.loan_type;
+					$('#loanType').append($('<option></option>').val(t.code).text(t.label)).val(t.code).trigger('change');
+					quickTypeModal.hide();
+				} else { showErr((resp.errors || []).join(' ') || 'Could not save the loan type.'); }
+			})
+			.fail(function (xhr) {
+				var d = xhr.responseJSON;
+				showErr(d && d.errors ? d.errors.join(' ') : 'Could not save the loan type. Please try again.');
+			})
+			.always(function () { $btn.prop('disabled', false); });
+	});
+
+	$(document).ready(function () { refresh(false); });
 })();
 </script>
 <?= $this->endSection() ?>

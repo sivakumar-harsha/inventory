@@ -74,14 +74,19 @@ function updateFinancialPreview(currentInvoiceTotal) {
 
     if (!pfSummary) return;
 
-    // Release 4.6.5.8 (bug fix): display remaining_balance_display, not
-    // remaining_billable_value. remaining_billable_value (Project Value -
-    // Advance - Total Billed) still governs invoice eligibility server-side
-    // (Sales::store()'s billing-cap check) and is deliberately left
-    // unchanged there — this card is informational only (see
-    // pfSetExceeded()'s comment below) and must match Project View/
-    // Statement's Remaining Balance, which nets out Direct Project Income.
-    var remaining = parseFloat(pfSummary.remaining_balance_display) || 0;
+    // Release 4.9.0P (bug fix): display remaining_billable_value, not
+    // remaining_balance_display. remaining_billable_value is the Project Remaining
+    // Balance, Contract - Advance Received - Total Invoiced (4.9.0EC; ProjectModel::getFinancialSummary()) —
+    // the same field Project Detail, Project Statement, the Projects list,
+    // Dashboard and both exports use since Release 4.9.0J. It is never
+    // reduced by Advance Receipts, Direct Income, Customer Payments or Bank
+    // Receipts, all of which are separate collection concepts. The previous
+    // formula (remaining_balance_display) additionally netted out Advance
+    // Receipts and Direct Income, which understated this preview for any
+    // project carrying either (Release 4.9.0O, Finding #1). This card
+    // remains informational only — it never blocks Save/Update (see
+    // pfSetExceeded()'s comment below).
+    var remaining = parseFloat(pfSummary.remaining_billable_value) || 0;
 
     // Remaining Balance After This Invoice = Project Remaining Balance - Current Invoice Grand Total
     var remainingAfter = remaining - currentInvoiceTotal;

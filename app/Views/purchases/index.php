@@ -72,7 +72,7 @@
 	}
 	
 	/* ✅ Supplier filter fix */
-	.supplier-filter {
+	.supplier-filter:not(.select2-hidden-accessible) {
 		width: 100% !important;
 		min-width: 100% !important;
 		max-width: 100% !important;
@@ -84,7 +84,7 @@
 		text-overflow: ellipsis !important;
 
 		font-size: 13px !important;
-		height: 32px !important;
+		height: 30px !important;
 
 		appearance: none !important;
 		-webkit-appearance: none !important;
@@ -101,13 +101,13 @@
 	
 	/* ✅ Select2 full field match */
 	.select2-container .select2-selection--single {
-		height: 32px !important;
+		height: 30px !important;
 		border: 1px solid #e2e8f0 !important;
 		border-radius: 6px !important;
 	}
 
 	.select2-container--default .select2-selection--single .select2-selection__arrow {
-		height: 30px !important;
+		height: 28px !important;
 	}
 
 	.supplier-filter option {
@@ -122,7 +122,7 @@
 	
 </style>
 
-<div class="page-title d-flex align-items-center justify-content-between flex-wrap">
+<div class="page-title d-flex align-items-center justify-content-between flex-wrap fb-title-one-row">
 
     <div class="d-flex align-items-center gap-2 flex-nowrap" style="flex-shrink:0;">
         <span class="d-flex align-items-center" style="white-space:nowrap;">
@@ -150,12 +150,12 @@
     <div class="table-responsive">
         <table id="purchaseTable" class="table-custom">
             <thead>
-                <tr><th>#</th><th>Invoice</th><th>Supplier</th><th>Project</th><th>Source</th><th>Date</th><th style="text-align:right">Total</th><th>Actions</th></tr>
+                <tr><th class="sno-col">S.No.</th><th>Invoice</th><th>Supplier</th><th>Project</th><th>Source</th><th>Date</th><th style="text-align:right">Total</th><th>Actions</th></tr>
             </thead>
             <tbody>
                 <?php foreach ($purchases as $i => $p): ?>
                 <tr>
-                    <td><?= $i + 1 ?></td>
+                    <td class="sno-col"><?= $i + 1 ?></td>
                     <td><?= esc($p['invoice_no'] ?: '-') ?></td>
                     <td class="supplier-col"><?= esc($p['supplier_name']) ?></td>
                     <td><?= esc($p['project_name'] ?: '-') ?></td>
@@ -163,9 +163,9 @@
                     <td><?= $p['purchase_date'] ?></td>
                     <td style="text-align:right"><?= number_format($p['total_amount'], 2) ?></td>
                     <td>
-						<a href="<?= base_url('purchases/edit/' . $p['id']) ?>" class="btn-edit"><i class="bi bi-pencil"></i> </a>
-                        <a href="<?= base_url('purchases/view/' . $p['id']) ?>" class="btn-view"><i class="bi bi-eye"></i> </a>
-                        <a href="<?= base_url('purchases/delete/' . $p['id']) ?>" class="btn-delete" onclick="return confirm('Delete this purchase? Stock will be reversed.')"><i class="bi bi-trash"></i></a>
+						<a href="<?= base_url('purchases/edit/' . $p['id']) ?>" class="btn-edit table-action-btn"><i class="bi bi-pencil"></i> </a>
+                        <a href="<?= base_url('purchases/view/' . $p['id']) ?>" class="btn-view table-action-btn"><i class="bi bi-eye"></i> </a>
+                        <a href="<?= base_url('purchases/delete/' . $p['id']) ?>" class="btn-delete table-action-btn" onclick="return confirm('Delete this purchase? Stock will be reversed.')"><i class="bi bi-trash"></i></a>
                     </td>
                 </tr>
                 <?php endforeach; ?>
@@ -184,7 +184,7 @@
 				searching: true,    // ❌ remove search box
 				lengthChange: false, // ❌ remove "show entries"
 				info: false,          // (optional) showing "1 to 10 of X"
-				ordering: true,      // (optional sorting)
+				ordering: true, order: [],      // (optional sorting)
 				pageLength: 10,      // default rows per page
 
 				dom: 'tp' ,// ✅ ONLY table + pagination + info

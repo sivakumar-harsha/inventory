@@ -91,20 +91,20 @@
     <div class="table-responsive">
         <table id="customerTable" class="table-custom">
             <thead>
-                <tr><th>#</th><th>Name</th><th>GST</th><th>Phone</th><th>Email</th><th style="width: 250px;">Address</th><th>Actions</th></tr>
+                <tr><th class="sno-col">S.No.</th><th>Name</th><th>GST</th><th>Phone</th><th>Email</th><th style="width: 250px;">Address</th><th>Actions</th></tr>
             </thead>
             <tbody>
                 <?php foreach ($customers as $i => $c): ?>
                 <tr>
-                    <td><?= $i + 1 ?></td>
+                    <td class="sno-col"><?= $i + 1 ?></td>
                     <td><?= esc($c['name']) ?></td>
                     <td><?= esc($c['gst']) ?></td>
                     <td><?= esc($c['phone']) ?></td>
                     <td><?= esc($c['email']) ?></td>
                     <td><?= esc($c['address']) ?></td>
                     <td>
-                        <a href="<?= base_url('customers/edit/' . $c['id']) ?>" class="btn-edit"><i class="bi bi-pencil"></i> </a>
-                        <a href="<?= base_url('customers/delete/' . $c['id']) ?>" class="btn-delete" onclick="return confirm('Delete this customer?')"><i class="bi bi-trash"></i> </a>
+                        <a href="<?= base_url('customers/edit/' . $c['id']) ?>" class="btn-edit table-action-btn"><i class="bi bi-pencil"></i> </a>
+                        <a href="<?= base_url('customers/delete/' . $c['id']) ?>" class="btn-delete table-action-btn" onclick="return confirm('Delete this customer?')"><i class="bi bi-trash"></i> </a>
                     </td>
                 </tr>
                 <?php endforeach; ?>
@@ -123,7 +123,7 @@
 				searching: true,    // ❌ remove search box
 				lengthChange: false, // ❌ remove "show entries"
 				info: false,          // (optional) showing "1 to 10 of X"
-				ordering: true,      // (optional sorting)
+				ordering: true, order: [],      // (optional sorting)
 				pageLength: 10,      // default rows per page
 
 				dom: 'tp' , // ✅ ONLY table + pagination + info

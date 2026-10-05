@@ -64,33 +64,30 @@
 		font-size: 12px;
 	}
 
-	/* compact filter toolbar */
-	.filter-toolbar .form-section { margin-bottom: 0; }
-	.filter-toolbar .form-label { font-size: .72rem; margin-bottom: 3px; }
-	.filter-toolbar .form-control { padding: 6px 10px; font-size: .82rem; height: auto; }
-	.filter-toolbar .btn-save,
-	.filter-toolbar .btn-cancel { padding: 6px 12px; font-size: .8rem; white-space: nowrap; }
+	/* Release 4.9.0AF: one-row compact filter bar (same metrics/pattern as
+	   Supplier Payments Transactions tab's .sp-f-* bar) so this reads as a
+	   transaction list toolbar, not a report filter panel. */
+	.sr-filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+	.sr-filters .sr-field { position: relative; min-width: 0; }
+	.sr-f-customer { flex: 0 1 240px; }
+	.sr-f-type { flex: 0 1 150px; }
+	.sr-f-search { flex: 1 1 220px; max-width: 320px; }
+	.sr-filters .form-control { padding: 6px 10px; font-size: .82rem; height: 34px; }
+	.sr-filters .form-control:focus { border-color: #2F7E8A; box-shadow: 0 0 0 2px rgba(47,126,138,0.15); }
+	.sr-f-search .search-icon { position: absolute; left: 10px; top: 11px; color: #94a3b8; font-size: 12px; pointer-events: none; }
+	.sr-f-search .form-control { padding-left: 28px; }
+	.sr-filters .btn-cancel { padding: 6px 14px; font-size: .8rem; white-space: nowrap; height: 34px; }
+	@media (max-width: 575.98px) {
+		.sr-actions .btn-save, .sr-actions .btn-cancel { padding: 6px 10px; font-size: .78rem; white-space: nowrap; }
+		.sr-f-customer, .sr-f-type, .sr-f-search { flex: 1 1 100%; max-width: 100%; }
+	}
 
 	#srTable.table-custom th,
-	#srTable.table-custom td { padding: 7px 8px; font-size: .78rem; }
-	/* icon-only action buttons: tighter than the shared 14px side padding so all three fit in one row */
-	#srTable .btn-view, #srTable .btn-edit, #srTable .btn-delete { padding: 0 9px; }
-	/* keep receipt no, date and the action buttons on one line (10 columns is tight) */
-	#srTable td:nth-child(1),
+	#srTable.table-custom td { padding: 5px 8px; font-size: .78rem; vertical-align: middle; }
+	/* keep receipt no, date and the action buttons on one line (8 columns) */
 	#srTable td:nth-child(2),
+	#srTable td:nth-child(3),
 	#srTable td:last-child { white-space: nowrap; }
-
-	/* Payment status badge — Pending orange / Partial blue / Paid green */
-	.badge-sr {
-		display: inline-block;
-		padding: 3px 10px;
-		border-radius: 20px;
-		font-size: .72rem;
-		font-weight: 600;
-	}
-	.badge-sr.badge-pending { background:#ffedd5; color:#c2410c; }
-	.badge-sr.badge-partial { background:#dbeafe; color:#1d4ed8; }
-	.badge-sr.badge-paid    { background:#dcfce7; color:#166534; }
 
 	.sr-breadcrumb { margin-bottom: 8px; }
 	.sr-breadcrumb .breadcrumb { margin-bottom: 0; font-size: .78rem; padding: 0; background: transparent; }
@@ -110,115 +107,36 @@
 
 <div class="page-title d-flex align-items-center justify-content-between flex-wrap">
     <span class="d-flex align-items-center"><i class="bi bi-receipt-cutoff me-2"></i>Service Received</span>
-    <div class="d-flex gap-2">
+    <div class="d-flex gap-2 flex-wrap sr-actions">
         <a href="<?= base_url('service-receipts/create') ?>" class="btn-save"><i class="bi bi-plus-lg"></i> New Service Receipt</a>
         <a href="javascript:void(0)" class="btn-cancel" title="Export (coming soon)" onclick="alert('Export will be available in a future release.')"><i class="bi bi-file-earmark-excel"></i> Export</a>
     </div>
 </div>
 
-<!-- KPI CARDS -->
-<div class="row g-3 mb-3">
-    <div class="col-6 col-md-3">
-        <div class="kpi-card kpi-blue">
-            <div class="kpi-icon"><i class="bi bi-receipt"></i></div>
-            <div>
-                <div class="kpi-value"><?= number_format($kpi_total_receipts) ?></div>
-                <div class="kpi-label">Total Service Receipts</div>
-            </div>
-        </div>
+<!-- LIST TOOLBAR (client-side DataTable column search; one compact row, no card) -->
+<div class="sr-filters mb-2">
+    <div class="sr-field sr-f-customer">
+        <select id="filterCustomer" class="form-control" aria-label="Customer">
+            <option value="">All Customers</option>
+            <?php foreach (array_unique(array_column($receipts, 'customer_name')) as $name): ?>
+            <?php if ($name): ?>
+            <option value="<?= esc($name) ?>"><?= esc($name) ?></option>
+            <?php endif; ?>
+            <?php endforeach; ?>
+        </select>
     </div>
-    <div class="col-6 col-md-3">
-        <div class="kpi-card kpi-green">
-            <div class="kpi-icon"><i class="bi bi-cash-stack"></i></div>
-            <div>
-                <div class="kpi-value"><?= number_format($kpi_invoice_amount, 2) ?></div>
-                <div class="kpi-label">Total Invoice Amount</div>
-            </div>
-        </div>
+    <div class="sr-field sr-f-type">
+        <select id="filterType" class="form-control no-search" aria-label="Receipt Type">
+            <option value="">All Types</option>
+            <option value="Invoice">Invoice</option>
+            <option value="Direct">Direct</option>
+        </select>
     </div>
-    <div class="col-6 col-md-3">
-        <div class="kpi-card kpi-blue">
-            <div class="kpi-icon"><i class="bi bi-check-circle"></i></div>
-            <div>
-                <div class="kpi-value"><?= number_format($kpi_received_amount, 2) ?></div>
-                <div class="kpi-label">Total Received Amount</div>
-            </div>
-        </div>
+    <div class="sr-field sr-f-search">
+        <i class="bi bi-search search-icon"></i>
+        <input type="text" id="customSearch" class="form-control" placeholder="Search receipt no, person..." aria-label="Search">
     </div>
-    <div class="col-6 col-md-3">
-        <div class="kpi-card kpi-orange">
-            <div class="kpi-icon"><i class="bi bi-exclamation-circle"></i></div>
-            <div>
-                <div class="kpi-value"><?= number_format($kpi_outstanding, 2) ?></div>
-                <div class="kpi-label">Outstanding Amount</div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- FILTER TOOLBAR (client-side, same DataTable-column-search pattern as General Purchase / Supplier Payments) -->
-<div class="card-custom mb-3">
-    <div class="card-custom-header">Filters</div>
-    <div class="card-custom-body">
-        <div class="row g-2 align-items-end filter-toolbar">
-            <div class="col-6 col-md-3">
-                <div class="form-section">
-                    <label class="form-label">Customer</label>
-                    <select id="filterCustomer" class="form-control">
-                        <option value="">All Customers</option>
-                        <?php foreach (array_unique(array_column($receipts, 'customer_name')) as $name): ?>
-                        <?php if ($name): ?>
-                        <option value="<?= esc($name) ?>"><?= esc($name) ?></option>
-                        <?php endif; ?>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
-            </div>
-            <div class="col-6 col-md-2">
-                <div class="form-section">
-                    <label class="form-label">Receipt Type</label>
-                    <select id="filterType" class="form-control no-search">
-                        <option value="">All</option>
-                        <option value="Invoice">Invoice</option>
-                        <option value="Direct">Direct</option>
-                    </select>
-                </div>
-            </div>
-            <div class="col-6 col-md-2">
-                <div class="form-section">
-                    <label class="form-label">Payment Status</label>
-                    <select id="filterPaymentStatus" class="form-control no-search">
-                        <option value="">All</option>
-                        <option value="Pending">Pending</option>
-                        <option value="Partial">Partial</option>
-                        <option value="Paid">Paid</option>
-                    </select>
-                </div>
-            </div>
-            <div class="col-6 col-md-2">
-                <div class="form-section">
-                    <label class="form-label">From Date</label>
-                    <input type="date" id="filterFromDate" class="form-control">
-                </div>
-            </div>
-            <div class="col-6 col-md-2">
-                <div class="form-section">
-                    <label class="form-label">To Date</label>
-                    <input type="date" id="filterToDate" class="form-control">
-                </div>
-            </div>
-            <div class="col-6 col-md-3">
-                <div class="custom-search-box position-relative">
-                    <label class="form-label">Search</label>
-                    <i class="bi bi-search search-icon" style="top:34px;"></i>
-                    <input type="text" id="customSearch" class="form-control ps-4" placeholder="Search receipt no, person...">
-                </div>
-            </div>
-            <div class="col-6 col-md-2">
-                <button type="button" class="btn-cancel w-100" id="resetFilters"><i class="bi bi-arrow-counterclockwise"></i> Reset</button>
-            </div>
-        </div>
-    </div>
+    <button type="button" class="btn-cancel sr-f-reset" id="resetFilters"><i class="bi bi-arrow-counterclockwise"></i> Reset</button>
 </div>
 
 <div class="card-custom">
@@ -226,34 +144,32 @@
         <table id="srTable" class="table-custom">
             <thead>
                 <tr>
+                    <th class="sno-col">S.No.</th>
                     <th>Receipt No</th>
                     <th>Date</th>
                     <th>Customer</th>
                     <th>Receipt Type</th>
                     <th>Attended Person</th>
-                    <th style="text-align:right">Grand Total</th>
-                    <th style="text-align:right">Received Amount</th>
-                    <th style="text-align:right">Outstanding</th>
-                    <th>Payment Status</th>
+                    <th style="text-align:right">Amount Received</th>
+                    <th>Payment Mode</th>
                     <th>Actions</th>
                 </tr>
             </thead>
             <tbody>
                 <?php foreach ($receipts as $r): ?>
                 <tr>
+                    <td class="sno-col" data-label="S.No."></td>
                     <td><?= esc($r['receipt_no']) ?></td>
                     <td><?= esc($r['receipt_date']) ?></td>
                     <td><?= esc($r['customer_name'] ?: '-') ?></td>
                     <td><?= esc(ucfirst(strtolower($r['receipt_type']))) ?></td>
                     <td><?= esc($r['attended_person'] ?: '-') ?></td>
-                    <td style="text-align:right" data-order="<?= esc($r['grand_total']) ?>"><?= number_format((float) $r['grand_total'], 2) ?></td>
-                    <td style="text-align:right" data-order="<?= esc($r['received_amount']) ?>"><?= number_format((float) $r['received_amount'], 2) ?></td>
-                    <td style="text-align:right" data-order="<?= esc($r['outstanding_amount']) ?>"><?= number_format((float) $r['outstanding_amount'], 2) ?></td>
-                    <td><span class="badge-sr badge-<?= esc(strtolower($r['payment_status'])) ?>"><?= esc(ucfirst(strtolower($r['payment_status']))) ?></span></td>
+                    <td style="text-align:right" data-order="<?= esc($r['received_amount']) ?>">₹<?= number_format((float) $r['received_amount'], 2) ?></td>
+                    <td><?= esc(pm_label($r['payment_mode'], '-')) ?></td>
                     <td>
-                        <a href="<?= base_url('service-receipts/view/' . $r['id']) ?>" class="btn-view" title="View"><i class="bi bi-eye"></i></a>
-                        <a href="<?= base_url('service-receipts/edit/' . $r['id']) ?>" class="btn-edit" title="Edit"><i class="bi bi-pencil"></i></a>
-                        <a href="javascript:void(0)" class="btn-delete" title="Delete" data-id="<?= (int) $r['id'] ?>" data-no="<?= esc($r['receipt_no']) ?>" onclick="confirmDeleteReceipt(this)"><i class="bi bi-trash"></i></a>
+                        <a href="<?= base_url('service-receipts/view/' . $r['id']) ?>" class="btn-view table-action-btn" title="View"><i class="bi bi-eye"></i></a>
+                        <a href="<?= base_url('service-receipts/edit/' . $r['id']) ?>" class="btn-edit table-action-btn" title="Edit"><i class="bi bi-pencil"></i></a>
+                        <a href="javascript:void(0)" class="btn-delete table-action-btn" title="Delete" data-id="<?= (int) $r['id'] ?>" data-no="<?= esc($r['receipt_no']) ?>" onclick="confirmDeleteReceipt(this)"><i class="bi bi-trash"></i></a>
                     </td>
                 </tr>
                 <?php endforeach; ?>
@@ -338,7 +254,7 @@ var deleteReceiptId = null;
 			order: [],
 			pageLength: 10,
 			dom: 'tp',
-			columnDefs: [{ orderable: false, targets: 9 }],
+			columnDefs: [{ orderable: false, targets: 8 }],
 			language: {
 				paginate: {
 					previous: '<i class="bi bi-chevron-left"></i>',
@@ -352,34 +268,15 @@ var deleteReceiptId = null;
 			table.search(this.value).draw();
 		});
 		$('#filterCustomer').on('change', function () {
-			table.column(2).search(this.value ? '^' + $.fn.dataTable.util.escapeRegex(this.value) + '$' : '', true, false).draw();
+			table.column(3).search(this.value ? '^' + $.fn.dataTable.util.escapeRegex(this.value) + '$' : '', true, false).draw();
 		});
 		$('#filterType').on('change', function () {
-			table.column(3).search(this.value ? '^' + this.value + '$' : '', true, false).draw();
-		});
-		$('#filterPaymentStatus').on('change', function () {
-			table.column(8).search(this.value ? '^' + this.value + '$' : '', true, false).draw();
-		});
-
-		// Date range — custom DataTables search plugin scoped to this table only
-		$.fn.dataTable.ext.search.push(function (settings, data) {
-			if (settings.nTable.id !== 'srTable') return true;
-
-			var from = $('#filterFromDate').val();
-			var to   = $('#filterToDate').val();
-			var rowDate = data[1]; // Date column
-
-			if (from && rowDate < from) return false;
-			if (to && rowDate > to) return false;
-			return true;
-		});
-		$('#filterFromDate, #filterToDate').on('change', function () {
-			table.draw();
+			table.column(4).search(this.value ? '^' + this.value + '$' : '', true, false).draw();
 		});
 
 		$('#resetFilters').on('click', function () {
-			$('#filterFromDate, #filterToDate, #customSearch').val('');
-			$('#filterCustomer, #filterType, #filterPaymentStatus').val('').trigger('change');
+			$('#customSearch').val('');
+			$('#filterCustomer, #filterType').val('').trigger('change');
 			table.search('').columns().search('').draw();
 		});
 	});

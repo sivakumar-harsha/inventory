@@ -184,6 +184,7 @@ $gp_status = static function (array $p): string {
         <table id="gpTable" class="table-custom">
             <thead>
                 <tr>
+                    <th class="sno-col">S.No.</th>
                     <th>GP No</th>
                     <th>Purchase Date</th>
                     <th>Supplier</th>
@@ -208,6 +209,7 @@ $gp_status = static function (array $p): string {
                     data-status="<?= $status ?>"
                     data-date="<?= esc($p['purchase_date'], 'attr') ?>">
 
+                    <td class="sno-col" data-label="S.No."></td>
                     <td data-label="GP No">
                         <span class="gp-no"><?= esc($p['purchase_no']) ?></span>
                     </td>
@@ -231,9 +233,9 @@ $gp_status = static function (array $p): string {
 
                     <td data-label="Actions">
                         <span class="d-inline-flex gap-1">
-                            <a href="<?= base_url('general-purchases/view/' . $p['id']) ?>" class="btn-view" title="View"><i class="bi bi-eye"></i></a>
-                            <a href="<?= base_url('general-purchases/edit/' . $p['id']) ?>" class="btn-edit" title="Edit"><i class="bi bi-pencil"></i></a>
-                            <a href="javascript:void(0)" class="btn-delete" title="Delete" onclick="confirmDeleteGp(<?= (int) $p['id'] ?>)"><i class="bi bi-trash"></i></a>
+                            <a href="<?= base_url('general-purchases/view/' . $p['id']) ?>" class="btn-view table-action-btn" title="View"><i class="bi bi-eye"></i></a>
+                            <a href="<?= base_url('general-purchases/edit/' . $p['id']) ?>" class="btn-edit table-action-btn" title="Edit"><i class="bi bi-pencil"></i></a>
+                            <a href="javascript:void(0)" class="btn-delete table-action-btn" title="Delete" onclick="confirmDeleteGp(<?= (int) $p['id'] ?>)"><i class="bi bi-trash"></i></a>
                         </span>
                     </td>
                 </tr>
@@ -268,7 +270,7 @@ $gp_status = static function (array $p): string {
 			pageLength: 10,
 			dom: 'tp',
 			columnDefs: [
-				{ orderable: false, targets: [7, 8] }
+				{ orderable: false, targets: [8, 9] }
 			],
 			language: {
 				paginate: {

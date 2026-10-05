@@ -2,6 +2,7 @@
 
 namespace App\Controllers;
 
+use App\Libraries\CashOpeningGuard;
 use App\Models\BankAccountModel;
 use App\Models\BankTransactionModel;
 use App\Models\SupplierPaymentModel;
@@ -75,6 +76,22 @@ class SupplierPayments extends Controller
         ")->getResultArray();
 
         $data['vouchers'] = $this->_decorateIndexVouchers($vouchers);
+
+        // Release 4.9.0Z: Pending Payables — every open PROJECT/GENERAL bill
+        // across every supplier, grouped by supplier for the new tab. Same
+        // outstanding formula ajaxBills() already uses (PurchaseModel /
+        // GeneralPurchaseModel::outstanding()); nothing here is written back.
+        $pendingBills = $this->_getOutstandingBills(null);
+        usort($pendingBills, static fn ($a, $b) => strcmp((string) $a['supplier_name'], (string) $b['supplier_name'])
+            ?: strcmp((string) $a['purchase_date'], (string) $b['purchase_date']));
+
+        $pendingSuppliers = array_unique(array_column($pendingBills, 'supplier_id'));
+
+        $data['pendingBills']   = $pendingBills;
+        $data['pendingSummary'] = [
+            'supplier_count' => count($pendingSuppliers),
+            'total'          => round(array_sum(array_column($pendingBills, 'outstanding_amount')), 2),
+        ];
 
         return view('supplier_payments/index', $data);
     }
@@ -297,6 +314,11 @@ class SupplierPayments extends Controller
             return $this->response->setJSON(['status' => false, 'errors' => $errors])->setStatusCode(422);
         }
 
+        // Release 4.9.0CF: a CASH voucher dated before the Cash Opening Date is warned about, never blocked.
+        if ($warn = CashOpeningGuard::gate($this->request, 'supplier-payment', 0, $input['payment_method'], $input['payment_date'], true)) {
+            return $warn;
+        }
+
         $db = \Config\Database::connect();
         $db->transStart();
 
@@ -441,6 +463,11 @@ class SupplierPayments extends Controller
         $bankErrors = $this->_validateBankAccount($input);
         if ($bankErrors) {
             return $this->response->setJSON(['status' => false, 'errors' => $bankErrors])->setStatusCode(422);
+        }
+
+        // Release 4.9.0CF: a CASH voucher dated before the Cash Opening Date is warned about, never blocked.
+        if ($warn = CashOpeningGuard::gate($this->request, 'supplier-payment', (int) $id, $input['payment_method'], $input['payment_date'], true)) {
+            return $warn;
         }
 
         // Release 4.8.6D: moving the voucher to another supplier takes its
@@ -714,7 +741,7 @@ class SupplierPayments extends Controller
         $input = [
             'supplier_id'     => (int) $this->request->getPost('supplier_id'),
             'bank_account_id' => (int) $this->request->getPost('bank_account_id'),
-            'payment_date'    => (string) $this->request->getPost('payment_date'),
+            'payment_date'    => trim((string) $this->request->getPost('payment_date')),
             'payment_method'  => $this->request->getPost('payment_method'),
             'reference_no'    => $this->request->getPost('reference_no'),
             'remarks'         => $this->request->getPost('remarks'),
@@ -758,12 +785,24 @@ class SupplierPayments extends Controller
      */
     private function _getOutstandingBills(?int $supplierId = null): array
     {
-        $db           = \Config\Database::connect();
-        $supplierName = $supplierId ? (((new SupplierModel())->find($supplierId))['name'] ?? null) : null;
+        $db = \Config\Database::connect();
+
+        // Release 4.9.0Z: supplier_id/name are carried on every row (not just
+        // the single-supplier call) so the all-supplier Pending Payables view
+        // can group and link back to a specific supplier. Byte-for-byte the
+        // same bills/formula as before for the $supplierId path.
+        $supplierNames = [];
+        if ($supplierId) {
+            $supplierNames[$supplierId] = ((new SupplierModel())->find($supplierId))['name'] ?? null;
+        } else {
+            foreach ((new SupplierModel())->select('id, name')->findAll() as $s) {
+                $supplierNames[(int) $s['id']] = $s['name'];
+            }
+        }
 
         $bills = [];
 
-        $projectSql    = 'SELECT id, purchase_date, invoice_no FROM purchases';
+        $projectSql    = 'SELECT id, supplier_id, purchase_date, invoice_no FROM purchases';
         $projectParams = [];
         if ($supplierId) {
             $projectSql      .= ' WHERE supplier_id = ?';
@@ -788,11 +827,12 @@ class SupplierPayments extends Controller
                 'paid_amount'        => $info['paid_amount'],
                 'outstanding_amount' => $info['outstanding_amount'],
                 'payment_status'     => $this->_recalculatePaymentStatus($info['bill_amount'], $info['outstanding_amount']),
-                'supplier_name'      => $supplierName,
+                'supplier_id'        => (int) $row['supplier_id'],
+                'supplier_name'      => $supplierNames[(int) $row['supplier_id']] ?? null,
             ];
         }
 
-        $generalSql    = 'SELECT id, purchase_no, purchase_date, bill_no FROM general_purchases';
+        $generalSql    = 'SELECT id, supplier_id, purchase_no, purchase_date, bill_no FROM general_purchases';
         $generalParams = [];
         if ($supplierId) {
             $generalSql      .= ' WHERE supplier_id = ?';
@@ -817,7 +857,8 @@ class SupplierPayments extends Controller
                 'paid_amount'        => $info['paid_amount'],
                 'outstanding_amount' => $info['outstanding_amount'],
                 'payment_status'     => $this->_recalculatePaymentStatus($info['bill_amount'], $info['outstanding_amount']),
-                'supplier_name'      => $supplierName,
+                'supplier_id'        => (int) $row['supplier_id'],
+                'supplier_name'      => $supplierNames[(int) $row['supplier_id']] ?? null,
             ];
         }
 
@@ -850,7 +891,7 @@ class SupplierPayments extends Controller
         if (! empty($input['pay_advance']) && $input['advance_amount'] <= 0) {
             $errors[] = 'Enter an advance amount greater than zero, or untick "Pay Advance to Supplier".';
         }
-        if ($input['payment_date'] === '' || ! \DateTime::createFromFormat('Y-m-d', $input['payment_date'])) {
+        if (! CashOpeningGuard::isValidDate($input['payment_date'])) { // Release 4.9.0CF: strict calendar date
             $errors[] = 'A valid payment date is required.';
         }
         // Release 4.8.6D: a voucher that settles bills purely from advance

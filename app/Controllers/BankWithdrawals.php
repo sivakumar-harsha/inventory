@@ -60,6 +60,12 @@ class BankWithdrawals extends BankEntryController
         return BankTransactionModel::REF_MANUAL_WITHDRAWAL;
     }
 
+    /** Release 4.9.0CF: the mode the Cash Book keys on (see BankEntryController::cashMode). */
+    protected function cashMode(array $input): string
+    {
+        return strtoupper(trim((string) ($input['withdrawal_type'] ?? '')));
+    }
+
     protected function extractInput(): array
     {
         return [

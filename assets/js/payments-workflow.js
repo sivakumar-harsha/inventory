@@ -145,6 +145,29 @@ function initPaymentsWorkflow() {
     }
 }
 
+// Release 4.9.0I: Bank Account show/hide for the Invoice Payment form's
+// Method select — same pattern as the Cash Receipt form's own
+// toggleCashBankAccount() (payments/create.php inline script), scoped to
+// #invoicePayMethod/#invoiceBankAccount so the two forms never interfere.
+// Shared by both payments/create.php and payments/edit.php, which each call
+// it once from their own $(document).ready().
+function initInvoicePayBankToggle() {
+    var $method = $('#invoicePayMethod');
+    if (!$method.length) {
+        return;
+    }
+
+    function toggle() {
+        var bank = ['BANK_TRANSFER', 'CHECK'].indexOf($method.val()) !== -1;
+        $('#invoiceBankAccountRow').toggleClass('pcr-hidden', !bank);
+        $('#invoiceBankAccount').prop('required', bank);
+        if (!bank) { $('#invoiceBankAccount').val(''); }
+    }
+
+    $method.on('change', toggle);
+    toggle();
+}
+
 // Release 4.5.4 (Phase B/D): Payment Type selector on payments/create.php —
 // toggles between the unchanged Invoice Payment workflow (#invoicePaymentMode)
 // and the new, simplified Project Cash Receipt form (#cashReceiptMode), and
@@ -180,14 +203,16 @@ function initPaymentTypeToggle() {
             $('#saleSelect').val('').trigger('change');
             $('.invoice-row').removeClass('is-selected');
 
-            // Release 4.6.5.5: every entry into Cash Receipt mode resets
-            // Receipt Type to Direct Income (superseding 4.6.5.4's "preserve
-            // current selection" behavior) — switching to Invoice Payment and
-            // back, or opening the form fresh, must never leave Advance
-            // selected from a previous visit.
+            // Release 4.6.5.5 / 4.9.0W: every entry into Cash Receipt mode
+            // resets Receipt Type to the "Direct Income" button (superseding
+            // 4.6.5.4's "preserve current selection" behavior) — switching to
+            // Invoice Payment and back, or opening the form fresh, must never
+            // leave Advance selected from a previous visit. That button now
+            // submits CUSTOMER_PROJECT_CASH, not DIRECT_INCOME — see
+            // payments/create.php's own comment on the button.
             $('.rtype-btn').removeClass('active').attr('aria-pressed', 'false');
-            $('.rtype-btn[data-rtype="DIRECT_INCOME"]').addClass('active').attr('aria-pressed', 'true');
-            $('#cashReceiptType').val('DIRECT_INCOME');
+            $('.rtype-btn[data-rtype="CUSTOMER_PROJECT_CASH"]').addClass('active').attr('aria-pressed', 'true');
+            $('#cashReceiptType').val('CUSTOMER_PROJECT_CASH');
 
             updateCashPreview();
         } else {
@@ -221,10 +246,30 @@ function initPaymentTypeToggle() {
         var remainingBal = parseFloat(fin.remaining_balance) || 0;
         var customerPaid = parseFloat(fin.total_customer_paid) || 0;
         var entered       = parseFloat($('#cashAmountInput').val()) || 0;
+        var rtype = $('#cashReceiptType').val();
+        // Release 4.9.0Q: total_customer_paid excludes Direct Income by
+        // definition (it's "not a customer collection" — Release 4.8.6A-1),
+        // so a receipt being entered here only belongs in this preview's
+        // "after receipt" total when it's an Advance receipt. A Direct
+        // Income entry still raises Cash Received and reduces Remaining
+        // Balance above (both already include Direct Income), just not this
+        // figure.
+        // Release 4.9.0T: Customer Project Cash is also a customer
+        // collection (Total Customer Paid) but, unlike Advance, it does NOT
+        // reduce Remaining Balance — it pays down what's already invoiced,
+        // it doesn't shrink how much of the contract remains to be billed
+        // (ProjectModel::getFinancialSummary()'s remaining_balance_display
+        // formula only ever subtracts Advance/Direct Income).
+        var addsToCustomerPaid = rtype === 'ADVANCE' || rtype === 'CUSTOMER_PROJECT_CASH';
+        // Release 4.9.0EC: Remaining Balance is the one authoritative project
+        // figure (Contract - Advance Received - Total Invoiced) and a receipt
+        // entered here does not change it, so the preview shows that same figure
+        // (never negative) — identical to Project View/Statement/List/Dashboard.
+        var customerPaidAfter = customerPaid + (addsToCustomerPaid ? entered : 0);
 
         $('#cashReceivedTotal').text(cashReceived.toFixed(2));
-        $('#cashRemainingAfter').text((remainingBal - entered).toFixed(2));
-        $('#cashCustomerPaidAfter').text((customerPaid + entered).toFixed(2));
+        $('#cashRemainingAfter').text(Math.max(0, remainingBal).toFixed(2));
+        $('#cashCustomerPaidAfter').text(customerPaidAfter.toFixed(2));
     }
 
     $('#cashProjectSelect').on('change', function () {
@@ -233,6 +278,15 @@ function initPaymentTypeToggle() {
         updateCashPreview();
     });
     $('#cashAmountInput').on('input', updateCashPreview);
+    // Release 4.9.0Q: Advance ⇄ Direct Income affects the Customer Paid Total
+    // preview above, so switching it must refresh the preview too. Deferred
+    // with setTimeout(0) so this always runs after create.php's own
+    // rtype-btn handler (bound later, in the page's inline script) has
+    // already written the new value into #cashReceiptType — otherwise this
+    // could read the stale type depending on jQuery's handler-firing order.
+    $(document).on('click', '.rtype-btn', function () {
+        setTimeout(updateCashPreview, 0);
+    });
 
     updateCashPreview();
 }

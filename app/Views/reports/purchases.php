@@ -78,8 +78,6 @@
 
 	/* compact filter toolbar */
 	.filter-toolbar .form-section { margin-bottom: 0; }
-	.filter-toolbar .form-label { font-size: .72rem; margin-bottom: 3px; }
-	.filter-toolbar .form-control { padding: 6px 10px; font-size: .82rem; height: auto; }
 	.filter-toolbar .btn-save,
 	.filter-toolbar .btn.btn-secondary { padding: 6px 12px; font-size: .8rem; white-space: nowrap; }
 
@@ -141,7 +139,7 @@
 <div class="card-custom mb-3">
     <div class="card-custom-header">Filters</div>
     <div class="card-custom-body">
-        <form method="GET" action="<?= base_url('reports/purchases') ?>" class="filter-toolbar">
+        <form method="GET" data-auto-filter action="<?= base_url('reports/purchases') ?>" class="filter-toolbar">
             <div class="row g-2 align-items-end">
 
                 <div class="col-6 col-md-2">
@@ -208,9 +206,6 @@
                 <!-- BUTTONS -->
                 <div class="col-12" style="display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap">
 
-                    <button type="submit" class="btn-save">
-                        <i class="bi bi-search"></i> Filter
-                    </button>
 
                     <a href="<?= base_url('reports/purchases') ?>" class="btn-save" style="background:#6c757d;">
                        <i class="bi bi-arrow-clockwise"></i> Reset
@@ -238,7 +233,7 @@
         <table id="purchaseTable" class="table-custom">
             <thead>
                 <tr>
-                    <th>#</th>
+                    <th class="sno-col">S.No.</th>
                     <th>Invoice No</th>
                     <th>Date</th>
                     <th>Supplier</th>
@@ -267,7 +262,7 @@
                     $sourceClass = strtolower($p['source_label']);
                 ?>
                 <tr>
-                    <td><?= $i + 1 ?></td>
+                    <td class="sno-col"><?= $i + 1 ?></td>
                     <td><?= esc($p['invoice_no'] ?: '-') ?></td>
                     <td><?= $p['purchase_date'] ?></td>
                     <td><?= esc($p['supplier_name']) ?></td>
@@ -307,7 +302,7 @@
 				searching: false,    // ❌ remove search box
 				lengthChange: false, // ❌ remove "show entries"
 				info: false,          // (optional) showing "1 to 10 of X"
-				ordering: true,      // (optional sorting)
+				ordering: true, order: [],      // (optional sorting)
 				pageLength: 10,      // default rows per page
 
 				dom: 'tpi', // ✅ ONLY table + pagination + info

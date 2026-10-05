@@ -3,7 +3,6 @@
 
 <?php
 helper('loan_ui');
-$fmtDate = static fn ($d) => $d ? date('d-m-Y', strtotime($d)) : '—';
 $money   = static fn ($n) => number_format((float) $n, 2);
 $sum     = static fn (string $k) => array_sum(array_column($rows, $k));
 $hasFilters = ln_has_filters($f);
@@ -21,13 +20,11 @@ $count      = count($rows);
 	.dataTables_wrapper .dataTables_paginate .paginate_button:hover { background: #1e293b !important; color: #fff !important; }
 
 	.filter-toolbar .form-section { margin-bottom: 0; }
-	.filter-toolbar .form-label { font-size: .72rem; margin-bottom: 3px; }
-	.filter-toolbar .form-control { padding: 6px 10px; font-size: .82rem; height: auto; }
 	.filter-toolbar .btn-save { padding: 6px 12px; font-size: .8rem; white-space: nowrap; }
 
 	#outTable.table-custom th,
 	#outTable.table-custom td { padding: 7px 10px; font-size: .75rem; }
-	#outTable td:nth-child(1), #outTable td:nth-child(6) { white-space: nowrap; }
+	#outTable td:nth-child(2), #outTable td:nth-child(7) { white-space: nowrap; }
 
 	.sr-breadcrumb { margin-bottom: 8px; }
 	.sr-breadcrumb .breadcrumb { margin-bottom: 0; font-size: .78rem; padding: 0; background: transparent; }
@@ -54,6 +51,10 @@ $count      = count($rows);
 
 <?= $this->include('loans/partials/report_toolbar') ?>
 
+<div class="alert alert-info">
+    <i class="bi bi-info-circle-fill me-2"></i>Outstanding amount = sanctioned amount minus the total of the recorded loan payments.
+</div>
+
 <!-- KPI CARDS -->
 <div class="row g-3 mb-3">
     <div class="col-6 col-lg-3">
@@ -61,7 +62,7 @@ $count      = count($rows);
             <div class="kpi-icon"><i class="bi bi-hourglass-split"></i></div>
             <div>
                 <div class="kpi-value"><?= $money($kpi_outstanding) ?></div>
-                <div class="kpi-label">Outstanding Principal</div>
+                <div class="kpi-label">Outstanding Amount</div>
             </div>
         </div>
     </div>
@@ -98,7 +99,7 @@ $count      = count($rows);
 <div class="card-custom mb-3 ln-noprint">
     <div class="card-custom-header">Filters</div>
     <div class="card-custom-body">
-        <form method="GET" action="<?= base_url('loan-reports/outstanding') ?>" class="filter-toolbar" id="lnFilterForm">
+        <form method="GET" data-auto-filter action="<?= base_url('loan-reports/outstanding') ?>" class="filter-toolbar" id="lnFilterForm">
             <div class="row g-2 align-items-end">
                 <div class="col-6 col-md-3">
                     <div class="form-section">
@@ -117,7 +118,7 @@ $count      = count($rows);
                         <select name="loan_type" class="form-control">
                             <option value="">All Types</option>
                             <?php foreach ($loanTypes as $t): ?>
-                            <option value="<?= $t ?>" <?= $f['loan_type'] === $t ? 'selected' : '' ?>><?= esc(ucfirst(strtolower($t))) ?></option>
+                            <option value="<?= $t ?>" <?= $f['loan_type'] === $t ? 'selected' : '' ?>><?= esc(\App\Models\LoanTypeModel::labels()[$t] ?? $t) ?></option>
                             <?php endforeach; ?>
                         </select>
                     </div>
@@ -158,37 +159,35 @@ $count      = count($rows);
         <table id="outTable" class="table-custom">
             <thead>
                 <tr>
+                    <th class="sno-col">S.No.</th>
                     <th>Loan Number</th>
                     <th>Lender</th>
                     <th style="text-align:right">Loan Amount</th>
-                    <th style="text-align:right">Principal Paid</th>
-                    <th style="text-align:right">Outstanding Principal</th>
-                    <th>Next EMI Date</th>
-                    <th style="text-align:right">Next EMI Amount</th>
+                    <th style="text-align:right">Total Paid</th>
+                    <th style="text-align:right">Outstanding Amount</th>
                     <th>Status</th>
                 </tr>
             </thead>
             <tbody>
                 <?php foreach ($rows as $r): ?>
                 <tr>
+                    <td class="sno-col" data-label="S.No."></td>
                     <td><a href="<?= base_url('loans/view/' . $r['id']) ?>" style="text-decoration:none;"><?= esc($r['loan_no']) ?></a></td>
                     <td><?= esc($r['lender_name']) ?></td>
                     <td style="text-align:right" data-order="<?= (float) $r['sanctioned_amount'] ?>"><?= $money($r['sanctioned_amount']) ?></td>
-                    <td style="text-align:right" data-order="<?= (float) $r['total_principal_paid'] ?>"><?= $money($r['total_principal_paid']) ?></td>
+                    <td style="text-align:right" data-order="<?= (float) $r['total_paid'] ?>"><?= $money($r['total_paid']) ?></td>
                     <td style="text-align:right" data-order="<?= (float) $r['outstanding_principal'] ?>"><?= $money($r['outstanding_principal']) ?></td>
-                    <td data-order="<?= esc((string) $r['next_emi_date']) ?>"><?= $fmtDate($r['next_emi_date']) ?></td>
-                    <td style="text-align:right" data-order="<?= (float) $r['next_emi_amount'] ?>"><?= $r['next_emi_date'] ? $money($r['next_emi_amount']) : '—' ?></td>
                     <td><?= ln_loan_status_badge($r['status']) ?></td>
                 </tr>
                 <?php endforeach; ?>
             </tbody>
             <tfoot>
                 <tr style="background:#f8fafc;font-weight:700">
-                    <td colspan="2">TOTAL</td>
+                    <td colspan="3">TOTAL</td>
                     <td style="text-align:right"><?= $money($sum('sanctioned_amount')) ?></td>
-                    <td style="text-align:right"><?= $money($sum('total_principal_paid')) ?></td>
+                    <td style="text-align:right"><?= $money($sum('total_paid')) ?></td>
                     <td style="text-align:right"><?= $money($kpi_outstanding) ?></td>
-                    <td colspan="3"></td>
+                    <td></td>
                 </tr>
             </tfoot>
         </table>

@@ -27,8 +27,6 @@
 	.text-danger-amt { color: #b91c1c; }
 	.text-credit-amt { color: #166534; }
 
-	.filter-toolbar .form-label { font-size: .72rem; margin-bottom: 3px; }
-	.filter-toolbar .form-control { padding: 6px 10px; font-size: .82rem; height: auto; }
 
 	@media print {
 	    .page-title a, .btn-cancel, .btn-save, .sl-breadcrumb, .filter-toolbar, .main-sidebar, .main-header { display: none !important; }
@@ -181,6 +179,7 @@
         <table id="ledgerTable" class="table-custom">
             <thead>
                 <tr>
+                    <th class="sno-col">S.No.</th>
                     <th>Date</th>
                     <th>Reference</th>
                     <th>Transaction Type</th>
@@ -191,10 +190,11 @@
             </thead>
             <tbody>
                 <?php if (empty($transactions)): ?>
-                <tr><td colspan="6" style="text-align:center; color:#94a3b8;">No transactions found for this customer.</td></tr>
+                <tr><td colspan="7" style="text-align:center; color:#94a3b8;">No transactions found for this customer.</td></tr>
                 <?php endif; ?>
                 <?php foreach ($transactions as $t): ?>
                 <tr data-type="<?= esc($t['type']) ?>" data-date="<?= esc($t['date']) ?>" data-search="<?= esc(strtolower($t['reference'] . ' ' . $t['description'])) ?>">
+                    <td class="sno-col sno-auto" data-label="S.No."></td>
                     <td><?= esc($t['date']) ?></td>
                     <td title="<?= esc($t['description']) ?>"><?= esc($t['reference'] ?: '-') ?></td>
                     <td><span class="badge-type type-<?= esc(strtolower($t['type'])) ?>"><?= esc($t['type']) ?></span> <small class="text-muted"><?= esc($t['description']) ?></small></td>
@@ -207,7 +207,7 @@
             <?php if (! empty($transactions)): ?>
             <tfoot>
                 <tr>
-                    <td colspan="5" style="text-align:right"><strong>Closing Balance</strong></td>
+                    <td colspan="6" style="text-align:right"><strong>Closing Balance</strong></td>
                     <td style="text-align:right" class="<?= $closingBalance > 0.004 ? 'text-danger-amt' : ($closingBalance < -0.004 ? 'text-credit-amt' : '') ?>"><strong><?= $fmtBalance($closingBalance) ?></strong></td>
                 </tr>
             </tfoot>

@@ -16,9 +16,35 @@
 		.sidebar-nav .nav-parent .nav-caret { margin-left: auto; width: auto; font-size: .7rem; transition: transform .15s ease; }
 		.sidebar-nav .nav-parent[aria-expanded="true"] .nav-caret { transform: rotate(180deg); }
 		.sidebar-nav .nav-sub { padding-left: 42px; font-size: .8rem; }
+
+		/* Release 4.9.0F: report pages use a compact summary strip, not dashboard-size KPI cards */
+		.rpt-page .row.g-3 { --bs-gutter-x: .6rem; --bs-gutter-y: .6rem; }
+		.rpt-page .kpi-card { padding: 7px 12px; gap: 10px; border-radius: 6px; }
+		.rpt-page .kpi-icon { font-size: 1rem; }
+		.rpt-page .kpi-value { font-size: .92rem; line-height: 1.25; }
+		.rpt-page .kpi-label { font-size: .68rem; margin-top: 0; }
+		.rpt-page .rpt-desc { font-size: .76rem; color: var(--text-muted); margin: 0 0 8px; }
+		.rpt-page .rpt-filter .rpt-field { display: flex; flex-direction: column; gap: 2px; }
+		.rpt-page .rpt-filter .rpt-field label { font-size: .68rem; font-weight: 600; color: var(--text-muted); margin: 0; }
+		.rpt-page .rpt-filter .rpt-field input { width: 150px; height: var(--btn-height); }
+		@media (max-width: 575.98px) {
+			.rpt-page .rpt-filter .rpt-field { flex: 1 1 40%; }
+			.rpt-page .rpt-filter .rpt-field input { width: 100%; }
+		}
 	</style>
 </head>
-<body>
+<?php
+// Release 4.9.0F: every analytical report page highlights the single Reports entry
+// (Export Center, the Expense Ledger at bare expense-reports and the stock movement
+// log have their own sidebar entries).
+$rptPath   = trim(uri_string(), '/');
+$rptActive = (bool) preg_match('#^(reports(/(?!export-center$|ledger$).*)?|expense-reports/.+|service-reports/.+|loan-reports(/.*)?)$#', $rptPath);
+// Release 4.9.0CJ: Monthly Statement and Cash Book are reached only through Reports -> Financial,
+// so their pages keep the Reports sidebar item highlighted. Kept separate from $rptActive, which also
+// drives the rpt-page body class (that class must not apply to these pages).
+$rptNavActive = $rptActive || (bool) preg_match('#^(monthly-statement|cash-book|warehouse|reports/ledger)(/|$)#', $rptPath);
+?>
+<body class="<?= $rptActive ? 'rpt-page' : '' ?>">
 
 <!-- SIDEBAR -->
 <div class="sidebar" id="sidebar">
@@ -37,12 +63,6 @@
         <a href="<?= base_url('suppliers') ?>" class="nav-link <?= (strpos(current_url(), '/suppliers') !== false) ? 'active' : '' ?>">
             <i class="bi bi-truck"></i> Suppliers
         </a>
-        <a href="<?= base_url('warehouse/stock-summary') ?>" class="nav-link <?= (strpos(current_url(), '/warehouse/stock-summary') !== false || strpos(current_url(), '/warehouse/product-ledger') !== false) ? 'active' : '' ?>">
-            <i class="bi bi-boxes"></i> Warehouse Stock Summary
-        </a>
-        <a href="<?= base_url('warehouse/stock-ledger') ?>" class="nav-link <?= (strpos(current_url(), '/warehouse/stock-ledger') !== false) ? 'active' : '' ?>">
-            <i class="bi bi-journal-text"></i> Warehouse Stock Ledger
-        </a>
         <div class="nav-section">MASTERS</div>
         <a href="<?= base_url('expense-categories') ?>" class="nav-link <?= (strpos(current_url(), '/expense-categories') !== false) ? 'active' : '' ?>">
             <i class="bi bi-tags"></i> Expense Categories
@@ -58,7 +78,7 @@
             <i class="bi bi-file-earmark-text"></i> Project Statements
         </a>
         <div class="nav-section">TRANSACTIONS</div>
-        <a href="<?= base_url('purchases') ?>" class="nav-link <?= (strpos(current_url(), '/purchases') !== false) ? 'active' : '' ?>">
+        <a href="<?= base_url('purchases') ?>" class="nav-link <?= (! $rptActive && strpos(current_url(), '/purchases') !== false) ? 'active' : '' ?>">
             <i class="bi bi-cart-plus"></i> Purchases
         </a>
         <a href="<?= base_url('general-purchases') ?>" class="nav-link <?= (strpos(current_url(), '/general-purchases') !== false) ? 'active' : '' ?>">
@@ -67,26 +87,27 @@
 		<a href="<?= base_url('stock-entry') ?>" class="nav-link <?= (strpos(current_url(), '/stock-entry') !== false) ? 'active' : '' ?>">
 			<i class="bi bi-box-seam"></i> Stock Entry
 		</a>
-        <a href="<?= base_url('sales') ?>" class="nav-link <?= (strpos(current_url(), '/sales') !== false) ? 'active' : '' ?>">
+        <a href="<?= base_url('sales') ?>" class="nav-link <?= (! $rptActive && strpos(current_url(), '/sales') !== false) ? 'active' : '' ?>">
             <i class="bi bi-receipt"></i> Sales
         </a>
-        <a href="<?= base_url('payments') ?>" class="nav-link <?= (strpos(current_url(), '/payments') !== false) ? 'active' : '' ?>">
+        <a href="<?= base_url('payments') ?>" class="nav-link <?= (! $rptActive && strpos(current_url(), '/payments') !== false) ? 'active' : '' ?>">
             <i class="bi bi-cash-stack"></i> Payments
         </a>
         <a href="<?= base_url('supplier-payments') ?>" class="nav-link <?= (strpos(current_url(), '/supplier-payments') !== false) ? 'active' : '' ?>">
             <i class="bi bi-wallet2"></i> Supplier Payments
         </a>
-        <a href="<?= base_url('supplier-ledger') ?>" class="nav-link <?= (strpos(current_url(), '/supplier-ledger') !== false) ? 'active' : '' ?>">
-            <i class="bi bi-journal-text"></i> Supplier Ledger
-        </a>
         <a href="<?= base_url('service-receipts') ?>" class="nav-link <?= (strpos(current_url(), '/service-receipts') !== false) ? 'active' : '' ?>">
             <i class="bi bi-receipt-cutoff"></i> Service Received
         </a>
+        <a href="<?= base_url('expenses') ?>" class="nav-link <?= (strpos(current_url(), '/expenses') !== false) ? 'active' : '' ?>">
+            <i class="bi bi-credit-card"></i> Expense Register
+        </a>
+        <div class="nav-section">LEDGERS</div>
         <a href="<?= base_url('customer-ledger') ?>" class="nav-link <?= (strpos(current_url(), '/customer-ledger') !== false) ? 'active' : '' ?>">
             <i class="bi bi-journal-text"></i> Customer Ledger
         </a>
-        <a href="<?= base_url('expenses') ?>" class="nav-link <?= (strpos(current_url(), '/expenses') !== false) ? 'active' : '' ?>">
-            <i class="bi bi-credit-card"></i> Expense Register
+        <a href="<?= base_url('supplier-ledger') ?>" class="nav-link <?= (strpos(current_url(), '/supplier-ledger') !== false) ? 'active' : '' ?>">
+            <i class="bi bi-journal-text"></i> Supplier Ledger
         </a>
         <a href="<?= base_url('expense-reports') ?>" class="nav-link <?= (trim(uri_string(), '/') === 'expense-reports') ? 'active' : '' ?>">
             <i class="bi bi-journal-text"></i> Expense Ledger
@@ -115,59 +136,12 @@
                 <i class="bi bi-journal-text"></i> Statement
             </a>
         </div>
-        <a href="<?= base_url('cash-book') ?>" class="nav-link <?= (trim(uri_string(), '/') === 'cash-book') ? 'active' : '' ?>">
-            <i class="bi bi-wallet2"></i> Cash Book
-        </a>
         <a href="<?= base_url('loans') ?>" class="nav-link <?= (strpos(current_url(), '/loans') !== false) ? 'active' : '' ?>">
             <i class="bi bi-cash-coin"></i> Loan Management
         </a>
         <div class="nav-section">REPORTS</div>
-        <a href="<?= base_url('reports') ?>" class="nav-link <?= (strpos(current_url(), '/reports') !== false) ? 'active' : '' ?>">
+        <a href="<?= base_url('reports') ?>" class="nav-link <?= $rptNavActive ? 'active' : '' ?>">
             <i class="bi bi-bar-chart-line"></i> Reports
-        </a>
-        <a href="<?= base_url('service-reports/register') ?>" class="nav-link <?= (strpos(current_url(), '/service-reports/register') !== false) ? 'active' : '' ?>">
-            <i class="bi bi-receipt-cutoff"></i> Service Register
-        </a>
-        <a href="<?= base_url('service-reports/outstanding') ?>" class="nav-link <?= (strpos(current_url(), '/service-reports/outstanding') !== false) ? 'active' : '' ?>">
-            <i class="bi bi-exclamation-circle"></i> Service Outstanding
-        </a>
-        <a href="<?= base_url('service-reports/collections') ?>" class="nav-link <?= (strpos(current_url(), '/service-reports/collections') !== false) ? 'active' : '' ?>">
-            <i class="bi bi-cash-stack"></i> Service Collections
-        </a>
-        <a href="<?= base_url('service-reports/customer-summary') ?>" class="nav-link <?= (strpos(current_url(), '/service-reports/customer-summary') !== false) ? 'active' : '' ?>">
-            <i class="bi bi-people"></i> Customer Outstanding
-        </a>
-        <?php $lrPath = trim(uri_string(), '/'); ?>
-        <a href="<?= base_url('loan-reports') ?>" class="nav-link <?= ($lrPath === 'loan-reports') ? 'active' : '' ?>">
-            <i class="bi bi-journal-check"></i> Loan Register
-        </a>
-        <a href="<?= base_url('loan-reports/emi-due') ?>" class="nav-link <?= ($lrPath === 'loan-reports/emi-due') ? 'active' : '' ?>">
-            <i class="bi bi-calendar-event"></i> Loan EMI Due
-        </a>
-        <a href="<?= base_url('loan-reports/payments') ?>" class="nav-link <?= ($lrPath === 'loan-reports/payments') ? 'active' : '' ?>">
-            <i class="bi bi-wallet2"></i> Loan Payments
-        </a>
-        <a href="<?= base_url('loan-reports/outstanding') ?>" class="nav-link <?= ($lrPath === 'loan-reports/outstanding') ? 'active' : '' ?>">
-            <i class="bi bi-hourglass-split"></i> Loan Outstanding
-        </a>
-        <a href="<?= base_url('loan-reports/lender-summary') ?>" class="nav-link <?= ($lrPath === 'loan-reports/lender-summary') ? 'active' : '' ?>">
-            <i class="bi bi-buildings"></i> Lender Summary
-        </a>
-        <?php $erPath = trim(uri_string(), '/'); ?>
-        <a href="<?= base_url('expense-reports/category-summary') ?>" class="nav-link <?= ($erPath === 'expense-reports/category-summary') ? 'active' : '' ?>">
-            <i class="bi bi-tags"></i> Expense Category Summary
-        </a>
-        <a href="<?= base_url('expense-reports/project-summary') ?>" class="nav-link <?= ($erPath === 'expense-reports/project-summary') ? 'active' : '' ?>">
-            <i class="bi bi-kanban"></i> Expense Project Summary
-        </a>
-        <a href="<?= base_url('expense-reports/payment-summary') ?>" class="nav-link <?= ($erPath === 'expense-reports/payment-summary') ? 'active' : '' ?>">
-            <i class="bi bi-credit-card-2-front"></i> Expense Payment Summary
-        </a>
-        <a href="<?= base_url('expense-reports/monthly-summary') ?>" class="nav-link <?= ($erPath === 'expense-reports/monthly-summary') ? 'active' : '' ?>">
-            <i class="bi bi-calendar3"></i> Expense Monthly Summary
-        </a>
-        <a href="<?= base_url('reports/export-center') ?>" class="nav-link <?= (strpos(current_url(), '/reports/export-center') !== false) ? 'active' : '' ?>">
-            <i class="bi bi-file-earmark-arrow-down"></i> Print/Export Center
         </a>
         <a href="<?= base_url('audit-logs') ?>" class="nav-link <?= (strpos(current_url(), '/audit-logs') !== false) ? 'active' : '' ?>">
             <i class="bi bi-clock-history"></i> Audit Logs
@@ -185,7 +159,27 @@
 		<button id="sidebarToggle" class="btn btn-sm btn-light me-2">
 			<i class="bi bi-list"></i>
 		</button>
+        <?php
+        // Release 4.9.0DG: the page's breadcrumb lives in the global top header, once. Render the page first, lift its own
+        // breadcrumb (or the optional 'topbar_breadcrumb' section) out of the content, else derive one from the route.
+        helper('breadcrumb');
+        ob_start();
+        $pageRet  = $this->renderSection('content');
+        $pageHtml = ob_get_clean();
+        if ($pageHtml === '' && is_string($pageRet)) { $pageHtml = $pageRet; }
+        [$topbarCrumb, $pageHtml] = topbar_breadcrumb_split($pageHtml);
+        ob_start();
+        $crumbRet = $this->renderSection('topbar_breadcrumb');
+        $crumbSec = trim((string) ob_get_clean());
+        if ($crumbSec === '' && is_string($crumbRet)) { $crumbSec = trim($crumbRet); }
+        if ($crumbSec !== '') { [$crumbSec] = topbar_breadcrumb_split($crumbSec); $topbarCrumb = $crumbSec !== '' ? $crumbSec : $topbarCrumb; }
+        if ($topbarCrumb === '') { $topbarCrumb = topbar_breadcrumb_fallback(uri_string()); }
+        ?>
+        <?php if ($topbarCrumb !== ''): ?>
+        <div class="topbar-title topbar-crumb"><div class="topbar-breadcrumb"><?= $topbarCrumb ?></div></div>
+        <?php else: ?>
         <div class="topbar-title"><?= $title ?? '' ?></div>
+        <?php endif; ?>
         <div class="topbar-right">
             <span class="topbar-user"><i class="bi bi-person-circle"></i> <?= session('username') ?></span>
             <a href="<?= base_url('logout') ?>" class="btn-logout">
@@ -213,18 +207,51 @@
             </div>
         <?php endif; ?>
 
-        <?= $this->renderSection('content') ?>
+        <?= $pageHtml ?>
     </div>
 </div>
 
 <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+/* Release 4.9.0DI: the one-row filter bars scroll internally (overflow-x:auto forces overflow-y to clip), which hid
+   the Export menus that live inside them. Bootstrap menus use fixed positioning so no overflow ancestor can clip them. */
+if (window.bootstrap && bootstrap.Dropdown) {
+	bootstrap.Dropdown.Default.popperConfig = function (d) { return Object.assign({}, d, { strategy: 'fixed' }); };
+}
+</script>
+<script src="<?= base_url('assets/js/cash-opening-guard.js') ?>"></script>
+<script src="<?= base_url('assets/js/auto-filter.js') ?>"></script>
 <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 	
 	<!-- DataTables -->
 <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
 <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
-	
+<script>
+/* Release 4.9.0DK: display-only S.No. for DataTables. A table opts in by giving its S.No. header the .sno-col class
+   (and an empty <td class="sno-col"> per row). The cells are renumbered 1..n on every draw in the order currently
+   displayed, across all pages, so sorting/filtering/paging never leave stale numbers. Nothing is stored. */
+if (window.jQuery && $.fn.dataTable) {
+	$(document).on('preInit.dt', function (e, settings) {
+		settings.aoColumns.forEach(function (c) {
+			if ($(c.nTh).hasClass('sno-col')) { c.bSortable = false; c.bSearchable = false; }
+		});
+	});
+	$(document).on('init.dt', function (e, settings) {
+		settings.aoColumns.forEach(function (c) {
+			if ($(c.nTh).hasClass('sno-col')) { $(c.nTh).off('.DT').removeClass('sorting sorting_asc sorting_desc').addClass('sorting_disabled').removeAttr('tabindex aria-controls'); }
+		});
+	});
+	$(document).on('draw.dt', function (e, settings) {
+		var api = new $.fn.dataTable.Api(settings);
+		settings.aoColumns.forEach(function (c, i) {
+			if (!$(c.nTh).hasClass('sno-col')) return;
+			api.column(i, { search: 'applied', order: 'applied', page: 'all' }).nodes().each(function (cell, n) { cell.textContent = n + 1; });
+		});
+	});
+}
+</script>
+
 <?= $this->renderSection('scripts') ?>
 	<script>
 		$(document).ready(function () {
